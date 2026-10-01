@@ -14,6 +14,8 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel, Field, PrivateAttr, SkipValidation
 
+from agentops.sources.scenario import Scenario
+
 ScriptEntry = BaseModel | dict[str, Any] | str
 
 
@@ -81,6 +83,13 @@ class ScriptedChatModel(BaseChatModel):
             return output_schema.model_validate_json(reply_text(reply))
 
         return RunnableLambda(call_model_and_validate)
+
+
+def scripted_model_for(scenario: Scenario) -> ScriptedChatModel:
+    """A model that answers triage, then rca, with the scenario's own scripted outputs."""
+    return ScriptedChatModel(
+        script=[scenario.scripted_outputs.triage, scenario.scripted_outputs.rca]
+    )
 
 
 def entry_as_json_text(entry: ScriptEntry) -> str:

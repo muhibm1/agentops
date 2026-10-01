@@ -1,4 +1,4 @@
-"""E16 and E17: every scenario file validates and references only its own signals (R10)."""
+"""E16 to E18: every scenario file validates and references only its own signals (R10)."""
 
 import json
 from pathlib import Path
@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentops.sources.scenario import list_scenario_ids, load_scenario
+from agentops.state import RcaOutput, Triage
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 SCENARIO_FILES = sorted(SCENARIOS_DIR.glob("*.json"))
@@ -85,3 +86,22 @@ def test_correct_action_listed_as_wrong_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationError, match="wrong_actions"):
         load_scenario(path)
+
+
+@pytest.mark.parametrize("path", SCENARIO_FILES, ids=lambda path: path.stem)
+def test_scripted_outputs_are_valid_and_cite_real_signals(path: Path) -> None:
+    scenario = load_scenario(path)
+
+    triage = Triage.model_validate(scenario.scripted_outputs.triage)
+    rca = RcaOutput.model_validate(scenario.scripted_outputs.rca)
+
+    declared = set(scenario.signals.ids())
+    cited = [
+        *(cited for h in triage.hypotheses for cited in h.supporting_evidence),
+        *(cited for h in triage.hypotheses for cited in h.contradicting_evidence),
+        *rca.root_cause.evidence_ids,
+        *rca.remediation.evidence_ids,
+    ]
+    assert rca.root_cause.label == scenario.ground_truth.root_cause
+    assert rca.remediation.action == scenario.ground_truth.correct_action
+    assert set(cited) <= declared
