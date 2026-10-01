@@ -134,6 +134,20 @@
         "risk": "medium",
         "rollback": "Redeploy v5.2.0 once the downstream readers handle the struct column."
       }
+    },
+    "postmortem": {
+      "summary": "Version v5.2.0 changed customer_ref from a string to a struct, and every ingestion batch was rejected with a schema mismatch. Rolling back to v5.1.4 let batches through again.",
+      "timeline": [
+        "Version v5.2.0 deployed with customer_ref as a struct (deploy-001).",
+        "From 08:12 every batch is rejected with a schema mismatch (log-002).",
+        "The deployment was rolled back to v5.1.4 after operator approval and the symptoms cleared."
+      ],
+      "root_cause": "schema_drift_in_ingestion",
+      "evidence_ids": ["log-002", "deploy-001"],
+      "follow_ups": [
+        "Update the downstream readers to accept the struct column before redeploying v5.2.0.",
+        "Replay the batches held in the dead-letter queue."
+      ]
     }
   }
 }
