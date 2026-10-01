@@ -3,11 +3,23 @@
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from pydantic import ValidationError
 
 from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
 from agentops.nodes.merge import decide_next_step, reason_for_escalating_before_rca
 from agentops.nodes.rca import render_evidence
-from agentops.state import Escalation, EscalationReason, IncidentState, assert_cited
+from agentops.state import (
+    Action,
+    CitationError,
+    Escalation,
+    EscalationReason,
+    IncidentState,
+    assert_cited,
+)
+
+# Same count as the graph's retry policy for the other model nodes. Escalate retries inside the
+# node because it is the last step: when the attempts run out, a human still has to be told.
+ESCALATE_ATTEMPTS = 3
 
 ESCALATE_SYSTEM_PROMPT = (
     "You are the hand-off step of an incident investigation. The graph could not name one "
@@ -19,9 +31,11 @@ ESCALATE_SYSTEM_PROMPT = (
 
 
 def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
-    """Ask the model for a hand-off summary; raise `CitationError` if it cites an id not in state.
+    """Ask the model for a hand-off summary, up to `ESCALATE_ATTEMPTS` times.
 
-    The reason comes from the state, never from the model.
+    If every attempt is rejected (a bad reply or a citation not in state), the summary is built by
+    code from the hypotheses, so the run never ends without a hand-off. The reason comes from the
+    state, never from the model.
     """
     hypotheses = "\n".join(
         f"- {neutralise_delimiters(item.name)}: {item.score}" for item in state["hypotheses"]
@@ -31,17 +45,35 @@ def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
         f"{render_evidence(state['evidence'])}"
     )
 
-    result, action = ask_model(model, Escalation, ESCALATE_SYSTEM_PROMPT, human_prompt)
-
-    # The summary may rely on no evidence; anything it does cite must exist.
-    if result.evidence_ids:
-        assert_cited(result.evidence_ids, state["evidence"])
+    actions: list[Action] = []
+    result = fallback_escalation(state)
+    for _ in range(ESCALATE_ATTEMPTS):
+        try:
+            candidate, action = ask_model(model, Escalation, ESCALATE_SYSTEM_PROMPT, human_prompt)
+            # The summary may rely on no evidence; anything it does cite must exist.
+            if candidate.evidence_ids:
+                assert_cited(candidate.evidence_ids, state["evidence"])
+        except (CitationError, ValidationError):
+            continue
+        result, actions = candidate, [action]
+        break
     return {
         "escalation": result,
         "escalation_reason": escalation_reason(state),
         "status": "escalated",
-        "actions": [action],
+        "actions": actions,
     }
+
+
+def fallback_escalation(state: IncidentState) -> Escalation:
+    """A summary of the hypotheses and their scores, written by code with no model text."""
+    ranked = ", ".join(f"{item.name} ({item.score})" for item in state["hypotheses"])
+    return Escalation(
+        summary=(
+            "Automatic hand-off: the model summary could not be validated. "
+            f"Hypotheses and scores: {ranked or 'none recorded'}."
+        )
+    )
 
 
 def escalation_reason(state: IncidentState) -> EscalationReason:

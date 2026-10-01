@@ -93,10 +93,17 @@ def check_citations(output: RcaOutput, evidence: list[Evidence]) -> None:
 
 
 def check_consistent_with_triage(output: RcaOutput, state: IncidentState) -> None:
-    """Raise `RcaConsistencyError` unless the re-scored names equal the triage names as a set and
-    the root cause label, when present, is a highest-scored name."""
+    """Raise `RcaConsistencyError` unless the re-scored names equal the triage names, each listed
+    once, and the root cause label, when present, is a highest-scored name."""
     triage_names = {item.name for item in state["hypotheses"]}
     rescored_names = {item.name for item in output.hypotheses}
+    if len(output.hypotheses) != len(state["hypotheses"]) and rescored_names == triage_names:
+        names = [item.name for item in output.hypotheses]
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        raise RcaConsistencyError(
+            f"The re-scored hypotheses must list each triage name exactly once. Repeated: "
+            f"{repeated}."
+        )
     if rescored_names != triage_names:
         dropped = sorted(triage_names - rescored_names)
         added = sorted(rescored_names - triage_names)
