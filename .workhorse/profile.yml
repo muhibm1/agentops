@@ -14,10 +14,10 @@ client:
 autonomy: bounded
 
 stack:
-  languages: [python]                                  # (believed) Python 3.11 per design section 13
-  frameworks: [langgraph, langchain, pydantic, typer]  # (believed) exact pins in design section 13
-  package_manager: "pip"                               # (believed) exact pins in requirements.txt and requirements-dev.txt; uv not installed (confirmed)
-  database: "none (SQLite checkpoint file local; PostgresSaver only if ever deployed)"  # (believed)
+  languages: [python]                                  # confirmed 2026-10-01: Python 3.11.5 runs the suite; CI uses 3.11
+  frameworks: [langgraph, langchain, pydantic, typer]  # confirmed 2026-10-01: exact pins in requirements.txt (langgraph, langchain-core, pydantic, typer)
+  package_manager: "pip"                               # confirmed 2026-10-01: exact pins in requirements.txt and requirements-dev.txt; uv not installed
+  database: "none (SQLite checkpoint file local; PostgresSaver only if ever deployed)"  # confirmed 2026-10-01: no database client in requirements.txt
   hosting: "none in v1 (local CLI and langgraph dev)"
   ci: "github-actions"                                 # .github/workflows/ci.yml added in increment 1 (confirmed 2026-10-01); a green Actions run is not yet observed
 
@@ -112,7 +112,8 @@ build:
 
 # Environment tiers. The release engineer may act freely in dev, needs G5 for prod.
 # No environment exists in v1: AgentOps runs locally from the CLI and `langgraph dev`, and the
-# public "release" is the owner merging to main on GitHub. Nothing for an agent to deploy.
+# public "release" is the owner merging the pull request to main on GitHub, which the owner
+# performs; no agent deploys or merges. Nothing for an agent to deploy.
 environments:
   dev: { deploy: "", auto: true }
   staging: { deploy: "", auto: true }
@@ -171,4 +172,4 @@ tracker:
   sync_on: [gate, phase]       # when the conductor syncs: gate changes, phase changes, or both
 
 # Free text the discovery analyst could not fit elsewhere. Kept short.
-notes: "Greenfield at onboarding (2026-09-30). Increment 1 (2026-10-01) built the package, src/agentops, scenarios, tests, CI and the pre-push hook; every non-empty command above was run as written and exited 0 (confirmed). runbooks/ and evals/ do not exist yet. Confirmed at onboarding: Python 3.11.5 at ~/anaconda3 is first on PATH; uv absent; gh signed in as muhibm1. Remote origin is muhibm1/agentops (confirmed 2026-10-01). The held-out split path is not fixed by the design; the four held-out globs above are a guess to correct once evals/ exists. On this machine run WorkHorse as node ~/AppData/Roaming/npm/node_modules/workhorse-plugin/scripts/workhorse.js, not the workhorse shim, under Git Bash."
+notes: "Greenfield at onboarding (2026-09-30). Increment 1 (2026-10-01) built the package, src/agentops, scenarios, tests, CI and the pre-push hook; every non-empty command above was run as written and exited 0 (confirmed). runbooks/ and evals/ do not exist yet. Confirmed at onboarding: Python 3.11.5 at ~/anaconda3 is first on PATH; uv absent; gh signed in as muhibm1. Remote origin is muhibm1/agentops (confirmed 2026-10-01). Release: merging the pull request to main is the release; the owner performs it and no agent deploys or merges (increment 2). CI runs on ubuntu-24.04 with a test-count floor of 80. The held-out split path is not fixed by the design; the four held-out globs above are a guess to correct once evals/ exists. On this machine run WorkHorse as node ~/AppData/Roaming/npm/node_modules/workhorse-plugin/scripts/workhorse.js, not the workhorse shim, under Git Bash."
