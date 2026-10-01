@@ -24,3 +24,7 @@
 2026-10-01T04:20:41.184Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/1
 2026-10-01T04:21:16.934Z | review | wh-shipper | ship.md written, PR 1 open
 2026-10-01T04:21:16.998Z | review | conductor | G4 Ship presented
+2026-10-01T05:00:02.639Z | review | conductor | resumed at review after G4 approved
+2026-10-01T05:00:30.922Z | deploy | conductor | blocked: Deploy step denied by the permission classifier (production deploy). The PR merge to main is the release and must be done by the owner (muhibm1): read the first Actions run on the PR, then merge it. Afterwards run /workhorse:run again to finish done and retro.
+2026-10-01T05:04:46.465Z | deploy | conductor | resumed at deploy; owner merged PR 1 (merge commit 45e026d); no environment has a deploy command
+2026-10-01T05:05:16.557Z | deploy | wh-shipper | deploy record appended to ship.md, nothing deployed

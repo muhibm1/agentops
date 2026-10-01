@@ -96,3 +96,12 @@ Clock: agents 1 h 03 m of 1 h 30 m budget · waiting on you 12 m · dead 1 m · 
 ## Your decision
 
 Approve to merge and deploy, or reject with notes to send it back. Recommended: read the first Actions run on the PR, then approve.
+
+## Deploy record
+
+| Environment | Command | Exit code | UTC |
+|---|---|---|---|
+| merge | PR #1 merged by the owner, merge commit 45e026d8f584e99fd180224eee9591a183009308 (confirmed as origin/main HEAD) | not run by shipper | 2026-10-01 |
+| dev, staging, prod | not run: the profile defines no deploy command for any environment | n/a | n/a |
+
+Nothing was deployed (confirmed: no deploy command exists). Rollback is a `git revert -m 1 45e026d` on a new branch, merged through a new PR (believed, not verified: not executed).
