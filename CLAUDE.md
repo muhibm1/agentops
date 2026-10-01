@@ -66,6 +66,10 @@ Only the owner pushes to `main`.
 
 Appended by retro after each change. Newest first.
 
+- After a review fix to a matching or validation rule, add negative cases in the same commit and
+  expect a second round; the increment 3 crash-after-apply fix introduced a repeat-key regression
+  found only at re-check.
+
 - Merging the pull request to `main` is the release, and the owner does it. Stop at the Ship gate;
   never dispatch the shipper in deploy mode to merge (the permission classifier denies it every
   time). Push gate and retro records to the change branch before the merge, not after.

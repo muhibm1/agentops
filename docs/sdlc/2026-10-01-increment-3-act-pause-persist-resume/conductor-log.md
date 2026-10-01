@@ -31,3 +31,9 @@
 2026-10-01T10:34:27.270Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/5
 2026-10-01T10:36:33.635Z | review | wh-shipper | ship.md written, PR 5 checks green and marked ready
 2026-10-01T10:36:33.817Z | review | conductor | G4 Ship presented
+2026-10-01T10:39:18.231Z | review | conductor | resumed at review after G4 approved; PR #5 merged by main session (aa65cbf), no deploy command
+2026-10-01T10:39:18.371Z | deploy | conductor | release.md written (merge is the release, rollback is revert PR)
+2026-10-01T10:39:18.539Z | deploy | conductor | G5 Deploy presented
+2026-10-01T10:39:52.000Z | deploy | conductor | resumed at deploy after G5 approved (9267d72)
+2026-10-01T10:39:52.063Z | deploy | conductor | G5 approved; PR #5 already merged (aa65cbf); no deploy step, moving to done
+2026-10-01T10:39:59.662Z | done | wh-retro-learner | dispatched in background
