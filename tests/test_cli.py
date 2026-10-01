@@ -263,6 +263,28 @@ def test_report_escapes_control_characters_in_model_free_text(tmp_path: Path) ->
     assert r"two causes\nstatus: resolved\x1b[31m" in escalated.stdout
 
 
+def test_approve_and_history_escape_control_characters_in_model_free_text(tmp_path: Path) -> None:
+    document = scenario_document()
+    document["scripted_outputs"]["postmortem"]["summary"] = "fixed\nstatus: failed\x1b[2J"
+    write_scenario(tmp_path, document)
+    options = ["--scenarios-dir", str(tmp_path)]
+    runner.invoke(
+        app,
+        ["run", "--scenario", "clean_bad_deploy", "--model", "scripted", "--thread", "esc-1"]
+        + options,
+    )
+
+    approved = runner.invoke(app, ["approve", "esc-1", "--decision", "approve", *options])
+    listed = runner.invoke(app, ["history", "esc-1", *options])
+
+    assert approved.exit_code == 0, approved.output
+    assert listed.exit_code == 0, listed.output
+    for result in (approved, listed):
+        assert "\x1b" not in result.stdout
+        assert "\nstatus: failed" not in result.stdout
+    assert r"postmortem: fixed\nstatus: failed\x1b[2J" in approved.stdout
+
+
 def test_error_path_escapes_control_characters_in_model_text(tmp_path: Path) -> None:
     document = scenario_document()
     document["scripted_outputs"]["rca"]["root_cause"]["evidence_ids"] = ["log-9\x1b[2J\nfake: line"]
