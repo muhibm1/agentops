@@ -13,6 +13,7 @@ import agentops
 from agentops import cli
 from agentops.cli import app
 from agentops.sources.scenario import load_scenario
+from agentops.sources.simulator import SimulatorSource
 from agentops.state import Remediation
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
@@ -322,3 +323,39 @@ def test_scenario_file_that_is_not_utf8_exits_one_without_a_traceback(tmp_path: 
     assert result.exit_code == 1
     assert "Traceback" not in result.output
     assert SCENARIO_FILE_NAME in result.stderr
+
+
+def test_report_counts_failed_actions_when_every_source_read_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DeadSource(SimulatorSource):
+        def get_logs(self, *args: Any, **kwargs: Any) -> Any:
+            raise ConnectionError("source is down")
+
+        def get_metrics(self, *args: Any, **kwargs: Any) -> Any:
+            raise ConnectionError("source is down")
+
+        def get_dependency_health(self, *args: Any, **kwargs: Any) -> Any:
+            raise ConnectionError("source is down")
+
+        def get_deployments(self, *args: Any, **kwargs: Any) -> Any:
+            raise ConnectionError("source is down")
+
+    monkeypatch.setattr(cli, "SimulatorSource", DeadSource)
+
+    result = runner.invoke(
+        app,
+        [
+            "run",
+            "--scenario",
+            "ambiguous_two_causes",
+            "--model",
+            "scripted",
+            "--scenarios-dir",
+            str(SCENARIOS_DIR),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert re.search(r"actions: \d+ \([1-9]\d* failed\)", result.stdout)
+    assert "escalation: no_evidence" in result.stdout

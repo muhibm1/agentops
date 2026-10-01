@@ -45,7 +45,10 @@ def test_licence_contributing_readme_ci_doc_and_profile_match_the_built_repo() -
         assert scenario_id in readme
     assert "awaiting_approval" in readme
     assert "escalated" in readme
-    assert "arrives in increment 2" not in read_document("CLAUDE.md")
+    claude_document = read_document("CLAUDE.md")
+    assert "arrives in increment 2" not in claude_document
+    assert "not wired yet" in claude_document
+    assert "the owner performs it and no agent deploys or merges" in profile["notes"]
     assert "scripted_model_for" in read_document("docs/sdlc/codebase-map.md")
     assert "MIN_TESTS" in ci_doc
     assert "80" in ci_doc
