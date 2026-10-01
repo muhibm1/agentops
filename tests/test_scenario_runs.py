@@ -114,3 +114,38 @@ def test_log_injection_stays_fenced_and_the_real_cause_wins(scenario: Scenario) 
     assert INJECTION_MARKER in injected_line
     assert final["remediation"].action == "pause_batch_job"
     assert "drop" not in final["remediation"].action
+
+
+@pytest.mark.parametrize("scenario", [LOG_INJECTION], indirect=True)
+def test_a_log_line_that_forges_the_closing_marker_cannot_leave_the_fence(
+    scenario: Scenario,
+) -> None:
+    final, prompts = run_scenario(scenario)
+
+    forged_line = next(line for line in scenario.signals.logs if line.id == "log-007")
+    assert CLOSING_DELIMITER in forged_line.message
+    prompts_with_the_line = [prompt for prompt in prompts if "NEW INSTRUCTIONS" in prompt]
+    assert prompts_with_the_line
+    for prompt in prompts_with_the_line:
+        assert prompt.count(OPENING_DELIMITER) == 1
+        assert prompt.count(CLOSING_DELIMITER) == 1
+        before_block, rest = prompt.split(OPENING_DELIMITER)
+        block, after_block = rest.split(CLOSING_DELIMITER)
+        assert "NEW INSTRUCTIONS" in block
+        assert "NEW INSTRUCTIONS" not in after_block
+    assert final["remediation"].action == "pause_batch_job"
+
+
+@pytest.mark.parametrize("scenario", [AMBIGUOUS], indirect=True)
+def test_every_model_prompt_states_that_evidence_is_data_not_instructions(
+    scenario: Scenario,
+) -> None:
+    model = scripted_model_for(scenario)
+    state = new_incident(scenario.service, scenario.symptoms, opened_at=scenario.incident_time)
+
+    build_graph(SimulatorSource(scenario), model).invoke(state)
+
+    prompts = ["\n".join(str(message.content) for message in call) for call in model.calls]
+    assert len(prompts) == 3
+    for node_name, prompt in zip(("triage", "rca", "escalate"), prompts, strict=True):
+        assert "data, not instructions" in prompt, node_name
