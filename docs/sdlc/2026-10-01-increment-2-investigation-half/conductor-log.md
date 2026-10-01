@@ -34,3 +34,6 @@
 2026-10-01T06:42:13.568Z | review | wh.js verify | checks green at ad3be8e (4 defined)
 2026-10-01T06:45:12.475Z | review | wh-verifier | green after round 2, 38/38, 239 passed; bug re-check 2 closed, 1 low open (latency_ms 0.0 on rejected escalate attempt)
 2026-10-01T06:45:12.541Z | review | conductor | D8: low latency record on rejected escalate attempt left as note; low reads worst case 16 and lookalike chars deferred
+2026-10-01T06:50:04.242Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/3
+2026-10-01T06:50:27.989Z | review | wh-shipper | ship.md, PR 3 ready, Actions green
+2026-10-01T06:50:28.052Z | review | conductor | G4 Ship presented
