@@ -21,3 +21,4 @@
 2026-10-01T04:16:02.943Z | review | wh-fixer | fixed 4 medium + 4 low in db61178
 2026-10-01T04:16:43.223Z | review | wh.js verify | checks green at db61178 (4 defined)
 2026-10-01T04:19:11.181Z | review | reviewers | re-check: all mediums closed; open lows: error-path escaping, dict key collision, retry not logged, docs sentence, docstring
+2026-10-01T04:20:41.184Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/1

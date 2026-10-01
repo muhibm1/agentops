@@ -13,16 +13,16 @@ Increment 1 builds the AgentOps scaffold: typed incident state, a simulated evid
 
 Plain words: the project went from design documents to a working package. `agentops run --scenario X --model scripted` loads a synthetic incident, gathers evidence, and prints a root cause that must cite real evidence. No live model, no network, no real systems.
 
-1. `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.githooks/pre-push` — CI, pinned actions, dependency updates; protected "ask first" paths, authorised by the brief (D1).
-2. `.workhorse/profile.yml`, `CLAUDE.md` — profile commands now confirmed; sensitive, so first.
-3. `requirements.txt`, `requirements-dev.txt`, `pyproject.toml`, `LICENSE`, `.gitignore` — exact pins, licence, `*.egg-info/` ignore (D-C1).
-4. `src/agentops/state.py` — incident state and the citation rule; tier-2 floor path.
-5. `src/agentops/graph.py`, `nodes/*.py` — triage, evidence, rca, retries, prompt fencing of untrusted text.
-6. `src/agentops/sources/*`, `scenarios/*.json` — evidence source and two scenarios; hidden sections never served.
-7. `src/agentops/fakes.py`, `cli.py` — scripted model; CLI with terminal escaping of model text.
-8. `scripts/check_test_count.py` — fails CI if fewer than 30 tests ran.
-9. `tests/*` — 76 tests across 11 files.
-10. `README.md`, `CONTRIBUTING.md`, `docs/ci.md`, `docs/sdlc/codebase-map.md`, three ADRs, this folder — documentation.
+1. `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.githooks/pre-push`: CI, pinned actions, dependency updates; protected "ask first" paths, authorised by the brief (D1).
+2. `.workhorse/profile.yml`, `CLAUDE.md`: profile commands now confirmed; sensitive, so first.
+3. `requirements.txt`, `requirements-dev.txt`, `pyproject.toml`, `LICENSE`, `.gitignore`: exact pins, licence, `*.egg-info/` ignore (D-C1).
+4. `src/agentops/state.py`: incident state and the citation rule; tier-2 floor path.
+5. `src/agentops/graph.py`, `nodes/*.py`: triage, evidence, rca, retries, prompt fencing of untrusted text.
+6. `src/agentops/sources/*`, `scenarios/*.json`: evidence source and two scenarios; hidden sections never served.
+7. `src/agentops/fakes.py`, `cli.py`: scripted model; CLI with terminal escaping of model text.
+8. `scripts/check_test_count.py`: fails CI if fewer than 30 tests ran.
+9. `tests/*`: 76 tests across 11 files.
+10. `README.md`, `CONTRIBUTING.md`, `docs/ci.md`, `docs/sdlc/codebase-map.md`, three ADRs, this folder: documentation.
 
 ## Proof
 
