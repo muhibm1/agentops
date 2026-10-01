@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 SNAKE_CASE_NAME = r"^[a-z0-9_]+$"
 # A remediation target names a service, deployment or config key; it is never free text.
 TARGET_NAME = r"^[a-z0-9_.-]+$"
+TARGET_MAX_LENGTH = 64
 INITIAL_INVESTIGATION_BUDGET = 12
 # Caps on model free text that is printed and re-sent in later prompts.
 HYPOTHESIS_NAME_MAX_LENGTH = 80
@@ -86,7 +87,7 @@ class RCA(StrictModel):
 
 class Remediation(StrictModel):
     action: str = Field(pattern=SNAKE_CASE_NAME)
-    target: str = Field(pattern=TARGET_NAME)
+    target: str = Field(pattern=TARGET_NAME, max_length=TARGET_MAX_LENGTH)
     params: dict[str, str | int | float | bool] = Field(default_factory=dict)
     reason: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
@@ -188,7 +189,7 @@ class ApprovalDecision(StrictModel):
 class ExecutionRecord(StrictModel):
     idempotency_key: str = Field(min_length=1)
     action: str = Field(pattern=SNAKE_CASE_NAME)
-    target: str = Field(pattern=TARGET_NAME)
+    target: str = Field(pattern=TARGET_NAME, max_length=TARGET_MAX_LENGTH)
     # True when the change is in effect: this execution applied it, or the key was already applied
     # before (a repeat, or a run resumed after a crash). A refusal or a failure leaves it False.
     applied: bool

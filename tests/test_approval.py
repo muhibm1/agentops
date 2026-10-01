@@ -254,6 +254,19 @@ def test_an_edit_naming_an_action_outside_the_runbook_is_refused(tmp_path: Path)
     assert run.source.ledger() == []
 
 
+def test_an_edit_aimed_at_a_target_outside_the_actions_pattern_is_refused(tmp_path: Path) -> None:
+    scenario = scenario_named("deploy_red_herring_db")
+    run = ApprovalRun(scenario, tmp_path)
+    run.start()
+
+    second = interrupt_value(run.answer(edited(scenario, target="payments-warehouse")))
+
+    assert "target" in second["error"]
+    assert "payments-warehouse" not in second["error"]
+    assert run.state()["approval"] is None
+    assert run.source.ledger() == []
+
+
 # E51: a padded decision, an extra key and a username as operator are all refused.
 @pytest.mark.parametrize(
     "answer",

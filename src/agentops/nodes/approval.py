@@ -143,7 +143,7 @@ def edit_problem(remediation: Remediation, state: IncidentState, registry: Regis
     if unknown:
         return f"The edit cites evidence ids not present in state: {', '.join(unknown)}."
     try:
-        registry.validate_params(remediation.action, remediation.params)
+        registry.validate_params(remediation.action, remediation.params, target=remediation.target)
     except (UnknownActionError, ParameterError) as error:
         return f"The edit was refused. {error}"
     return None

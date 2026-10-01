@@ -253,7 +253,7 @@
       },
       "remediation": {
         "action": "rollback_deploy",
-        "target": "orders",
+        "target": "deploy-001",
         "params": { "to_version": "v7.7.3" },
         "reason": "The rollback removes the failing discount code and the extra queries. Whether the pool is still saturated afterwards is for the verification step to show.",
         "evidence_ids": ["deploy-001", "log-003"],

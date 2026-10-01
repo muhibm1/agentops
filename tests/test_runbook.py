@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -35,6 +36,7 @@ ESCALATE_SCENARIO = "ambiguous_two_causes"
 VALID_ENTRY = """\
 - action: pause_batch_job
   target_kind: job
+  target_pattern: "^[a-z0-9-]+$"
   params: {}
   risk: low
   preconditions: [{ check: config_true, key: batch_jobs_enabled }]
@@ -114,7 +116,7 @@ def test_every_scripted_remediation_has_valid_parameters(registry: Registry) -> 
         if scenario.id == ESCALATE_SCENARIO:
             continue
 
-        registry.validate_params(proposed.action, proposed.params)
+        registry.validate_params(proposed.action, proposed.params, target=proposed.target)
 
 
 def test_the_loader_never_calls_the_unsafe_yaml_load() -> None:
@@ -321,3 +323,52 @@ def test_the_dry_run_description_names_the_action_target_parameters_and_risk(
     assert "postgres" in description
     assert "pool_size=96" in description
     assert "medium" in description
+
+
+# A target must fit the pattern its action declares (security review: a model could otherwise
+# aim an allowlisted action at any object).
+@pytest.mark.parametrize(
+    ("action", "params", "target"),
+    [
+        ("scale_db_pool", {"pool_size": 96}, "postgres"),
+        ("rollback_deploy", {}, "deploy-001"),
+        ("circuit_break_dependency", {"fallback": "queue"}, "fraud-check"),
+        ("rerun_partition", {"partition": "2026-03-18"}, "daily_revenue_rollup"),
+        ("pause_batch_job", {}, "reindex-job-nightly"),
+    ],
+)
+def test_validate_params_accepts_the_target_each_action_declares(
+    registry: Registry, action: str, params: dict[str, Any], target: str
+) -> None:
+    registry.validate_params(action, params, target=target)
+
+
+@pytest.mark.parametrize(
+    ("action", "params", "target"),
+    [
+        ("scale_db_pool", {"pool_size": 96}, "payments-prod-db"),
+        ("rollback_deploy", {}, "orders"),
+        ("rollback_deploy", {}, "deploy-001-and-more"),
+        ("circuit_break_dependency", {"fallback": "queue"}, "Fraud Check"),
+        ("rerun_partition", {"partition": "2026-03-18"}, "a" * 65),
+        ("pause_batch_job", {}, "../etc"),
+    ],
+)
+def test_validate_params_rejects_a_target_outside_the_declared_pattern_without_echoing_it(
+    registry: Registry, action: str, params: dict[str, Any], target: str
+) -> None:
+    with pytest.raises(ParameterError) as raised:
+        registry.validate_params(action, params, target=target)
+
+    assert raised.value.parameters == ["target"]
+    assert target not in str(raised.value)
+
+
+def test_a_runbook_entry_without_a_target_pattern_is_rejected(tmp_path: Path) -> None:
+    text = "".join(
+        line for line in VALID_ENTRY.splitlines(keepends=True) if "target_pattern" not in line
+    )
+    path = write_runbook(tmp_path, text)
+
+    with pytest.raises(RunbookError, match="target_pattern"):
+        load_runbook(path)

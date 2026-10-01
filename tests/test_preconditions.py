@@ -225,10 +225,10 @@ def failing_case(name: str, incident: IncidentState) -> tuple[str, Remediation, 
     """The action to evaluate and a source shaped so that its named check fails."""
     if name == "deployment_within_minutes":
         source = ShapedSource(deployments=[deployment_at(incident, 200, "v1.9.0")])
-        return "rollback_deploy", remediation("rollback_deploy", "checkout"), source
+        return "rollback_deploy", remediation("rollback_deploy", "deploy-001"), source
     if name == "previous_version_available":
         source = ShapedSource(deployments=[deployment_at(incident, 20, "v1.9.0")])
-        proposed = remediation("rollback_deploy", "checkout", {"to_version": "v0.1.0"})
+        proposed = remediation("rollback_deploy", "deploy-001", {"to_version": "v0.1.0"})
         return "rollback_deploy", proposed, source
     if name == "dependency_not_healthy":
         healthy = DependencyStatus(
@@ -267,3 +267,32 @@ def test_a_check_shaped_to_fail_returns_a_failed_result_with_what_it_saw(
     assert result.passed is False
     assert result.observed is not None
     assert result.detail.endswith(".")
+
+
+# The deployment checks must look at the deployment the action targets, not just the latest one.
+@pytest.mark.parametrize("check", ["deployment_within_minutes", "previous_version_available"])
+def test_a_deployment_check_fails_when_the_target_is_not_the_latest_deployment(
+    registry: Registry, incident: IncidentState, check: str
+) -> None:
+    source = ShapedSource(deployments=[deployment_at(incident, 20, "v1.9.0")])
+    foreign = remediation("rollback_deploy", "deploy-999")
+
+    results = evaluate(registry.get("rollback_deploy"), foreign, incident, source)
+
+    (result,) = [result for result in results if result.check == check]
+    assert result.passed is False
+    assert result.observed == "deploy-001"
+    assert "deploy-999" in result.detail
+
+
+@pytest.mark.parametrize("check", ["deployment_within_minutes", "previous_version_available"])
+def test_a_deployment_check_passes_when_the_target_is_the_latest_deployment(
+    registry: Registry, incident: IncidentState, check: str
+) -> None:
+    source = ShapedSource(deployments=[deployment_at(incident, 20, "v1.9.0")])
+    own = remediation("rollback_deploy", "deploy-001")
+
+    results = evaluate(registry.get("rollback_deploy"), own, incident, source)
+
+    (result,) = [result for result in results if result.check == check]
+    assert result.passed is True

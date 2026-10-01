@@ -55,10 +55,19 @@ class Registry:
             raise UnknownActionError(f"The action {safe_name(name)} is not in the runbook.")
         return entry
 
-    def validate_params(self, name: str, params: Mapping[str, object]) -> None:
-        """Raise ParameterError naming every undeclared, missing or out-of-schema parameter."""
-        declared = self.get(name).params
+    def validate_params(
+        self, name: str, params: Mapping[str, object], target: str | None = None
+    ) -> None:
+        """Raise ParameterError naming every undeclared, missing or out-of-schema parameter, and
+        `target` when it is given and does not match the action's `target_pattern`."""
+        entry = self.get(name)
+        declared = entry.params
         problems: dict[str, str] = {}
+        if target is not None and re.fullmatch(entry.target_pattern, target) is None:
+            problems["target"] = (
+                f"The target does not match the pattern {entry.target_pattern} "
+                f"that {name} declares."
+            )
         for key in params:
             if key not in declared:
                 shown = safe_name(key)

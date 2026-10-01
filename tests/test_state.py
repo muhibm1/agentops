@@ -401,3 +401,30 @@ def test_the_new_evidence_kinds_are_accepted(kind: str) -> None:
     )
 
     assert item.kind == kind
+
+
+def execution_record_payload(target: str) -> dict[str, Any]:
+    return {
+        "idempotency_key": "a" * 64,
+        "action": "rollback_deploy",
+        "target": target,
+        "applied": False,
+        "result": "refused",
+        "dry_run_output": "",
+    }
+
+
+def test_a_target_of_sixty_four_characters_is_accepted_on_both_records() -> None:
+    target = "a" * 64
+
+    assert Remediation.model_validate(remediation_payload(target=target)).target == target
+    assert ExecutionRecord.model_validate(execution_record_payload(target)).target == target
+
+
+def test_a_target_of_sixty_five_characters_is_rejected_on_both_records() -> None:
+    target = "a" * 65
+
+    with pytest.raises(ValidationError, match="target"):
+        Remediation.model_validate(remediation_payload(target=target))
+    with pytest.raises(ValidationError, match="target"):
+        ExecutionRecord.model_validate(execution_record_payload(target))
