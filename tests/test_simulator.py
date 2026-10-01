@@ -368,3 +368,31 @@ def test_a_ledger_path_whose_name_is_not_an_incident_ledger_is_refused(
         SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=tmp_path / file_name)
 
     assert list(tmp_path.iterdir()) == []
+
+
+def test_the_same_action_under_a_new_key_does_not_merge_its_world_a_second_time(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named(CLEAN_BAD_DEPLOY)
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    source = SimulatorSource(scenario, ledger_path=ledger_path)
+    window = Window(start=scenario.incident_time, end=scenario.incident_time + timedelta(hours=1))
+    other_version = ActionRequest(
+        action="rollback_deploy", target="deploy-001", params={"to_version": "v2.14.0"}
+    )
+
+    source.apply(ROLLBACK, "key-rollback-1")
+    second = source.apply(other_version, "key-rollback-2")
+    replayed = SimulatorSource(scenario, ledger_path=ledger_path)
+
+    assert second.applied is True
+    for served in (source, replayed):
+        log_ids = [line.id for line in served.get_logs(scenario.service, window, None)]
+        assert log_ids.count("log-009") == 1
+        point_times = [
+            point.at
+            for series in served.get_metrics(scenario.service, ["error_rate"], window)
+            for point in series.points
+        ]
+        assert len(point_times) == len(set(point_times))
+    assert len(source.ledger()) == 2
