@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentops"
+version = "0.1.0"
+description = "A LangGraph incident-response runtime with cited evidence and a human approval gate."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Muhammad Muhibullah" }]
+requires-python = ">=3.11"
+# Runtime pins live only in requirements.txt, so the package and the install command agree.
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[project.scripts]
+agentops = "agentops.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.format]
+# Code blocks in the design and SDLC records are illustrations frozen at approval, not source.
+exclude = ["docs/**"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.11"
+include = ["src", "tests", "scripts"]
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,196 @@
+{
+  "id": "deploy_red_herring_db",
+  "service": "payments",
+  "symptoms": [
+    "p99 latency 4x baseline since 14:02",
+    "error rate 6%"
+  ],
+  "incident_time": "2026-03-10T14:20:00Z",
+  "signals": {
+    "logs": [
+      {
+        "id": "log-001",
+        "timestamp": "2026-03-10T13:50:11Z",
+        "level": "INFO",
+        "message": "payments-api-2c1 served 860 requests in the last minute",
+        "service": "payments"
+      },
+      {
+        "id": "log-002",
+        "timestamp": "2026-03-10T13:58:40Z",
+        "level": "INFO",
+        "message": "payments-api-2c1 started version v3.4.1",
+        "service": "payments"
+      },
+      {
+        "id": "log-003",
+        "timestamp": "2026-03-10T14:02:05Z",
+        "level": "ERROR",
+        "message": "connection pool exhausted (64/64); request waited 3000 ms for a connection",
+        "service": "payments"
+      },
+      {
+        "id": "log-004",
+        "timestamp": "2026-03-10T14:06:33Z",
+        "level": "ERROR",
+        "message": "connection pool exhausted (64/64); request waited 3000 ms for a connection",
+        "service": "payments"
+      },
+      {
+        "id": "log-005",
+        "timestamp": "2026-03-10T14:11:52Z",
+        "level": "ERROR",
+        "message": "connection pool exhausted (64/64); request waited 3000 ms for a connection",
+        "service": "payments"
+      },
+      {
+        "id": "log-006",
+        "timestamp": "2026-03-10T14:16:20Z",
+        "level": "WARN",
+        "message": "settlement batch job holding 38 connections for longer than 60 s",
+        "service": "payments"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "metric-db_pool_utilisation",
+        "name": "db_pool_utilisation",
+        "unit": "ratio",
+        "points": [
+          { "at": "2026-03-10T13:50:00Z", "value": 0.45 },
+          { "at": "2026-03-10T14:00:00Z", "value": 0.48 },
+          { "at": "2026-03-10T14:02:00Z", "value": 0.97 },
+          { "at": "2026-03-10T14:10:00Z", "value": 0.97 },
+          { "at": "2026-03-10T14:20:00Z", "value": 0.97 }
+        ]
+      },
+      {
+        "id": "metric-error_rate",
+        "name": "error_rate",
+        "unit": "ratio",
+        "points": [
+          { "at": "2026-03-10T13:50:00Z", "value": 0.003 },
+          { "at": "2026-03-10T14:00:00Z", "value": 0.003 },
+          { "at": "2026-03-10T14:02:00Z", "value": 0.05 },
+          { "at": "2026-03-10T14:10:00Z", "value": 0.06 },
+          { "at": "2026-03-10T14:20:00Z", "value": 0.06 }
+        ]
+      },
+      {
+        "id": "metric-p99_latency_ms",
+        "name": "p99_latency_ms",
+        "unit": "ms",
+        "points": [
+          { "at": "2026-03-10T13:50:00Z", "value": 300 },
+          { "at": "2026-03-10T14:00:00Z", "value": 310 },
+          { "at": "2026-03-10T14:02:00Z", "value": 1150 },
+          { "at": "2026-03-10T14:10:00Z", "value": 1220 },
+          { "at": "2026-03-10T14:20:00Z", "value": 1200 }
+        ]
+      }
+    ],
+    "deployments": [
+      {
+        "id": "deploy-001",
+        "version": "v3.4.1",
+        "previous_version": "v3.4.0",
+        "deployed_at": "2026-03-10T13:58:00Z",
+        "author": "ci-bot",
+        "diff_summary": "Changes the request logger level from INFO to DEBUG for the refunds module. No query, handler or connection setting changes."
+      }
+    ],
+    "dependencies": [
+      {
+        "id": "dep-postgres",
+        "name": "postgres",
+        "status": "degraded",
+        "detail": "64 of 64 pooled connections in use since 14:02; queries queueing."
+      },
+      {
+        "id": "dep-fraud-check",
+        "name": "fraud-check",
+        "status": "healthy",
+        "detail": "p99 120 ms, no errors in the last 30 minutes."
+      }
+    ],
+    "config": {
+      "db_pool_size": 64,
+      "request_timeout_ms": 3000,
+      "settlement_batch_enabled": true
+    }
+  },
+  "ground_truth": {
+    "root_cause": "database_saturation",
+    "correct_action": "scale_db_pool"
+  },
+  "required_evidence": ["metric-db_pool_utilisation", "deploy-001"],
+  "wrong_actions": ["rollback_deploy"],
+  "expected_outcome": "remediate",
+  "post_action_world": {
+    "scale_db_pool": {
+      "metrics": [
+        {
+          "id": "metric-db_pool_utilisation",
+          "name": "db_pool_utilisation",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-10T14:30:00Z", "value": 0.6 },
+            { "at": "2026-03-10T14:35:00Z", "value": 0.55 }
+          ]
+        },
+        {
+          "id": "metric-error_rate",
+          "name": "error_rate",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-10T14:30:00Z", "value": 0.01 },
+            { "at": "2026-03-10T14:35:00Z", "value": 0.003 }
+          ]
+        },
+        {
+          "id": "metric-p99_latency_ms",
+          "name": "p99_latency_ms",
+          "unit": "ms",
+          "points": [
+            { "at": "2026-03-10T14:30:00Z", "value": 420 },
+            { "at": "2026-03-10T14:35:00Z", "value": 315 }
+          ]
+        }
+      ]
+    }
+  },
+  "scripted_outputs": {
+    "triage": {
+      "hypotheses": [
+        {
+          "name": "recent_deploy_regression",
+          "score": 0.5,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "database_saturation",
+          "score": 0.45,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        }
+      ]
+    },
+    "rca": {
+      "root_cause": {
+        "label": "database_saturation",
+        "explanation": "Pool utilisation jumped to 0.97 at 14:02 (metric-db_pool_utilisation) and latency followed. The deploy four minutes earlier (deploy-001) only changed a log level, so its timing is coincidence.",
+        "evidence_ids": ["metric-db_pool_utilisation", "deploy-001"]
+      },
+      "remediation": {
+        "action": "scale_db_pool",
+        "target": "postgres",
+        "params": { "pool_size": 96 },
+        "reason": "The pool is exhausted and the only recent change cannot affect connections; a larger pool relieves the queue while the batch job is examined.",
+        "evidence_ids": ["metric-db_pool_utilisation", "deploy-001"],
+        "risk": "medium",
+        "rollback": "Scale the pool back to 64."
+      }
+    }
+  }
+}

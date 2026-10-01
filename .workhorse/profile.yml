@@ -19,16 +19,17 @@ stack:
   package_manager: "pip"                               # (believed) exact pins in requirements.txt and requirements-dev.txt; uv not installed (confirmed)
   database: "none (SQLite checkpoint file local; PostgresSaver only if ever deployed)"  # (believed)
   hosting: "none in v1 (local CLI and langgraph dev)"
-  ci: "github-actions"                                 # (believed) .github/workflows/ci.yml does not exist yet
+  ci: "github-actions"                                 # .github/workflows/ci.yml added in increment 1 (confirmed 2026-10-01); a green Actions run is not yet observed
 
 # Commands agents run. Each must be a single command that exits non-zero on failure.
-# All (believed): .venv, requirements files and pyproject.toml do not exist yet. Windows paths;
+# Each non-empty command was run as written on wh/2026-10-01-increment-1-scaffold and exited 0
+# (confirmed 2026-10-01, increment 1 task 7). Windows paths;
 # CI on Linux uses its own equivalents in .github/workflows/ci.yml.
 commands:
   install: "python -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements.txt -r requirements-dev.txt"
   typecheck: ".venv/Scripts/python.exe -m pyright"
   lint: ".venv/Scripts/python.exe -m ruff check ."
-  format: ".venv/Scripts/python.exe -m ruff format"
+  format: ".venv/Scripts/python.exe -m ruff format --check ."   # a check; fix locally with ruff format . (CONTRIBUTING.md)
   test: ".venv/Scripts/python.exe -m pytest -q"
   test_file: ".venv/Scripts/python.exe -m pytest -q {file}"
   build: ""                    # design section 13 build check (langgraph build dry validation) is itself believed; see decision D3 in constraints.md
@@ -57,7 +58,7 @@ conventions:
     - "Nothing executes without an approval record in state. No flag, env var or config may disable the interrupt."
     - "Side effects go through the executor: registry lookup, parameter validation, preconditions, idempotency key, ledger check, dry run, apply."
     - "The audit log is append-only: open in append mode, one JSON object per line, never rewritten."
-    - "CI and unit tests never call a live model or read secrets; use the scripted fake chat model in tests/fakes.py."
+    - "CI and unit tests never call a live model or read secrets; use the scripted fake chat model in src/agentops/fakes.py."
     - "Every runtime dependency is an exact pin with a licence comment in requirements.txt."
     - "Type hints on every public function; pyright basic must be clean."
 
@@ -170,4 +171,4 @@ tracker:
   sync_on: [gate, phase]       # when the conductor syncs: gate changes, phase changes, or both
 
 # Free text the discovery analyst could not fit elsewhere. Kept short.
-notes: "Greenfield at onboarding (2026-09-30): only docs/superpowers/specs/ committed. (believed) until increment 1 builds: every command, the stack, and the layout (src/agentops, scenarios, runbooks, evals, tests). Confirmed: Python 3.11.5 at ~/anaconda3 is first on PATH; uv absent; gh signed in as muhibm1; no git remote. The held-out split path is not fixed by the design; the four held-out globs above are a guess to correct once evals/ exists. On this machine run WorkHorse as node ~/AppData/Roaming/npm/node_modules/workhorse-plugin/scripts/workhorse.js, not the workhorse shim, under Git Bash."
+notes: "Greenfield at onboarding (2026-09-30). Increment 1 (2026-10-01) built the package, src/agentops, scenarios, tests, CI and the pre-push hook; every non-empty command above was run as written and exited 0 (confirmed). runbooks/ and evals/ do not exist yet. Confirmed at onboarding: Python 3.11.5 at ~/anaconda3 is first on PATH; uv absent; gh signed in as muhibm1. Remote origin is muhibm1/agentops (confirmed 2026-10-01). The held-out split path is not fixed by the design; the four held-out globs above are a guess to correct once evals/ exists. On this machine run WorkHorse as node ~/AppData/Roaming/npm/node_modules/workhorse-plugin/scripts/workhorse.js, not the workhorse shim, under Git Bash."

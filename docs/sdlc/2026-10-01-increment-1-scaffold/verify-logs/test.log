@@ -1,0 +1,6 @@
+$ .venv/Scripts/python.exe -m pytest -q
+# exit 0 after 16.3s via C:\Program Files\Git\bin\bash.exe
+
+........................................................................ [ 94%]
+....                                                                     [100%]
+76 passed in 14.45s

@@ -1,0 +1,213 @@
+{
+  "id": "clean_bad_deploy",
+  "service": "checkout",
+  "symptoms": [
+    "checkout error rate 12% since 10:13",
+    "p99 latency doubled since 10:13"
+  ],
+  "incident_time": "2026-03-10T10:30:00Z",
+  "signals": {
+    "logs": [
+      {
+        "id": "log-001",
+        "timestamp": "2026-03-10T09:55:04Z",
+        "level": "INFO",
+        "message": "checkout-api-7f3 served 1204 requests in the last minute",
+        "service": "checkout"
+      },
+      {
+        "id": "log-002",
+        "timestamp": "2026-03-10T10:12:31Z",
+        "level": "INFO",
+        "message": "checkout-api-7f3 started version v2.15.0",
+        "service": "checkout"
+      },
+      {
+        "id": "log-003",
+        "timestamp": "2026-03-10T10:13:12Z",
+        "level": "ERROR",
+        "message": "KeyError: 'shipping_option' in handle_shipping_selection (order_id=ord-58211)",
+        "service": "checkout"
+      },
+      {
+        "id": "log-004",
+        "timestamp": "2026-03-10T10:15:40Z",
+        "level": "ERROR",
+        "message": "KeyError: 'shipping_option' in handle_shipping_selection (order_id=ord-58240)",
+        "service": "checkout"
+      },
+      {
+        "id": "log-005",
+        "timestamp": "2026-03-10T10:18:02Z",
+        "level": "ERROR",
+        "message": "KeyError: 'shipping_option' in handle_shipping_selection (order_id=ord-58297)",
+        "service": "checkout"
+      },
+      {
+        "id": "log-006",
+        "timestamp": "2026-03-10T10:22:47Z",
+        "level": "ERROR",
+        "message": "KeyError: 'shipping_option' in handle_shipping_selection (order_id=ord-58330)",
+        "service": "checkout"
+      },
+      {
+        "id": "log-007",
+        "timestamp": "2026-03-10T10:27:19Z",
+        "level": "ERROR",
+        "message": "KeyError: 'shipping_option' in handle_shipping_selection (order_id=ord-58371)",
+        "service": "checkout"
+      },
+      {
+        "id": "log-008",
+        "timestamp": "2026-03-10T10:28:00Z",
+        "level": "INFO",
+        "message": "checkout-api-7f3 database connections in use 26 of 64",
+        "service": "checkout"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "metric-error_rate",
+        "name": "error_rate",
+        "unit": "ratio",
+        "points": [
+          { "at": "2026-03-10T10:00:00Z", "value": 0.002 },
+          { "at": "2026-03-10T10:10:00Z", "value": 0.002 },
+          { "at": "2026-03-10T10:15:00Z", "value": 0.07 },
+          { "at": "2026-03-10T10:20:00Z", "value": 0.11 },
+          { "at": "2026-03-10T10:25:00Z", "value": 0.12 },
+          { "at": "2026-03-10T10:30:00Z", "value": 0.12 }
+        ]
+      },
+      {
+        "id": "metric-p99_latency_ms",
+        "name": "p99_latency_ms",
+        "unit": "ms",
+        "points": [
+          { "at": "2026-03-10T10:00:00Z", "value": 210 },
+          { "at": "2026-03-10T10:10:00Z", "value": 215 },
+          { "at": "2026-03-10T10:15:00Z", "value": 380 },
+          { "at": "2026-03-10T10:20:00Z", "value": 420 },
+          { "at": "2026-03-10T10:25:00Z", "value": 430 },
+          { "at": "2026-03-10T10:30:00Z", "value": 425 }
+        ]
+      },
+      {
+        "id": "metric-db_pool_utilisation",
+        "name": "db_pool_utilisation",
+        "unit": "ratio",
+        "points": [
+          { "at": "2026-03-10T10:00:00Z", "value": 0.4 },
+          { "at": "2026-03-10T10:10:00Z", "value": 0.4 },
+          { "at": "2026-03-10T10:15:00Z", "value": 0.41 },
+          { "at": "2026-03-10T10:20:00Z", "value": 0.4 },
+          { "at": "2026-03-10T10:25:00Z", "value": 0.39 },
+          { "at": "2026-03-10T10:30:00Z", "value": 0.4 }
+        ]
+      }
+    ],
+    "deployments": [
+      {
+        "id": "deploy-001",
+        "version": "v2.15.0",
+        "previous_version": "v2.14.3",
+        "deployed_at": "2026-03-10T10:12:00Z",
+        "author": "ci-bot",
+        "diff_summary": "Adds handle_shipping_selection, which reads request['shipping_option'] to price express and standard shipping."
+      }
+    ],
+    "dependencies": [
+      {
+        "id": "dep-postgres",
+        "name": "postgres",
+        "status": "healthy",
+        "detail": "Primary accepting connections; replication lag 40 ms."
+      },
+      {
+        "id": "dep-shipping-rates",
+        "name": "shipping-rates",
+        "status": "healthy",
+        "detail": "p99 85 ms, no errors in the last 30 minutes."
+      }
+    ],
+    "config": {
+      "db_pool_size": 64,
+      "request_timeout_ms": 3000,
+      "express_shipping_enabled": true
+    }
+  },
+  "ground_truth": {
+    "root_cause": "bad_deploy",
+    "correct_action": "rollback_deploy"
+  },
+  "required_evidence": ["deploy-001", "log-003"],
+  "wrong_actions": ["scale_db_pool"],
+  "expected_outcome": "remediate",
+  "post_action_world": {
+    "rollback_deploy": {
+      "metrics": [
+        {
+          "id": "metric-error_rate",
+          "name": "error_rate",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-10T10:40:00Z", "value": 0.004 },
+            { "at": "2026-03-10T10:45:00Z", "value": 0.002 }
+          ]
+        },
+        {
+          "id": "metric-p99_latency_ms",
+          "name": "p99_latency_ms",
+          "unit": "ms",
+          "points": [
+            { "at": "2026-03-10T10:40:00Z", "value": 230 },
+            { "at": "2026-03-10T10:45:00Z", "value": 212 }
+          ]
+        }
+      ],
+      "logs": [
+        {
+          "id": "log-009",
+          "timestamp": "2026-03-10T10:38:10Z",
+          "level": "INFO",
+          "message": "checkout-api-7f3 started version v2.14.3",
+          "service": "checkout"
+        }
+      ]
+    }
+  },
+  "scripted_outputs": {
+    "triage": {
+      "hypotheses": [
+        {
+          "name": "recent_deploy_regression",
+          "score": 0.7,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "database_saturation",
+          "score": 0.2,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        }
+      ]
+    },
+    "rca": {
+      "root_cause": {
+        "label": "bad_deploy",
+        "explanation": "Version v2.15.0 (deploy-001) added a handler that reads shipping_option without a default; from 10:13 every request missing that key fails with KeyError (log-003). Database pool utilisation stayed flat at 0.40.",
+        "evidence_ids": ["deploy-001", "log-003"]
+      },
+      "remediation": {
+        "action": "rollback_deploy",
+        "target": "deploy-001",
+        "params": {},
+        "reason": "The errors began one minute after deploy-001 and come from the code it added; rolling back to v2.14.3 removes the failing handler.",
+        "evidence_ids": ["deploy-001", "log-003"],
+        "risk": "high",
+        "rollback": "Redeploy v2.15.0 once the handler tolerates a missing shipping_option."
+      }
+    }
+  }
+}

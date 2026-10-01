@@ -1,0 +1,165 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.5, pytest-9.1.1, pluggy-1.6.0 -- ~\AgentOps\.venv\Scripts\python.exe
+cachedir: .pytest_cache
+rootdir: ~\AgentOps
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.15.1, langsmith-0.14.2, platformdirs-4.12.2
+collecting ... collected 76 items
+
+tests/test_check_test_count.py::test_floor_script_fails_below_the_floor_and_passes_at_it PASSED [  1%]
+tests/test_check_test_count.py::test_floor_script_reports_bad_arguments_in_one_sentence_and_exits_one PASSED [  2%]
+tests/test_ci_workflow.py::test_workflow_runs_the_gates_in_order_with_a_read_only_token PASSED [  3%]
+tests/test_ci_workflow.py::test_actions_are_sha_pinned_and_no_secret_is_referenced PASSED [  5%]
+tests/test_ci_workflow.py::test_pre_push_hook_is_executable_and_dependabot_covers_both_ecosystems PASSED [  6%]
+tests/test_cli.py::test_package_exposes_version_and_help PASSED          [  7%]
+tests/test_cli.py::test_run_scripted_prints_root_cause_and_exits_zero PASSED [  9%]
+tests/test_cli.py::test_usage_errors_exit_one_with_a_named_cause PASSED  [ 10%]
+tests/test_cli.py::test_run_that_fails_rca_after_retries_exits_two PASSED [ 11%]
+tests/test_cli.py::test_invalid_scenario_file_exits_one_naming_file_and_field PASSED [ 13%]
+tests/test_cli.py::test_scenario_id_cannot_escape_the_scenarios_directory PASSED [ 14%]
+tests/test_cli.py::test_triage_citation_error_is_reported_as_citation_error_not_a_validation_error PASSED [ 15%]
+tests/test_cli.py::test_report_escapes_control_characters_in_model_text PASSED [ 17%]
+tests/test_cli.py::test_remediation_target_with_control_characters_is_rejected_by_the_schema PASSED [ 18%]
+tests/test_cli.py::test_report_prints_action_and_failure_counts PASSED   [ 19%]
+tests/test_cli.py::test_scenario_file_with_a_byte_order_mark_loads PASSED [ 21%]
+tests/test_cli.py::test_scenario_file_that_is_not_utf8_exits_one_without_a_traceback PASSED [ 22%]
+tests/test_fakes.py::test_scripted_model_returns_outputs_in_order_as_validated_models PASSED [ 23%]
+tests/test_fakes.py::test_exhausted_or_malformed_script_raises PASSED    [ 25%]
+tests/test_fakes.py::test_structured_output_with_raw_message_is_not_supported PASSED [ 26%]
+tests/test_fakes.py::test_scripted_model_can_stand_in_wherever_a_chat_model_is_expected PASSED [ 27%]
+tests/test_graph.py::test_each_scenario_reaches_rca_with_the_scripted_model[clean_bad_deploy] PASSED [ 28%]
+tests/test_graph.py::test_each_scenario_reaches_rca_with_the_scripted_model[deploy_red_herring_db] PASSED [ 30%]
+tests/test_graph.py::test_actions_record_every_model_and_source_call[clean_bad_deploy] PASSED [ 31%]
+tests/test_graph.py::test_uncited_rca_is_retried_until_a_cited_one_arrives[clean_bad_deploy] PASSED [ 32%]
+tests/test_graph.py::test_malformed_rca_is_retried_like_an_uncited_one[clean_bad_deploy] PASSED [ 34%]
+tests/test_graph.py::test_three_uncited_rcas_surface_citation_error[clean_bad_deploy] PASSED [ 35%]
+tests/test_graph.py::test_triage_citing_evidence_that_does_not_exist_yet_is_rejected[clean_bad_deploy] PASSED [ 36%]
+tests/test_graph.py::test_prompts_never_contain_hidden_sections_or_forged_delimiters_and_open_no_network[clean_bad_deploy] PASSED [ 38%]
+tests/test_graph.py::test_prompts_never_contain_hidden_sections_or_forged_delimiters_and_open_no_network[deploy_red_herring_db] PASSED [ 39%]
+tests/test_graph.py::test_evidence_source_failure_is_retried_once_then_surfaces[clean_bad_deploy] PASSED [ 40%]
+tests/test_graph.py::test_empty_evidence_fails_the_run_without_a_retry_or_an_rca_call[clean_bad_deploy] PASSED [ 42%]
+tests/test_graph.py::test_service_and_symptoms_are_fenced_and_marked_untrusted[clean_bad_deploy] PASSED [ 43%]
+tests/test_graph.py::test_angle_bracket_runs_and_dict_keys_are_neutralised PASSED [ 44%]
+tests/test_repo_documents.py::test_licence_contributing_readme_ci_doc_and_profile_match_the_built_repo PASSED [ 46%]
+tests/test_requirements.py::test_every_requirement_is_an_exact_pin_with_a_licence[requirements.txt] PASSED [ 47%]
+tests/test_requirements.py::test_every_requirement_is_an_exact_pin_with_a_licence[requirements-dev.txt] PASSED [ 48%]
+tests/test_requirements.py::test_dev_requirements_install_the_package_itself PASSED [ 50%]
+tests/test_scenarios.py::test_both_increment_one_scenarios_are_listed PASSED [ 51%]
+tests/test_scenarios.py::test_scenario_files_validate_and_reference_only_their_own_signals[clean_bad_deploy] PASSED [ 52%]
+tests/test_scenarios.py::test_scenario_files_validate_and_reference_only_their_own_signals[deploy_red_herring_db] PASSED [ 53%]
+tests/test_scenarios.py::test_scenario_with_unknown_or_missing_key_is_rejected[unknown key] PASSED [ 55%]
+tests/test_scenarios.py::test_scenario_with_unknown_or_missing_key_is_rejected[missing key] PASSED [ 56%]
+tests/test_scenarios.py::test_duplicate_signal_ids_and_unknown_required_evidence_are_rejected PASSED [ 57%]
+tests/test_scenarios.py::test_correct_action_listed_as_wrong_is_rejected PASSED [ 59%]
+tests/test_scenarios.py::test_scripted_outputs_are_valid_and_cite_real_signals[clean_bad_deploy] PASSED [ 60%]
+tests/test_scenarios.py::test_scripted_outputs_are_valid_and_cite_real_signals[deploy_red_herring_db] PASSED [ 61%]
+tests/test_simulator.py::test_simulator_source_satisfies_the_evidence_source_protocol PASSED [ 63%]
+tests/test_simulator.py::test_reads_respect_window_query_and_names_and_keep_scenario_ids PASSED [ 64%]
+tests/test_simulator.py::test_empty_window_unknown_metric_and_unicode_query_return_empty PASSED [ 65%]
+tests/test_simulator.py::test_hidden_scenario_sections_never_leave_the_source[clean_bad_deploy] PASSED [ 67%]
+tests/test_simulator.py::test_hidden_scenario_sections_never_leave_the_source[deploy_red_herring_db] PASSED [ 68%]
+tests/test_simulator.py::test_apply_mutates_the_world_and_records_the_ledger PASSED [ 69%]
+tests/test_simulator.py::test_apply_is_idempotent_on_the_key PASSED      [ 71%]
+tests/test_simulator.py::test_apply_refuses_an_action_the_world_cannot_model PASSED [ 72%]
+tests/test_simulator.py::test_apply_on_one_source_never_mutates_the_scenario_or_another_source PASSED [ 73%]
+tests/test_simulator.py::test_returned_items_are_copies_a_caller_cannot_use_to_edit_the_world PASSED [ 75%]
+tests/test_simulator.py::test_reads_for_another_service_return_nothing PASSED [ 76%]
+tests/test_state.py::test_new_incident_starts_in_triage_with_full_budget PASSED [ 77%]
+tests/test_state.py::test_control_fields_absent_from_every_model_output_schema PASSED [ 78%]
+tests/test_state.py::test_approval_accepts_a_role_operator PASSED        [ 80%]
+tests/test_state.py::test_scores_outside_unit_interval_and_empty_citations_are_rejected[1.01] PASSED [ 81%]
+tests/test_state.py::test_scores_outside_unit_interval_and_empty_citations_are_rejected[-0.1] PASSED [ 82%]
+tests/test_state.py::test_scores_outside_unit_interval_and_empty_citations_are_rejected[nan] PASSED [ 84%]
+tests/test_state.py::test_operator_rejects_usernames_emails_and_case_variants[muhibm1] PASSED [ 85%]
+tests/test_state.py::test_operator_rejects_usernames_emails_and_case_variants[a@b.example] PASSED [ 86%]
+tests/test_state.py::test_operator_rejects_usernames_emails_and_case_variants[Operator] PASSED [ 88%]
+tests/test_state.py::test_model_output_rejects_a_control_field_smuggled_in_as_an_extra_key PASSED [ 89%]
+tests/test_state.py::test_rca_label_and_remediation_action_must_be_snake_case[Bad Deploy] PASSED [ 90%]
+tests/test_state.py::test_rca_label_and_remediation_action_must_be_snake_case[bad-deploy] PASSED [ 92%]
+tests/test_state.py::test_rca_label_and_remediation_action_must_be_snake_case[] PASSED [ 93%]
+tests/test_state.py::test_assert_cited_accepts_ids_present_in_evidence PASSED [ 94%]
+tests/test_state.py::test_assert_cited_raises_on_empty_or_unknown_ids[ids0-no evidence] PASSED [ 96%]
+tests/test_state.py::test_assert_cited_raises_on_empty_or_unknown_ids[ids1-log-999] PASSED [ 97%]
+tests/test_state.py::test_assert_cited_raises_on_empty_or_unknown_ids[ids2-log-999] PASSED [ 98%]
+tests/test_state.py::test_citation_error_is_not_a_value_error PASSED     [100%]
+
+=================================== PASSES ====================================
+=========================== short test summary info ===========================
+PASSED tests/test_check_test_count.py::test_floor_script_fails_below_the_floor_and_passes_at_it
+PASSED tests/test_check_test_count.py::test_floor_script_reports_bad_arguments_in_one_sentence_and_exits_one
+PASSED tests/test_ci_workflow.py::test_workflow_runs_the_gates_in_order_with_a_read_only_token
+PASSED tests/test_ci_workflow.py::test_actions_are_sha_pinned_and_no_secret_is_referenced
+PASSED tests/test_ci_workflow.py::test_pre_push_hook_is_executable_and_dependabot_covers_both_ecosystems
+PASSED tests/test_cli.py::test_package_exposes_version_and_help
+PASSED tests/test_cli.py::test_run_scripted_prints_root_cause_and_exits_zero
+PASSED tests/test_cli.py::test_usage_errors_exit_one_with_a_named_cause
+PASSED tests/test_cli.py::test_run_that_fails_rca_after_retries_exits_two
+PASSED tests/test_cli.py::test_invalid_scenario_file_exits_one_naming_file_and_field
+PASSED tests/test_cli.py::test_scenario_id_cannot_escape_the_scenarios_directory
+PASSED tests/test_cli.py::test_triage_citation_error_is_reported_as_citation_error_not_a_validation_error
+PASSED tests/test_cli.py::test_report_escapes_control_characters_in_model_text
+PASSED tests/test_cli.py::test_remediation_target_with_control_characters_is_rejected_by_the_schema
+PASSED tests/test_cli.py::test_report_prints_action_and_failure_counts
+PASSED tests/test_cli.py::test_scenario_file_with_a_byte_order_mark_loads
+PASSED tests/test_cli.py::test_scenario_file_that_is_not_utf8_exits_one_without_a_traceback
+PASSED tests/test_fakes.py::test_scripted_model_returns_outputs_in_order_as_validated_models
+PASSED tests/test_fakes.py::test_exhausted_or_malformed_script_raises
+PASSED tests/test_fakes.py::test_structured_output_with_raw_message_is_not_supported
+PASSED tests/test_fakes.py::test_scripted_model_can_stand_in_wherever_a_chat_model_is_expected
+PASSED tests/test_graph.py::test_each_scenario_reaches_rca_with_the_scripted_model[clean_bad_deploy]
+PASSED tests/test_graph.py::test_each_scenario_reaches_rca_with_the_scripted_model[deploy_red_herring_db]
+PASSED tests/test_graph.py::test_actions_record_every_model_and_source_call[clean_bad_deploy]
+PASSED tests/test_graph.py::test_uncited_rca_is_retried_until_a_cited_one_arrives[clean_bad_deploy]
+PASSED tests/test_graph.py::test_malformed_rca_is_retried_like_an_uncited_one[clean_bad_deploy]
+PASSED tests/test_graph.py::test_three_uncited_rcas_surface_citation_error[clean_bad_deploy]
+PASSED tests/test_graph.py::test_triage_citing_evidence_that_does_not_exist_yet_is_rejected[clean_bad_deploy]
+PASSED tests/test_graph.py::test_prompts_never_contain_hidden_sections_or_forged_delimiters_and_open_no_network[clean_bad_deploy]
+PASSED tests/test_graph.py::test_prompts_never_contain_hidden_sections_or_forged_delimiters_and_open_no_network[deploy_red_herring_db]
+PASSED tests/test_graph.py::test_evidence_source_failure_is_retried_once_then_surfaces[clean_bad_deploy]
+PASSED tests/test_graph.py::test_empty_evidence_fails_the_run_without_a_retry_or_an_rca_call[clean_bad_deploy]
+PASSED tests/test_graph.py::test_service_and_symptoms_are_fenced_and_marked_untrusted[clean_bad_deploy]
+PASSED tests/test_graph.py::test_angle_bracket_runs_and_dict_keys_are_neutralised
+PASSED tests/test_repo_documents.py::test_licence_contributing_readme_ci_doc_and_profile_match_the_built_repo
+PASSED tests/test_requirements.py::test_every_requirement_is_an_exact_pin_with_a_licence[requirements.txt]
+PASSED tests/test_requirements.py::test_every_requirement_is_an_exact_pin_with_a_licence[requirements-dev.txt]
+PASSED tests/test_requirements.py::test_dev_requirements_install_the_package_itself
+PASSED tests/test_scenarios.py::test_both_increment_one_scenarios_are_listed
+PASSED tests/test_scenarios.py::test_scenario_files_validate_and_reference_only_their_own_signals[clean_bad_deploy]
+PASSED tests/test_scenarios.py::test_scenario_files_validate_and_reference_only_their_own_signals[deploy_red_herring_db]
+PASSED tests/test_scenarios.py::test_scenario_with_unknown_or_missing_key_is_rejected[unknown key]
+PASSED tests/test_scenarios.py::test_scenario_with_unknown_or_missing_key_is_rejected[missing key]
+PASSED tests/test_scenarios.py::test_duplicate_signal_ids_and_unknown_required_evidence_are_rejected
+PASSED tests/test_scenarios.py::test_correct_action_listed_as_wrong_is_rejected
+PASSED tests/test_scenarios.py::test_scripted_outputs_are_valid_and_cite_real_signals[clean_bad_deploy]
+PASSED tests/test_scenarios.py::test_scripted_outputs_are_valid_and_cite_real_signals[deploy_red_herring_db]
+PASSED tests/test_simulator.py::test_simulator_source_satisfies_the_evidence_source_protocol
+PASSED tests/test_simulator.py::test_reads_respect_window_query_and_names_and_keep_scenario_ids
+PASSED tests/test_simulator.py::test_empty_window_unknown_metric_and_unicode_query_return_empty
+PASSED tests/test_simulator.py::test_hidden_scenario_sections_never_leave_the_source[clean_bad_deploy]
+PASSED tests/test_simulator.py::test_hidden_scenario_sections_never_leave_the_source[deploy_red_herring_db]
+PASSED tests/test_simulator.py::test_apply_mutates_the_world_and_records_the_ledger
+PASSED tests/test_simulator.py::test_apply_is_idempotent_on_the_key
+PASSED tests/test_simulator.py::test_apply_refuses_an_action_the_world_cannot_model
+PASSED tests/test_simulator.py::test_apply_on_one_source_never_mutates_the_scenario_or_another_source
+PASSED tests/test_simulator.py::test_returned_items_are_copies_a_caller_cannot_use_to_edit_the_world
+PASSED tests/test_simulator.py::test_reads_for_another_service_return_nothing
+PASSED tests/test_state.py::test_new_incident_starts_in_triage_with_full_budget
+PASSED tests/test_state.py::test_control_fields_absent_from_every_model_output_schema
+PASSED tests/test_state.py::test_approval_accepts_a_role_operator
+PASSED tests/test_state.py::test_scores_outside_unit_interval_and_empty_citations_are_rejected[1.01]
+PASSED tests/test_state.py::test_scores_outside_unit_interval_and_empty_citations_are_rejected[-0.1]
+PASSED tests/test_state.py::test_scores_outside_unit_interval_and_empty_citations_are_rejected[nan]
+PASSED tests/test_state.py::test_operator_rejects_usernames_emails_and_case_variants[muhibm1]
+PASSED tests/test_state.py::test_operator_rejects_usernames_emails_and_case_variants[a@b.example]
+PASSED tests/test_state.py::test_operator_rejects_usernames_emails_and_case_variants[Operator]
+PASSED tests/test_state.py::test_model_output_rejects_a_control_field_smuggled_in_as_an_extra_key
+PASSED tests/test_state.py::test_rca_label_and_remediation_action_must_be_snake_case[Bad Deploy]
+PASSED tests/test_state.py::test_rca_label_and_remediation_action_must_be_snake_case[bad-deploy]
+PASSED tests/test_state.py::test_rca_label_and_remediation_action_must_be_snake_case[]
+PASSED tests/test_state.py::test_assert_cited_accepts_ids_present_in_evidence
+PASSED tests/test_state.py::test_assert_cited_raises_on_empty_or_unknown_ids[ids0-no evidence]
+PASSED tests/test_state.py::test_assert_cited_raises_on_empty_or_unknown_ids[ids1-log-999]
+PASSED tests/test_state.py::test_assert_cited_raises_on_empty_or_unknown_ids[ids2-log-999]
+PASSED tests/test_state.py::test_citation_error_is_not_a_value_error
+============================= 76 passed in 12.39s =============================

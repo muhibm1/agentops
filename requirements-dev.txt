@@ -1,0 +1,8 @@
+# Development and CI tools. Exact pins only, each with its licence.
+pytest==9.1.1  # MIT
+ruff==0.16.9  # MIT
+pyright==1.1.414  # MIT
+pip-audit==2.10.1  # Apache-2.0
+pyyaml==6.0.3  # MIT
+# Installs this package in editable mode so tests import the working tree.
+-e .

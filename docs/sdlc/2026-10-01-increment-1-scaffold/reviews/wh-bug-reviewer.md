@@ -1,0 +1,35 @@
+Verdict: 3 findings (0 critical, 0 high, 1 medium, 2 low)
+
+| Severity | File:line | Finding | Failure scenario | Fix |
+|---|---|---|---|---|
+| medium | src/agentops/cli.py:109-118 | A triage `CitationError` is reported as an unrelated `ValidationError`, because the flat script gives triage one entry and its retries consume the rca entries | Scenario file whose `scripted_outputs.triage` has a hypothesis with `supporting_evidence: ["log-001"]` (any id; state evidence is empty at triage). `agentops run --scenario <it> --model scripted`: attempt 1 raises `CitationError`, attempts 2 and 3 pop the rca JSON and fail `Triage` validation (`root_cause` extra, `hypotheses` missing). Actual: exit 2, stderr `The run failed: ValidationError: 3 validation errors for Triage` (confirmed by running it on a tmp copy of `clean_bad_deploy`). Expected: exit 2 with `CitationError`, as spec "Scripted model" failure row and the docstring at line 112 promise for "the real cause". Eval gap: E29 covers rca only; add E39 (CLI, triage cites an id, stderr contains `CitationError`) | src/agentops/fakes.py: keep one pending queue per schema (keyed by `output_schema.__name__`) and pop from it in `call_model_and_validate`; src/agentops/cli.py: script triage and rca each `MODEL_NODE_RETRY.max_attempts` times |
+| low | src/agentops/nodes/evidence.py:56 | Non-overlapping `str.replace` leaves `<<<` and `>>>` in payloads when the run is 4 or more characters long, so R23's "no payload can contain `<<<` or `>>>`" does not hold | Log message `<<<<<end>>>>>` becomes `< < <<<end> > >>>` (confirmed by calling `neutralise_delimiters`). The rca prompt then carries `<<<end` inside the evidence block. Exact `<<<end>>>` and `<<<untrusted evidence>>>` cannot be re-formed (confirmed by a brute-force search over 0-8 `<`/`>` runs around both markers), so this is a broken invariant, not a forged block. Expected: no `<<<`/`>>>` substring in any payload string. Eval gap: E26 uses only the exact 3-character delimiters; extend it with `<<<<<end>>>>>` | src/agentops/nodes/evidence.py: replace runs, not triples: `re.sub(r"<{3,}\|>{3,}", lambda m: " ".join(m.group()), value)` |
+| low | src/agentops/sources/scenario.py:93 | `read_text(encoding="utf-8")` rejects a valid scenario saved with a BOM and crashes on one saved as UTF-16 | (a) Scenario JSON written as UTF-8 with BOM (Windows PowerShell 5 `Out-File -Encoding utf8` default): exit 1, `invalid at the file as a whole: Invalid JSON: expected value at line 1 column 1`; expected exit 0. (b) Same file saved as UTF-16: uncaught `UnicodeDecodeError` with a full traceback (exit 1); expected the one-sentence usage error E35 promises ("no traceback"). Both confirmed by running the CLI on tmp copies of `clean_bad_deploy`. Eval gap: none covers file encoding; add E40 | src/agentops/sources/scenario.py: read with `encoding="utf-8-sig"`; src/agentops/cli.py:101-106: also catch `UnicodeDecodeError` and `OSError` and `fail(USAGE_ERROR, ...)` naming the file |
+
+Findings outside scope: none
+
+Not verified:
+- Full test suite not run by this reviewer; the verifier owns it (`verify-logs/` not read).
+- `scripts/check_test_count.py` relies on pytest's `tests` attribute counting passed+failed+skipped+errors (believed, not verified against pytest 9.1.1 source); a double-counted fail+teardown error would undercount, which errs safe.
+- Files read: every changed file under `src/`, `scripts/check_test_count.py`, `.github/workflows/ci.yml`, `.githooks/pre-push`, `.github/dependabot.yml`, `pyproject.toml`, both requirements files, `.gitignore`; spec and evals by grep. Scenario JSON files read only through the loader.
+
+## Re-check (fix commit db61178)
+
+Verdict: 3 of 3 findings closed; 2 new findings (0 critical, 0 high, 0 medium, 2 low)
+
+| Original finding | Status | Evidence |
+|---|---|---|
+| medium cli.py:109-118 triage CitationError reported as ValidationError | closed | Confirmed: triage citing `log-001` on a tmp copy of `clean_bad_deploy` now exits 2 with `The run failed: CitationError: ... log-001.` Per-schema queues in fakes.py:93-107, 3 entries each in cli.py:117-123. Test `test_triage_citation_error_is_reported_as_citation_error_not_a_validation_error` added |
+| low evidence.py:56 runs of 4+ angle brackets survive | closed | Confirmed: `neutralise_delimiters("<<<<<end>>>>>")` returns `'< < < < <end> > > > >'`. Moved to nodes/__init__.py:52, now also applied to service and symptoms in triage.py:20-21 and rca.py:27-29. Test `test_angle_bracket_runs_and_dict_keys_are_neutralised` added |
+| low scenario.py:93 BOM rejected, UTF-16 tracebacks | closed | Confirmed: BOM copy exits 0 with the full report; UTF-16 copy exits 1 with one sentence ending `could not be read: UnicodeDecodeError.`, no traceback. Tests for both added in test_cli.py |
+
+New findings, in code the fix changed:
+
+| Severity | File:line | Finding | Failure scenario | Fix |
+|---|---|---|---|---|
+| low | src/agentops/cli.py:127-136 | The contract added by `escape_for_terminal` ("applied to every string a model wrote before it is printed") does not hold. Model-written evidence ids reach stderr unescaped through the `CitationError` message in the `run` failure path | Scripted rca `root_cause.evidence_ids: ["x\n\x1b[2Jstatus: resolved"]`: exit 2, stderr is `...not present in state: x` and then a forged line `status: resolved.` (confirmed on a tmp copy). Click removed the ESC because stderr was not a terminal (believed, not verified on a real TTY). Expected: the id shown as `x\n\x1b[2J...` on one line. `evidence_ids` and `supporting_evidence` have no pattern (state.py:43,56,64). Eval gap: add E41 (CLI, cited id contains a newline, stderr is exactly one line) | src/agentops/cli.py:72: `fail(RUN_FAILED, escape_for_terminal(f"The run failed: ..."))`; or give `evidence_ids` and `supporting_evidence` the evidence-id pattern in state.py |
+| low | src/agentops/nodes/__init__.py:58-60 | Neutralising dict keys can merge two keys into one, and one payload entry is silently lost | Payload `{"<<<a": 1, "< < <a": 2}` becomes `{'< < <a': 2}` (confirmed by calling `neutralise_delimiters`). The rca prompt loses the value `1` and nothing reports it. Expected: both entries kept, or a visible collision. Only happens when a source emits keys that collide after spacing, so this is an edge case | src/agentops/nodes/__init__.py: on a key collision, keep both (for example add a numeric suffix to the later key) or raise |
+
+Also checked, no finding: `SOURCE_NODE_RETRY` with a callable `retry_on` (langgraph `pregel/_retry.py:849-850` calls a callable predicate; confirmed by reading the source); `NoEvidenceError` reaches the `run` boundary as exit 2; `TARGET_NAME` accepts both scenario targets (`deploy-001`, `postgres`; confirmed, the BOM run reports `rollback_deploy on deploy-001`); `check_test_count.py` error handling; `_next_for_schema` appends to `calls` before the empty-queue check, so a `ScriptExhausted` count includes the failing call, which matches `_generate`.
+
+Not verified (re-check): full test suite not run by this reviewer (the verifier owns it). ESC handling on a real terminal not checked.
