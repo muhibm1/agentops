@@ -113,3 +113,16 @@ def test_the_next_step_does_not_depend_on_the_loop_count() -> None:
         steps.append([send.node for send in decision])
 
     assert steps == [["deploys"]] * 3
+
+
+def test_merge_writes_its_stop_reason_when_it_routes_to_escalate() -> None:
+    no_evidence = incident_with(
+        evidence_tools=(),
+        action_tools=("get_logs", "get_metrics", "get_dependency_health", "get_deployments") * 2,
+    )
+    budget_spent = incident_with(evidence_tools=("get_logs",), action_tools=("get_logs",) * 12)
+    carry_on = incident_with(evidence_tools=("get_logs", "get_metrics"), action_tools=())
+
+    assert merge(no_evidence)["escalation_reason"] == "no_evidence"
+    assert merge(budget_spent)["escalation_reason"] == "budget_exhausted"
+    assert "escalation_reason" not in merge(carry_on)

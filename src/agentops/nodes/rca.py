@@ -63,7 +63,15 @@ def rca(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
     check_consistent_with_triage(result, state)
     update: dict[str, Any] = {"hypotheses": result.hypotheses, "actions": [action]}
     if result.root_cause is None or is_ambiguous(result):
-        return {**update, "root_cause": None, "remediation": None, "status": "investigating"}
+        return {
+            **update,
+            "root_cause": None,
+            "remediation": None,
+            "status": "investigating",
+            # Written here so escalate does not have to guess later from a budget that may also be
+            # spent.
+            "escalation_reason": "ambiguous",
+        }
     return {
         **update,
         "root_cause": result.root_cause,

@@ -45,8 +45,11 @@ def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
 
 
 def escalation_reason(state: IncidentState) -> EscalationReason:
-    """Why the graph escalated: merge's reason when the investigation could not continue,
+    """Why the graph escalated: the reason merge or rca already wrote to the state; when none is
+    set (a node called on its own), merge's reason if the investigation could not continue,
     otherwise `ambiguous`, which also covers an rca that named no cause."""
+    if state["escalation_reason"] is not None:
+        return state["escalation_reason"]
     if decide_next_step(state) == "escalate":
         return reason_for_escalating_before_rca(state)
     return "ambiguous"
