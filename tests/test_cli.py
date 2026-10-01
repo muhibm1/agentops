@@ -17,6 +17,7 @@ from agentops.state import Remediation
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 SCENARIO_FILE_NAME = "clean_bad_deploy.json"
+AMBIGUOUS_FILE_NAME = "ambiguous_two_causes.json"
 
 runner = CliRunner()
 
@@ -106,7 +107,8 @@ def test_usage_errors_exit_one_with_a_named_cause(tmp_path: Path) -> None:
     assert "clean_bad_deploy" in unknown.stderr
     assert "deploy_red_herring_db" in unknown.stderr
     assert live_model.exit_code == 1
-    assert "increment 2" in live_model.stderr
+    assert "not wired yet" in live_model.stderr
+    assert "--model scripted" in live_model.stderr
     assert no_directory.exit_code == 1
     assert str(missing_dir) in no_directory.stderr
 
@@ -193,12 +195,16 @@ def test_scenario_id_cannot_escape_the_scenarios_directory(
 
 
 def run_scripted(scenarios_dir: Path) -> Any:
+    return run_scenario(scenarios_dir, "clean_bad_deploy")
+
+
+def run_scenario(scenarios_dir: Path, scenario_id: str) -> Any:
     return runner.invoke(
         app,
         [
             "run",
             "--scenario",
-            "clean_bad_deploy",
+            scenario_id,
             "--model",
             "scripted",
             "--scenarios-dir",
@@ -221,19 +227,56 @@ def test_triage_citation_error_is_reported_as_citation_error_not_a_validation_er
     assert "ValidationError" not in result.stderr
 
 
-def test_report_escapes_control_characters_in_model_text(tmp_path: Path) -> None:
+def test_report_escapes_control_characters_in_model_free_text(tmp_path: Path) -> None:
     document = scenario_document()
     document["scripted_outputs"]["rca"]["root_cause"]["explanation"] = "ok\nstatus: resolved\x1b[2J"
-    document["scripted_outputs"]["triage"]["hypotheses"][0]["name"] = "bad\x1b[31m\nname"
+    write_scenario(tmp_path, document)
+    ambiguous = json.loads((SCENARIOS_DIR / AMBIGUOUS_FILE_NAME).read_text(encoding="utf-8"))
+    ambiguous["scripted_outputs"]["escalate"]["summary"] = "two causes\nstatus: resolved\x1b[31m"
+    write_scenario(tmp_path, ambiguous, file_name=AMBIGUOUS_FILE_NAME)
+
+    explained = run_scripted(tmp_path)
+    escalated = run_scenario(tmp_path, "ambiguous_two_causes")
+
+    assert explained.exit_code == 0, explained.output
+    assert escalated.exit_code == 0, escalated.output
+    for result in (explained, escalated):
+        assert "\x1b" not in result.stdout
+        assert "\nstatus: resolved" not in result.stdout
+    assert r"ok\nstatus: resolved\x1b[2J" in explained.stdout
+    assert r"two causes\nstatus: resolved\x1b[31m" in escalated.stdout
+
+
+def test_error_path_escapes_control_characters_in_model_text(tmp_path: Path) -> None:
+    document = scenario_document()
+    document["scripted_outputs"]["rca"]["root_cause"]["evidence_ids"] = ["log-9\x1b[2J\nfake: line"]
     write_scenario(tmp_path, document)
 
     result = run_scripted(tmp_path)
 
+    assert result.exit_code == 2
+    assert "CitationError" in result.stderr
+    assert "\x1b" not in result.stderr
+    assert r"log-9\x1b[2J\nfake: line" in result.stderr
+
+
+def test_run_prints_escalation_reason_and_summary_and_exits_zero() -> None:
+    result = run_scenario(SCENARIOS_DIR, "ambiguous_two_causes")
+
     assert result.exit_code == 0, result.output
-    assert "\x1b" not in result.stdout
-    assert "\nstatus: resolved" not in result.stdout
-    assert r"ok\nstatus: resolved\x1b[2J" in result.stdout
-    assert r"bad\x1b[31m\nname" in result.stdout
+    assert "status: escalated" in result.stdout
+    assert "escalation: ambiguous" in result.stdout
+    assert "Two causes fit the symptoms about equally" in result.stdout
+
+
+def test_run_prints_loops_budget_and_remediation() -> None:
+    result = run_scenario(SCENARIOS_DIR, "dependency_timeout_noisy_neighbour")
+
+    assert result.exit_code == 0, result.output
+    assert "status: awaiting_approval" in result.stdout
+    assert "loops: 1" in result.stdout
+    assert re.search(r"budget remaining: \d+ of 12", result.stdout)
+    assert "remediation: circuit_break_dependency" in result.stdout
 
 
 def test_remediation_target_with_control_characters_is_rejected_by_the_schema() -> None:
