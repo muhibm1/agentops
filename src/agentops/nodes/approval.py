@@ -24,7 +24,7 @@ from agentops.actions.registry import (
     idempotency_key,
     safe_name,
 )
-from agentops.nodes import neutralise_delimiters
+from agentops.nodes import neutralise_delimiters, run_thread_id
 from agentops.nodes.router import route_to_sources
 from agentops.state import (
     Approval,
@@ -51,7 +51,7 @@ def approval(
 
     Raises ValueError when there is no remediation to decide on or no thread id to audit under.
     """
-    thread_id = run_thread_id(config)
+    thread_id = run_thread_id(config, "approval")
     remediation = state["remediation"]
     if remediation is None:
         raise ValueError("The approval node needs a remediation to put to the operator.")
@@ -204,10 +204,3 @@ def accepted_record(decision: ApprovalDecision, chosen: Remediation, key: str) -
 def refused_record(answer: object, error: str) -> dict[str, Any]:
     submitted = json.dumps(answer, default=str)[:SUBMITTED_MAX_CHARACTERS]
     return {"event": "approval", "valid": False, "error": error, "submitted": submitted}
-
-
-def run_thread_id(config: RunnableConfig) -> str:
-    thread_id = (config.get("configurable") or {}).get("thread_id")
-    if not isinstance(thread_id, str) or not thread_id:
-        raise ValueError("The approval node needs a thread_id in the run's configurable.")
-    return thread_id

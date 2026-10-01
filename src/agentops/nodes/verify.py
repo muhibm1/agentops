@@ -14,6 +14,7 @@ from langgraph.types import Send
 from pydantic import BaseModel, ConfigDict
 
 from agentops.actions.audit import AuditLog
+from agentops.nodes import run_thread_id
 from agentops.nodes.evidence import METRIC_CATALOGUE, as_evidence, read_with_one_retry
 from agentops.nodes.router import route_to_sources
 from agentops.sources.base import EvidenceSource, LogLine, Series, Window
@@ -58,7 +59,7 @@ def verify(
 
     Raises ValueError when the run's `configurable` has no thread id.
     """
-    thread_id = run_thread_id(config)
+    thread_id = run_thread_id(config, "verify")
     round_number = verify_rounds(state) + 1
     series, lines, actions = read_post_action_signals(state, source)
     result = judge(series, lines)
@@ -172,10 +173,3 @@ def verify_rounds(state: IncidentState) -> int:
     return sum(
         1 for action in state["actions"] if action.tool == METRICS_TOOL and action.attempt == 1
     )
-
-
-def run_thread_id(config: RunnableConfig) -> str:
-    thread_id = (config.get("configurable") or {}).get("thread_id")
-    if not isinstance(thread_id, str) or not thread_id:
-        raise ValueError("The verify node needs a thread_id in the run's configurable.")
-    return thread_id

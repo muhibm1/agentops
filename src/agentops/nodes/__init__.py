@@ -14,6 +14,7 @@ from typing import Any, TypeVar
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
 from agentops.state import Action
@@ -130,3 +131,11 @@ def as_plain_brackets(text: str) -> str:
         if unicodedata.category(character) != FORMAT_CHARACTER_CATEGORY
     )
     return visible.translate(LOOKALIKE_BRACKETS)
+
+
+def run_thread_id(config: RunnableConfig, node: str) -> str:
+    """The thread id from the run's `configurable`; every audit record must name its thread."""
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    if not isinstance(thread_id, str) or not thread_id:
+        raise ValueError(f"The {node} node needs a thread_id in the run's configurable.")
+    return thread_id

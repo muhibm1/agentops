@@ -12,6 +12,7 @@ from langgraph.types import Send
 from agentops.actions import executor
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import Registry
+from agentops.nodes import run_thread_id
 from agentops.nodes.router import route_to_sources
 from agentops.sources.base import EvidenceSource
 from agentops.state import IncidentState
@@ -33,9 +34,7 @@ def execute(
     must name its thread.
     """
     configurable = config.get("configurable") or {}
-    thread_id = configurable.get("thread_id")
-    if not isinstance(thread_id, str) or not thread_id:
-        raise ValueError("The execute node needs a thread_id in the run's configurable.")
+    thread_id = run_thread_id(config, "execute")
     outcome = executor.execute(
         state,
         source,
