@@ -33,7 +33,14 @@ the repository root:
 id, status, loops, remaining budget, hypotheses and evidence count, then the pending proposal,
 the escalation, or the outcome of the action, and where the audit log is.
 Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
-problem; 2 when the run fails or the state file cannot be used.
+problem, including a decision the approval step refused and asked again; 2 when the run fails or
+the state file cannot be used.
+
+Options shared by the thread commands: `--state-db` (the checkpoint file, default
+`agentops.sqlite`), `--audit-dir` (audit logs and ledgers, default `audit/`) and
+`--scenarios-dir` (default `scenarios/`). `approve` also takes `--operator`, your role: one of
+`operator` (the default), `on-call` or `reviewer`. The role is recorded in the audit log; it is
+a label, not a login, and any role may approve.
 
 Every thread is checkpointed to the SQLite file `agentops.sqlite` (`--state-db`) under a thread
 id equal to the incident id. Every proposal, decision, precondition, dry run, apply and verify is
@@ -41,6 +48,28 @@ appended to `audit/<incident_id>.jsonl`, and the simulated system's record of ap
 `audit/<incident_id>.ledger.jsonl` (both under `--audit-dir`). These runtime files are
 git-ignored. Scenario files are read from `--scenarios-dir`, which defaults to `scenarios`;
 every path is resolved relative to the current directory.
+
+## When it fails
+
+Start with `agentops history <thread>` and the audit file `audit/<incident_id>.jsonl`: the last
+line says what was reached. Every thread is saved at each step, so stopping is safe.
+
+- Exit 2, "The run failed": the step that failed is named on stderr. Fix the cause (for example
+  a full disk) and run `agentops resume <thread>`. Resuming is safe: an action is applied only
+  after its dry run is in the audit log, and a key already in the ledger is never applied again.
+- Exit 2, "The state file ... cannot be used": the `--state-db` path is not a usable SQLite
+  file. Do not delete `agentops.sqlite`; it holds every checkpoint and the only record of where
+  a thread stopped. Point `--state-db` at the right file, or copy the file aside first.
+- Audit log cannot be written (the audit directory is a file, read-only or full): the run
+  stops before the action is applied, with exit 2. Fix the directory and `resume`. If it fails
+  after the action was applied, `resume` finds the key in `audit/<incident_id>.ledger.jsonl`,
+  applies nothing again and writes the missing `apply` record from the ledger.
+- `escalation: apply_failed`: the source refused or failed the action and nothing was changed.
+  Read the `apply` line in the audit file for the reason. The thread is handed to a human;
+  `resume` does not retry it.
+- `approve` exits 1 with "The decision was not recorded": the approval step refused the answer
+  (for example an edit naming an action outside the runbook). Nothing was applied and the
+  thread still waits; run `approve` again with a valid decision.
 
 The crash demo shows that an action is applied exactly once even when the process dies right
 after applying it. Three separate processes:

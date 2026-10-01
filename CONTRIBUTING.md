@@ -52,6 +52,20 @@ Tests need no API key and make no network call: they use a scripted chat model.
 - Never score the held-out evaluation split to steer a change.
 - Only the owner pushes to `main`.
 
+## Adding a runbook action
+
+`runbooks/default.yaml` is the allowlist: only an action declared there can be proposed,
+approved or applied. Changing it is an ask-first change. Each entry names the `action`, its
+`target_kind` and a `target_pattern` (a full-match regular expression for the names it may be
+aimed at), the declared `params` with their types and limits, the `risk`, at least one
+`preconditions` check, the `rollback` and `idempotent`. The loader in
+`src/agentops/actions/runbook.py` rejects an unknown key or a missing field at startup. The
+checks live in `src/agentops/actions/preconditions.py`: a new check kind needs a model there
+and a function that fails, never raises, when the source cannot answer. Add the action's
+tests to `tests/test_runbook.py` (schema, parameters and target, one case that admits and one
+that denies) and `tests/test_preconditions.py`, and give any scenario that uses the action a
+`post_action_world` for it.
+
 ## Adding a scenario
 
 A scenario is one JSON file in `scenarios/`, named after its id (for example
