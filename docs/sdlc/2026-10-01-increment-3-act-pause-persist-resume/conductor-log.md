@@ -33,3 +33,4 @@
 2026-10-01T10:36:33.817Z | review | conductor | G4 Ship presented
 2026-10-01T10:39:18.231Z | review | conductor | resumed at review after G4 approved; PR #5 merged by main session (aa65cbf), no deploy command
 2026-10-01T10:39:18.371Z | deploy | conductor | release.md written (merge is the release, rollback is revert PR)
+2026-10-01T10:39:18.539Z | deploy | conductor | G5 Deploy presented
