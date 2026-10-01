@@ -6,11 +6,14 @@ decision and continues; `resume` continues a thread that stopped, for example af
 `history` prints one line per checkpoint; `fork` starts a new thread from a past checkpoint with
 changed hypothesis scores. Threads are checkpointed to a SQLite file (`--state-db`, default
 `agentops.sqlite`) under a thread id equal to the incident id; the audit log and the simulator
-ledger are written under `--audit-dir` (default `audit/`).
+ledger are written under `--audit-dir` (default `audit/`). Each thread has its own ledger,
+`<thread>.ledger.jsonl`, so a fork starts from an unchanged simulated system and never inherits
+the actions the original thread applied.
 
 Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
 problem (unknown scenario or thread, malformed thread id, thread not waiting, bad decision,
-unknown hypothesis, model not available); 2 when the run fails or the state file cannot be used.
+a decision the approval node refused, unknown hypothesis, model not available); 2 when the
+run fails or the state file cannot be used.
 Every failure prints one sentence to stderr naming the cause, and every string a model or a
 scenario wrote is escaped before it is printed.
 """
@@ -173,6 +176,9 @@ def approve(
         switches = {"crash_after_apply": True} if crash_after_apply else {}
         thread_run.invoke(Command(resume=answer), **switches)
         thread_run.print_outcome()
+        refusal = thread_run.refusal()
+        if refusal is not None:
+            fail(USAGE_ERROR, f"The decision was not recorded: {refusal}")
 
 
 @app.command()
@@ -239,23 +245,27 @@ class ThreadRun:
 
     graph: CompiledStateGraph
     saver: SqliteSaver
+    scenario: Scenario
     thread_id: str
     audit_dir: Path
 
     @classmethod
     def start(
-        cls, scenario: Scenario, incident_id: str, saver: SqliteSaver, audit_dir: Path
+        cls, scenario: Scenario, thread_id: str, saver: SqliteSaver, audit_dir: Path
     ) -> "ThreadRun":
         """The graph for `scenario`, its simulator remembering applied actions in the ledger
-        file of `incident_id`. Exits 2 when that ledger cannot be read."""
+        file of `thread_id`: a fork has its own ledger and never inherits the original's applied
+        actions. Exits 2 when that ledger cannot be read."""
         try:
-            source = SimulatorSource(scenario, ledger_path=ledger_path_for(audit_dir, incident_id))
+            source = SimulatorSource(scenario, ledger_path=ledger_path_for(audit_dir, thread_id))
         except ValueError as error:
             fail(RUN_FAILED, f"The ledger could not be used: {error}")
         graph = build_graph(
             source, scripted_model_for(scenario), default_registry(), AuditLog(audit_dir), saver
         )
-        return cls(graph=graph, saver=saver, thread_id=incident_id, audit_dir=audit_dir)
+        return cls(
+            graph=graph, saver=saver, scenario=scenario, thread_id=thread_id, audit_dir=audit_dir
+        )
 
     def config(self, **switches: bool) -> RunnableConfig:
         return {
@@ -276,12 +286,18 @@ class ThreadRun:
         except Exception as error:  # the command's outer boundary: any failure becomes exit 2
             fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {error}")
 
+    def refusal(self) -> str | None:
+        """Why the node refused the last answer and asked again, or None."""
+        return self.snapshot().values.get("approval_error")
+
     def next_fork(self) -> "ThreadRun":
-        """This thread's graph under the first unused id `<thread>-fork-<n>`."""
+        """A run under the first unused id `<thread>-fork-<n>`, with a ledger of its own."""
         number = 1
         while replace(self, thread_id=f"{self.thread_id}-fork-{number}").exists():
             number += 1
-        return replace(self, thread_id=f"{self.thread_id}-fork-{number}")
+        return ThreadRun.start(
+            self.scenario, f"{self.thread_id}-fork-{number}", self.saver, self.audit_dir
+        )
 
     def print_outcome(self) -> None:
         snapshot = self.snapshot()
@@ -316,7 +332,7 @@ def open_checkpoints(state_db: Path) -> Iterator[SqliteSaver]:
 def opened_thread(
     thread_id: str, state_db: Path, audit_dir: Path, scenarios_dir: Path
 ) -> Iterator[ThreadRun]:
-    """An existing thread, rebuilt from the scenario and incident id in its latest checkpoint.
+    """An existing thread, rebuilt from the scenario named in its latest checkpoint.
 
     The thread id is checked before any file is opened, and a missing state file means an
     unknown thread: neither creates a file.
@@ -328,10 +344,13 @@ def opened_thread(
         latest = saver.get_tuple({"configurable": {"thread_id": thread_id}})
         if latest is None:
             fail(USAGE_ERROR, f"Unknown thread {thread_id!r}: no checkpoint in {state_db}.")
-        values = latest.checkpoint["channel_values"]
-        scenario = load_named_scenario(values["scenario_id"], scenarios_dir)
-        thread_run = ThreadRun.start(scenario, values["incident_id"], saver, audit_dir)
-        yield replace(thread_run, thread_id=thread_id)
+        scenario_id = latest.checkpoint["channel_values"].get("scenario_id")
+        if not isinstance(scenario_id, str):
+            fail(
+                USAGE_ERROR, f"Thread {thread_id!r} has no usable checkpoint: it names no scenario."
+            )
+        scenario = load_named_scenario(scenario_id, scenarios_dir)
+        yield ThreadRun.start(scenario, thread_id, saver, audit_dir)
 
 
 def check_thread_id(thread_id: str) -> None:
