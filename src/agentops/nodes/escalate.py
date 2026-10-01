@@ -15,9 +15,10 @@ from agentops.nodes import (
     fence_rule,
     neutralise_delimiters,
     new_fence_nonce,
+    run_thread_id,
 )
 from agentops.nodes.merge import decide_next_step, reason_for_escalating_before_rca
-from agentops.nodes.rca import render_evidence, run_thread_id
+from agentops.nodes.rca import render_evidence
 from agentops.state import (
     ESCALATION_SUMMARY_MAX_LENGTH,
     Action,

@@ -20,6 +20,7 @@ from agentops.nodes import (
     fence_rule,
     neutralise_delimiters,
     new_fence_nonce,
+    run_thread_id,
 )
 from agentops.nodes.router import OPEN_HYPOTHESIS_MIN_SCORE, deciding_sources
 from agentops.state import (
@@ -125,14 +126,6 @@ def outcome_fields(
         "remediation": result.remediation,
         "status": "awaiting_approval",
     }
-
-
-def run_thread_id(config: RunnableConfig, node: str) -> str:
-    """The thread id from the run's `configurable`; every audit record must name its thread."""
-    thread_id = (config.get("configurable") or {}).get("thread_id")
-    if not isinstance(thread_id, str) or not thread_id:
-        raise ValueError(f"The {node} node needs a thread_id in the run's configurable.")
-    return thread_id
 
 
 def is_allowed(remediation: Remediation | None, registry: Registry) -> bool:
