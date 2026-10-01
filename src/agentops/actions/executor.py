@@ -40,6 +40,7 @@ OutcomeKind = Literal[
 # The exit code of the demo crash; any non-zero code would do, this one is not used elsewhere.
 CRASH_EXIT_CODE = 3
 ALREADY_APPLIED = "already_applied"
+RECOVERED_DETAIL = "Recovered from the source ledger after an interrupted run."
 
 
 @dataclass(frozen=True)
@@ -181,10 +182,37 @@ def find_recorded_execution(
         )
     previous = context.state["execution"]
     if previous is not None and previous.idempotency_key == key and previous.applied:
+        write_repeat_record(context, remediation, key)
         return already_applied(context, remediation, key, previous.result)
     if any(entry.idempotency_key == key for entry in context.source.ledger()):
+        if audit_shows_apply(context, key):
+            write_repeat_record(context, remediation, key)
+        else:
+            write_recovered_apply_record(context, remediation, key)
         return already_applied(context, remediation, key, "found in the source's ledger")
     return None
+
+
+def audit_shows_apply(context: ExecutionContext, key: str) -> bool:
+    """True when the incident's audit file has an `apply` record for `key` with `applied: true`."""
+    return any(
+        record.get("event") == "apply"
+        and record.get("idempotency_key") == key
+        and record.get("applied") is True
+        for record in context.audit.records(context.state["incident_id"])
+    )
+
+
+def write_repeat_record(context: ExecutionContext, remediation: Remediation, key: str) -> None:
+    write_apply_record(context, remediation, key, applied=False, ok=True, detail=ALREADY_APPLIED)
+
+
+def write_recovered_apply_record(
+    context: ExecutionContext, remediation: Remediation, key: str
+) -> None:
+    """The process died, or the audit write failed, between the source's apply and its record;
+    the audit file gets the record now, from the source's ledger."""
+    write_apply_record(context, remediation, key, applied=True, ok=True, detail=RECOVERED_DETAIL)
 
 
 # Step 6.
@@ -262,19 +290,24 @@ def applied_outcome(
 def already_applied(
     context: ExecutionContext, remediation: Remediation, key: str, recorded: str
 ) -> ExecutionOutcome:
-    """Apply nothing; record that this key was applied before (`recorded` says where)."""
-    write_apply_record(context, remediation, key, applied=False, ok=True, detail=ALREADY_APPLIED)
+    """Apply nothing; record that this key was applied before (`recorded` says where).
+
+    The execution is marked `applied` because the change is in effect: verify and rca read that
+    flag, and a run resumed after a crash must judge the earlier apply like any other.
+    """
     detail = f"Key {key} was already applied ({recorded}); nothing changed."
+    previous = context.state["execution"]
     execution = ExecutionRecord(
         idempotency_key=key,
         action=remediation.action,
         target=remediation.target,
-        applied=False,
+        applied=True,
+        applied_at=previous.applied_at if previous and previous.idempotency_key == key else None,
         result=ALREADY_APPLIED,
         dry_run_output="",
     )
     evidence = action_evidence(
-        context.state, remediation, key, ALREADY_APPLIED, applied=False, detail=detail
+        context.state, remediation, key, ALREADY_APPLIED, applied=True, detail=detail
     )
     return ExecutionOutcome(ALREADY_APPLIED, detail, execution, [evidence])
 

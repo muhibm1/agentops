@@ -38,6 +38,10 @@ class AuditLog:
             )
         return self.directory / f"{incident_id}.jsonl"
 
+    def records(self, incident_id: str) -> list[dict[str, Any]]:
+        """The incident's audit records in write order; a bad id raises InvalidIncidentIdError."""
+        return read_records(self.path_for(incident_id))
+
     def append(self, incident_id: str, thread_id: str, record: Mapping[str, Any]) -> None:
         """Append `record` as one line, stamped with the time, the incident and the thread.
 
@@ -60,6 +64,22 @@ class AuditLog:
             handle.write(text)
             handle.flush()
             os.fsync(handle.fileno())
+
+
+def read_records(path: Path) -> list[dict[str, Any]]:
+    """Every complete JSON line of an audit file; a missing file is empty and a line cut short by
+    a crash is skipped, so a reader never fails on the damage it is looking for."""
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(record, dict):
+            records.append(record)
+    return records
 
 
 def check_record(thread_id: str, record: Mapping[str, Any]) -> None:

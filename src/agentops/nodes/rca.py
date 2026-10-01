@@ -256,12 +256,14 @@ def rca_human_prompt(state: IncidentState, nonce: str) -> str:
 
 
 def applied_action_names(evidence: Sequence[Evidence]) -> list[str]:
-    """The action names of every evidence item of kind `action` that records a real apply."""
-    return [
+    """The distinct action names of the evidence items of kind `action` that record a change in
+    effect, in the order they were applied."""
+    names = [
         str(neutralise_delimiters(str(item.payload.get("action", item.id))))
         for item in evidence
         if item.kind == "action" and item.payload.get("applied") is True
     ]
+    return list(dict.fromkeys(names))
 
 
 def render_evidence(evidence: Sequence[Evidence], nonce: str) -> str:

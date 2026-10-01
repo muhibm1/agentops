@@ -6,6 +6,7 @@ here runs inside its own temporary directory.
 
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +19,7 @@ from agentops import cli
 from agentops.cli import app
 from agentops.sources.scenario import load_scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import Remediation
+from agentops.state import Evidence, Remediation, new_incident
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 SCENARIO_FILE_NAME = "clean_bad_deploy.json"
@@ -396,3 +397,21 @@ def test_report_counts_failed_actions_when_every_source_read_fails(
     assert result.exit_code == 0, result.output
     assert re.search(r"actions: \d+ \([1-9]\d* failed\)", result.stdout)
     assert "escalation: source_outage" in result.stdout
+
+
+def test_the_closing_sentence_says_a_change_was_made_when_action_evidence_shows_an_apply() -> None:
+    state = new_incident("checkout", ["errors"], opened_at=datetime(2026, 3, 10, tzinfo=UTC))
+    assert "Nothing was changed." in cli.closing_sentence(state, "t", is_waiting=False)
+    state["evidence"] = [
+        Evidence(
+            id="action-1",
+            source="apply",
+            kind="action",
+            payload={"applied": True},
+            collected_at=datetime(2026, 3, 10, tzinfo=UTC),
+        )
+    ]
+
+    sentence = cli.closing_sentence(state, "t", is_waiting=True)
+
+    assert sentence.endswith("An approved action was applied.")
