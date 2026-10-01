@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from langgraph.types import Send
 
 from agentops.nodes.router import route_to_sources, score_sources, sources_to_ask
@@ -121,3 +122,24 @@ def test_router_keeps_only_the_longest_prefix_that_fits_the_budget() -> None:
     assert route_with(1) == "merge"
     assert sent_nodes(route_with(2)) == ["metrics"]
     assert sent_nodes(route_with(3)) == ["metrics", "deploys"]
+
+
+@pytest.mark.parametrize(
+    "name", ["conversion_rate_drop", "exception_thrown_in_handler", "feature_flag_flip"]
+)
+def test_a_keyword_inside_a_longer_word_does_not_match(name: str) -> None:
+    """'version' in conversion, 'row' in thrown and 'lag' in flag are not what the name is about."""
+    scores = score_sources([Hypothesis(name=name, score=0.5)])
+
+    assert scores == {"logs": 1, "metrics": 1, "deploys": 1}
+
+
+def test_a_keyword_matches_a_name_token_that_starts_with_it() -> None:
+    scores = score_sources(
+        [
+            Hypothesis(name="memory_pressure", score=0.5),
+            Hypothesis(name="deployment_regression", score=0.5),
+        ]
+    )
+
+    assert scores == {"logs": 2, "metrics": 1, "deploys": 1}
