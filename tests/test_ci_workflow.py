@@ -1,4 +1,5 @@
-"""E30, E31, E33: the CI workflow, the pre-push hook and Dependabot (R16, R18)."""
+"""E30, E31, E33: the CI workflow, the pre-push hook and Dependabot (R16, R18); increment 3 E5:
+the test-count floor (R5)."""
 
 import re
 import subprocess
@@ -10,7 +11,9 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 DEPENDABOT_PATH = REPO_ROOT / ".github" / "dependabot.yml"
+CI_DOCUMENT_PATH = REPO_ROOT / "docs" / "ci.md"
 PRE_PUSH_HOOK = ".githooks/pre-push"
+LOWEST_ALLOWED_FLOOR = 240
 
 GATES_IN_ORDER = [
     "python -m venv .venv",
@@ -70,10 +73,21 @@ def test_workflow_runs_the_gates_in_order_with_a_read_only_token() -> None:
     assert workflow["permissions"] == {"contents": "read"}
     assert job["runs-on"] == "ubuntu-24.04"
     assert not str(job["runs-on"]).endswith("-latest")
-    assert workflow["env"]["MIN_TESTS"] == "80"
     assert len(checkout_steps) == 1
     assert checkout_steps[0]["with"]["persist-credentials"] is False
     assert gates_missing_or_out_of_order(run_text) == []
+
+
+def test_test_count_floor_is_at_least_240_and_docs_ci_states_the_same_number() -> None:
+    workflow = load_workflow()
+    floor_text = workflow["env"]["MIN_TESTS"]
+    ci_document = CI_DOCUMENT_PATH.read_text(encoding="utf-8")
+
+    floor = int(floor_text)
+
+    assert floor >= LOWEST_ALLOWED_FLOOR
+    assert floor % 10 == 0
+    assert f"`MIN_TESTS` is {floor} as of increment 3" in ci_document
 
 
 def test_actions_are_sha_pinned_and_no_secret_is_referenced() -> None:
