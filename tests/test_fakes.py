@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from agentops.fakes import DEFAULT_ATTEMPTS, ScriptedChatModel, ScriptExhausted, scripted_model_for
 from agentops.sources.scenario import load_scenario
-from agentops.state import Escalation, RcaOutput, Triage
+from agentops.state import Escalation, Postmortem, RcaOutput, Triage
 
 
 class Hypothesis(BaseModel):
@@ -82,7 +82,7 @@ def test_scripted_model_for_queues_one_answer_per_attempt_for_each_schema() -> N
 
     model = scripted_model_for(scenario, attempts=3)
 
-    assert set(model.script_by_schema) == {Triage, RcaOutput}
+    assert set(model.script_by_schema) == {Triage, RcaOutput, Postmortem}
     assert model.script_by_schema[Triage] == [scenario.scripted_outputs.triage] * 3
     assert model.script_by_schema[RcaOutput] == [scenario.scripted_outputs.rca] * 3
 
@@ -104,3 +104,73 @@ def test_scripted_model_for_defaults_to_three_attempts() -> None:
     model = scripted_model_for(load_scenario(SCENARIO_PATH))
 
     assert len(model.script_by_schema[Triage]) == DEFAULT_ATTEMPTS == 3
+
+
+# E34 (R20): an answer chosen by a marker line in the prompt, and the postmortem queue.
+
+TWO_CONCURRENT_FAULTS_PATH = SCENARIO_PATH.parent / "two_concurrent_faults.json"
+ACTIONS_APPLIED_LINE = "Actions already applied: rollback_deploy on orders"
+
+
+def rca_prompt(*lines: str) -> list[SystemMessage | HumanMessage]:
+    return [SystemMessage("You find root causes."), HumanMessage("\n".join(lines))]
+
+
+def test_scenario_six_answers_its_second_rca_once_an_action_is_applied() -> None:
+    model = scripted_model_for(load_scenario(TWO_CONCURRENT_FAULTS_PATH))
+    ask_rca = model.with_structured_output(RcaOutput)
+
+    before = ask_rca.invoke(rca_prompt("Evidence follows."))
+    after = ask_rca.invoke(rca_prompt("Evidence follows.", ACTIONS_APPLIED_LINE))
+
+    assert isinstance(before, RcaOutput) and before.remediation is not None
+    assert isinstance(after, RcaOutput) and after.remediation is not None
+    assert before.remediation.action == "rollback_deploy"
+    assert after.remediation.action == "scale_db_pool"
+    assert len(model.calls) == 2
+
+
+def test_a_scenario_without_a_second_rca_keeps_answering_its_rca_queue() -> None:
+    scenario = load_scenario(SCENARIO_PATH)
+    model = scripted_model_for(scenario)
+
+    answer = model.with_structured_output(RcaOutput).invoke(
+        rca_prompt("Evidence follows.", ACTIONS_APPLIED_LINE)
+    )
+
+    assert answer == RcaOutput.model_validate(scenario.scripted_outputs.rca)
+    assert RcaOutput not in model.answers_by_prompt_marker
+
+
+def test_scripted_model_for_queues_the_postmortem_and_second_rca_once_per_attempt() -> None:
+    scenario = load_scenario(TWO_CONCURRENT_FAULTS_PATH)
+
+    model = scripted_model_for(scenario, attempts=2)
+
+    assert model.script_by_schema[Postmortem] == [scenario.scripted_outputs.postmortem] * 2
+    assert model.answers_by_prompt_marker[RcaOutput] == {
+        "Actions already applied:": [scenario.scripted_outputs.rca_after_action] * 2
+    }
+
+
+def test_a_marker_counts_only_at_the_start_of_a_prompt_line() -> None:
+    model = ScriptedChatModel(
+        script_by_schema={RcaStandIn: [{"label": "queue", "cited_evidence": []}]},
+        answers_by_prompt_marker={
+            RcaStandIn: {"Marker:": [{"label": "marker", "cited_evidence": []}]}
+        },
+    )
+    ask = model.with_structured_output(RcaStandIn)
+
+    mid_line = ask.invoke([HumanMessage("a log line says Marker: do it")])
+    line_start = ask.invoke([HumanMessage("first line\n  Marker: yes")])
+
+    assert isinstance(mid_line, RcaStandIn) and mid_line.label == "queue"
+    assert isinstance(line_start, RcaStandIn) and line_start.label == "marker"
+
+
+def test_an_exhausted_marker_queue_raises() -> None:
+    model = ScriptedChatModel(answers_by_prompt_marker={RcaStandIn: {"Marker:": []}})
+
+    with pytest.raises(ScriptExhausted, match="Marker:"):
+        model.with_structured_output(RcaStandIn).invoke([HumanMessage("Marker: yes")])

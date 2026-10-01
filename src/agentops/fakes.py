@@ -15,10 +15,12 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel, Field, PrivateAttr, SkipValidation
 
 from agentops.sources.scenario import Scenario
-from agentops.state import Escalation, RcaOutput, Triage
+from agentops.state import Escalation, Postmortem, RcaOutput, Triage
 
 # Equals the model-node retry policy's max_attempts; the graph test asserts the two agree.
 DEFAULT_ATTEMPTS = 3
+# The rca prompt line that lists actions already applied; it selects `rca_after_action`.
+ACTIONS_APPLIED_MARKER = "Actions already applied:"
 
 ScriptEntry = BaseModel | dict[str, Any] | str
 
@@ -45,9 +47,15 @@ class ScriptedChatModel(BaseChatModel):
     # Entries answered only to a request for that schema, one queue per schema, so a node that
     # is retried meets its own answer again whatever the other nodes consumed.
     script_by_schema: SkipValidation[dict[type, list[ScriptEntry]]] = Field(default_factory=dict)
+    # Per schema, queues chosen by a marker: a request whose prompt has a line starting with the
+    # marker takes the next entry from that marker's queue instead of the schema's own queue.
+    answers_by_prompt_marker: SkipValidation[dict[type, dict[str, list[ScriptEntry]]]] = Field(
+        default_factory=dict
+    )
     calls: list[list[BaseMessage]] = Field(default_factory=list)
     _pending_outputs: list[str] = PrivateAttr(default_factory=list)
     _pending_by_schema: dict[type, list[str]] = PrivateAttr(default_factory=dict)
+    _pending_by_marker: dict[type, dict[str, list[str]]] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
@@ -55,6 +63,13 @@ class ScriptedChatModel(BaseChatModel):
         self._pending_by_schema = {
             schema: [entry_as_json_text(entry) for entry in entries]
             for schema, entries in self.script_by_schema.items()
+        }
+        self._pending_by_marker = {
+            schema: {
+                marker: [entry_as_json_text(entry) for entry in entries]
+                for marker, entries in queues.items()
+            }
+            for schema, queues in self.answers_by_prompt_marker.items()
         }
 
     @property
@@ -96,6 +111,12 @@ class ScriptedChatModel(BaseChatModel):
         output_schema = schema
 
         def call_model_and_validate(prompt: LanguageModelInput) -> BaseModel:
+            messages = self._convert_input(prompt).to_messages()
+            marker = self._marker_in(output_schema, messages)
+            if marker is not None:
+                return output_schema.model_validate_json(
+                    self._next_for_marker(output_schema, marker, messages)
+                )
             if output_schema in self._pending_by_schema:
                 return output_schema.model_validate_json(
                     self._next_for_schema(output_schema, prompt)
@@ -115,12 +136,32 @@ class ScriptedChatModel(BaseChatModel):
             )
         return queue.pop(0)
 
+    def _marker_in(self, schema: type, messages: list[BaseMessage]) -> str | None:
+        """The first of `schema`'s markers that starts a line of the prompt, or None."""
+        lines = prompt_lines(messages)
+        for marker in self._pending_by_marker.get(schema, {}):
+            if any(line.startswith(marker) for line in lines):
+                return marker
+        return None
+
+    def _next_for_marker(self, schema: type, marker: str, messages: list[BaseMessage]) -> str:
+        self.calls.append(messages)
+        queue = self._pending_by_marker[schema][marker]
+        if not queue:
+            raise ScriptExhausted(
+                f"The scripted model has no entries left for {schema.__name__} prompts "
+                f"with the line {marker!r} after {len(self.calls)} calls."
+            )
+        return queue.pop(0)
+
 
 def scripted_model_for(scenario: Scenario, attempts: int = DEFAULT_ATTEMPTS) -> ScriptedChatModel:
     """A model that answers each node from the scenario's scripted outputs, once per attempt.
 
-    The rca and escalate queues are present only for the schemas the scenario scripts, so a
-    scenario that never escalates has no `Escalation` queue and a stray call fails loudly.
+    The escalate, postmortem and after-action rca queues are present only when the scenario
+    scripts them, so a scenario that never escalates has no `Escalation` queue and a stray call
+    fails loudly. An rca prompt holding the line `Actions already applied:` is answered from
+    `rca_after_action` when the scenario has one, and from the rca queue otherwise.
     """
     outputs = scenario.scripted_outputs
     script_by_schema: dict[type, list[ScriptEntry]] = {
@@ -129,7 +170,25 @@ def scripted_model_for(scenario: Scenario, attempts: int = DEFAULT_ATTEMPTS) -> 
     }
     if outputs.escalate is not None:
         script_by_schema[Escalation] = [outputs.escalate] * attempts
-    return ScriptedChatModel(script_by_schema=script_by_schema)
+    if outputs.postmortem is not None:
+        script_by_schema[Postmortem] = [outputs.postmortem] * attempts
+    answers_by_prompt_marker: dict[type, dict[str, list[ScriptEntry]]] = {}
+    if outputs.rca_after_action is not None:
+        answers_by_prompt_marker[RcaOutput] = {
+            ACTIONS_APPLIED_MARKER: [outputs.rca_after_action] * attempts
+        }
+    return ScriptedChatModel(
+        script_by_schema=script_by_schema, answers_by_prompt_marker=answers_by_prompt_marker
+    )
+
+
+def prompt_lines(messages: list[BaseMessage]) -> list[str]:
+    return [
+        line.strip()
+        for message in messages
+        if isinstance(message.content, str)
+        for line in message.content.splitlines()
+    ]
 
 
 def entry_as_json_text(entry: ScriptEntry) -> str:
