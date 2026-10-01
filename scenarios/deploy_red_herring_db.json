@@ -205,6 +205,20 @@
         "risk": "medium",
         "rollback": "Scale the pool back to 64."
       }
+    },
+    "postmortem": {
+      "summary": "The payments database connection pool saturated at 14:02 and latency followed. The deployment four minutes earlier only changed a log level and was not the cause. Scaling the pool to 96 connections restored latency.",
+      "timeline": [
+        "A deployment changed a log level (deploy-001).",
+        "At 14:02 pool utilisation jumped to 0.97 (metric-db_pool_utilisation).",
+        "The pool was scaled to 96 after operator approval and the symptoms cleared."
+      ],
+      "root_cause": "database_saturation",
+      "evidence_ids": ["metric-db_pool_utilisation", "deploy-001"],
+      "follow_ups": [
+        "Find what raised connection demand at 14:02.",
+        "Alert on pool utilisation above 0.85 before latency moves."
+      ]
     }
   }
 }

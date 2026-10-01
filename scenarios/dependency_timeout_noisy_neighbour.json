@@ -198,6 +198,20 @@
         "risk": "medium",
         "rollback": "Close the circuit breaker so checkout calls fraud-check again."
       }
+    },
+    "postmortem": {
+      "summary": "The fraud-check dependency slowed past checkout's 2000 ms timeout, so checkout held orders and timed out. Opening the circuit breaker with a manual review fallback restored checkout latency.",
+      "timeline": [
+        "From 15:41 fraud-check answers in about 2400 ms (dep-fraud-check, metric-dependency_p99_ms).",
+        "Checkout logs a timeout per held order (log-003).",
+        "The circuit breaker was opened after operator approval and the symptoms cleared."
+      ],
+      "root_cause": "dependency_timeout_fraud_check",
+      "evidence_ids": ["dep-fraud-check", "metric-dependency_p99_ms", "log-003"],
+      "follow_ups": [
+        "Ask the fraud-check owners why its latency rose at 15:41.",
+        "Close the circuit breaker once fraud-check answers inside the timeout."
+      ]
     }
   }
 }

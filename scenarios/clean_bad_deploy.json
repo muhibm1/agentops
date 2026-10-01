@@ -222,6 +222,20 @@
         "risk": "high",
         "rollback": "Redeploy v2.15.0 once the handler tolerates a missing shipping_option."
       }
+    },
+    "postmortem": {
+      "summary": "Version v2.15.0 of checkout read shipping_option without a default, so every request missing that key failed. Rolling back the deployment restored the error rate and latency.",
+      "timeline": [
+        "Version v2.15.0 deployed (deploy-001).",
+        "From 10:13 requests missing shipping_option fail with KeyError (log-003).",
+        "The deployment was rolled back after operator approval and the symptoms cleared."
+      ],
+      "root_cause": "recent_deploy_regression",
+      "evidence_ids": ["deploy-001", "log-003"],
+      "follow_ups": [
+        "Give shipping_option a default in the new handler before redeploying.",
+        "Add a test for requests without shipping_option."
+      ]
     }
   }
 }
