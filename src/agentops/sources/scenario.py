@@ -53,10 +53,12 @@ class PostActionWorld(ScenarioPart):
 
 class ScriptedOutputs(ScenarioPart):
     """What the scripted chat model answers for this scenario. Kept as raw JSON objects here;
-    the node that asks for a `Triage` or an `RcaOutput` validates them against that schema."""
+    the node that asks for a `Triage`, an `RcaOutput` or an `Escalation` validates them against
+    that schema. `escalate` is present only for scenarios whose run ends in escalation."""
 
     triage: dict[str, Any]
     rca: dict[str, Any]
+    escalate: dict[str, Any] | None = None
 
 
 class Scenario(ScenarioPart):

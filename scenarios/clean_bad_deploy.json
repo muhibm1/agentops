@@ -194,6 +194,20 @@
       ]
     },
     "rca": {
+      "hypotheses": [
+        {
+          "name": "recent_deploy_regression",
+          "score": 0.9,
+          "supporting_evidence": ["deploy-001", "log-003"],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "database_saturation",
+          "score": 0.1,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        }
+      ],
       "root_cause": {
         "label": "bad_deploy",
         "explanation": "Version v2.15.0 (deploy-001) added a handler that reads shipping_option without a default; from 10:13 every request missing that key fails with KeyError (log-003). Database pool utilisation stayed flat at 0.40.",

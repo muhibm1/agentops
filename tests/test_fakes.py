@@ -1,14 +1,19 @@
 """E19 and E20: the scripted chat model replays its script through structured output (R11).
 
-The schemas here are local stand-ins so this file does not depend on `agentops.state`.
+The schemas in the first tests are local stand-ins; the `scripted_model_for` tests use the real
+state schemas and a shipped scenario.
 """
+
+from pathlib import Path
 
 import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, ValidationError
 
-from agentops.fakes import ScriptedChatModel, ScriptExhausted
+from agentops.fakes import DEFAULT_ATTEMPTS, ScriptedChatModel, ScriptExhausted, scripted_model_for
+from agentops.sources.scenario import load_scenario
+from agentops.state import Escalation, RcaOutput, Triage
 
 
 class Hypothesis(BaseModel):
@@ -66,3 +71,36 @@ def test_scripted_model_can_stand_in_wherever_a_chat_model_is_expected() -> None
     reply = model.invoke([HumanMessage("checkout is failing")])
 
     assert reply.content == "plain text reply"
+
+
+SCENARIO_PATH = Path(__file__).parent.parent / "scenarios" / "clean_bad_deploy.json"
+ESCALATION_ANSWER = {"summary": "Two causes fit equally well.", "evidence_ids": []}
+
+
+def test_scripted_model_for_queues_one_answer_per_attempt_for_each_schema() -> None:
+    scenario = load_scenario(SCENARIO_PATH)
+
+    model = scripted_model_for(scenario, attempts=3)
+
+    assert set(model.script_by_schema) == {Triage, RcaOutput}
+    assert model.script_by_schema[Triage] == [scenario.scripted_outputs.triage] * 3
+    assert model.script_by_schema[RcaOutput] == [scenario.scripted_outputs.rca] * 3
+
+
+def test_scripted_model_for_queues_escalation_answers_only_when_the_scenario_has_one() -> None:
+    scenario = load_scenario(SCENARIO_PATH)
+    outputs_with_escalation = scenario.scripted_outputs.model_copy(
+        update={"escalate": ESCALATION_ANSWER}
+    )
+    with_escalation = scenario.model_copy(update={"scripted_outputs": outputs_with_escalation})
+
+    model = scripted_model_for(with_escalation, attempts=2)
+
+    assert model.script_by_schema[Escalation] == [ESCALATION_ANSWER] * 2
+    assert Escalation not in scripted_model_for(scenario).script_by_schema
+
+
+def test_scripted_model_for_defaults_to_three_attempts() -> None:
+    model = scripted_model_for(load_scenario(SCENARIO_PATH))
+
+    assert len(model.script_by_schema[Triage]) == DEFAULT_ATTEMPTS == 3

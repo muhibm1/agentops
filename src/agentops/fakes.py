@@ -15,6 +15,10 @@ from langchain_core.runnables import Runnable, RunnableLambda
 from pydantic import BaseModel, Field, PrivateAttr, SkipValidation
 
 from agentops.sources.scenario import Scenario
+from agentops.state import Escalation, RcaOutput, Triage
+
+# Equals the model-node retry policy's max_attempts; the graph test asserts the two agree.
+DEFAULT_ATTEMPTS = 3
 
 ScriptEntry = BaseModel | dict[str, Any] | str
 
@@ -24,7 +28,12 @@ class ScriptExhausted(RuntimeError):
 
 
 class ScriptedChatModel(BaseChatModel):
-    """Returns `script` entries in order, one per call, and records every prompt in `calls`.
+    """Returns scripted answers and records every prompt in `calls`.
+
+    `script` is one shared queue, consumed in call order whatever is asked. `script_by_schema` is
+    one queue per requested schema: a request for that schema takes the next entry from its own
+    queue, so a node that is retried meets its own answer again whatever other nodes consumed.
+    A schema with a queue never reads the shared `script`.
 
     Entries may be Pydantic models, dicts or JSON text; all are stored as JSON text when the
     model is built, so a malformed entry fails at the point a schema validates it.
@@ -107,11 +116,20 @@ class ScriptedChatModel(BaseChatModel):
         return queue.pop(0)
 
 
-def scripted_model_for(scenario: Scenario) -> ScriptedChatModel:
-    """A model that answers triage, then rca, with the scenario's own scripted outputs."""
-    return ScriptedChatModel(
-        script=[scenario.scripted_outputs.triage, scenario.scripted_outputs.rca]
-    )
+def scripted_model_for(scenario: Scenario, attempts: int = DEFAULT_ATTEMPTS) -> ScriptedChatModel:
+    """A model that answers each node from the scenario's scripted outputs, once per attempt.
+
+    The rca and escalate queues are present only for the schemas the scenario scripts, so a
+    scenario that never escalates has no `Escalation` queue and a stray call fails loudly.
+    """
+    outputs = scenario.scripted_outputs
+    script_by_schema: dict[type, list[ScriptEntry]] = {
+        Triage: [outputs.triage] * attempts,
+        RcaOutput: [outputs.rca] * attempts,
+    }
+    if outputs.escalate is not None:
+        script_by_schema[Escalation] = [outputs.escalate] * attempts
+    return ScriptedChatModel(script_by_schema=script_by_schema)
 
 
 def entry_as_json_text(entry: ScriptEntry) -> str:
