@@ -415,3 +415,15 @@ def test_the_closing_sentence_says_a_change_was_made_when_action_evidence_shows_
     sentence = cli.closing_sentence(state, "t", is_waiting=True)
 
     assert sentence.endswith("An approved action was applied.")
+
+
+def test_error_path_cuts_a_long_failure_message(tmp_path: Path) -> None:
+    document = scenario_document()
+    document["scripted_outputs"]["rca"]["root_cause"]["evidence_ids"] = ["log-" + "9" * 500]
+    write_scenario(tmp_path, document)
+
+    result = run_scripted(tmp_path)
+
+    assert result.exit_code == 2
+    assert "CitationError" in result.stderr
+    assert "9" * 300 not in result.stderr
