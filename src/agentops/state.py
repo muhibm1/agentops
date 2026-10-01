@@ -16,6 +16,9 @@ SNAKE_CASE_NAME = r"^[a-z0-9_]+$"
 # A remediation target names a service, deployment or config key; it is never free text.
 TARGET_NAME = r"^[a-z0-9_.-]+$"
 INITIAL_INVESTIGATION_BUDGET = 12
+# Caps on model free text that is printed and re-sent in later prompts.
+HYPOTHESIS_NAME_MAX_LENGTH = 80
+ESCALATION_SUMMARY_MAX_LENGTH = 1000
 
 IncidentStatus = Literal[
     "triage",
@@ -40,7 +43,7 @@ class StrictModel(BaseModel):
 
 
 class Hypothesis(StrictModel):
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=HYPOTHESIS_NAME_MAX_LENGTH)
     score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
     supporting_evidence: list[str] = Field(default_factory=list)
     contradicting_evidence: list[str] = Field(default_factory=list)
@@ -86,7 +89,7 @@ class RcaOutput(StrictModel):
 class Escalation(StrictModel):
     """Model output of the escalate node: a hand-off summary for the human."""
 
-    summary: str = Field(min_length=1)
+    summary: str = Field(min_length=1, max_length=ESCALATION_SUMMARY_MAX_LENGTH)
     evidence_ids: list[str] = Field(default_factory=list)
 
 
