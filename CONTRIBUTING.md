@@ -20,15 +20,16 @@ before anything leaves your machine:
 git config core.hooksPath .githooks
 ```
 
-## The five commands
+## The six commands
 
 Run these from the activated venv. CI runs the same checks, and a change is ready only when all
-five exit 0.
+six exit 0.
 
 | Purpose | Command |
 |---|---|
 | Install | `python -m pip install -r requirements.txt -r requirements-dev.txt` |
 | Lint | `python -m ruff check .` |
+| Format check | `python -m ruff format --check .` (CI runs this; fix locally with `python -m ruff format .`) |
 | Typecheck | `python -m pyright` |
 | Test | `python -m pytest -q` |
 | Dependency audit | `python -m pip_audit -r requirements.txt` |
@@ -68,4 +69,4 @@ A scenario is one JSON file in `scenarios/`, named after its id (for example
 
 Keep every name, host and author synthetic: use roles such as `ci-bot` and hosts such as
 `checkout-api-7f3`, never a real person, email address or hostname. Then add the scenario to
-the scenario tests in `tests/` and run the five commands.
+the scenario tests in `tests/` and run the six commands.
