@@ -307,8 +307,9 @@ def prompt_nonces(model: ScriptedChatModel) -> list[str]:
     return nonces
 
 
-def test_escalate_and_postmortem_prompts_each_carry_one_fresh_fence() -> None:
+def test_escalate_and_postmortem_prompts_each_carry_one_fresh_fence(tmp_path: Path) -> None:
     state = forged_state()
+    audit = AuditLog(tmp_path)
     scenario = scenario_named("clean_bad_deploy")
     escalation = {"summary": "Hand-off.", "evidence_ids": []}
     escalate_model = ScriptedChatModel(script_by_schema={Escalation: [escalation] * 2})
@@ -317,7 +318,7 @@ def test_escalate_and_postmortem_prompts_each_carry_one_fresh_fence() -> None:
     postmortem_model = ScriptedChatModel(script_by_schema={Postmortem: [scripted_postmortem] * 2})
 
     for _ in range(2):
-        escalate(state, model=escalate_model)
+        escalate(state, thread_config(state), model=escalate_model, audit=audit)
         postmortem(state, model=postmortem_model)
 
     nonces = prompt_nonces(escalate_model) + prompt_nonces(postmortem_model)

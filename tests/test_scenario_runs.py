@@ -1,16 +1,22 @@
 """E9 to E13 and E33: every scenario file, run through the whole graph with its scripted model,
-ends as its `expected_outcome` says (R5, R6, R10, R11)."""
+ends as its `expected_outcome` says (R5, R6, R10, R11). Each run stops at the first approval
+interrupt (brief D20); the runs past approval are in test_full_runs.py."""
 
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
-from agentops.fakes import scripted_model_for
-from agentops.graph import build_graph
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
+from agentops.fakes import ScriptedChatModel, scripted_model_for
+from agentops.graph import build_graph, checkpoint_serializer
 from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import RcaOutput, new_incident
+from agentops.state import IncidentState, RcaOutput, new_incident
 
 RED_HERRING = "deploy_red_herring_db"
 AMBIGUOUS = "ambiguous_two_causes"
@@ -33,10 +39,23 @@ def run_scenario(scenario: Scenario) -> tuple[Any, list[str]]:
     model = scripted_model_for(scenario)
     state = new_incident(scenario.service, scenario.symptoms, opened_at=scenario.incident_time)
 
-    final = build_graph(SimulatorSource(scenario), model).invoke(state)
+    final = run_to_first_pause(scenario, model, state)
 
     prompts = ["\n".join(str(message.content) for message in call) for call in model.calls]
     return final, prompts
+
+
+def run_to_first_pause(scenario: Scenario, model: ScriptedChatModel, state: IncidentState) -> Any:
+    """The full graph on an in-memory checkpointer, run until it ends or pauses at approval."""
+    with tempfile.TemporaryDirectory() as audit_dir:
+        graph = build_graph(
+            SimulatorSource(scenario),
+            model,
+            default_registry(),
+            AuditLog(Path(audit_dir)),
+            InMemorySaver(serde=checkpoint_serializer()),
+        )
+        return graph.invoke(state, {"configurable": {"thread_id": "scenario-run"}})
 
 
 def split_at_fence(prompt: str) -> tuple[str, str, str]:
@@ -149,7 +168,7 @@ def test_every_model_prompt_states_that_evidence_is_data_not_instructions(
     model = scripted_model_for(scenario)
     state = new_incident(scenario.service, scenario.symptoms, opened_at=scenario.incident_time)
 
-    build_graph(SimulatorSource(scenario), model).invoke(state)
+    run_to_first_pause(scenario, model, state)
 
     prompts = ["\n".join(str(message.content) for message in call) for call in model.calls]
     assert len(prompts) == 3

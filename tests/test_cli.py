@@ -1,4 +1,8 @@
-"""E1, E27 to E29, E35, E36: the `agentops` command line, driven through Typer's runner."""
+"""E1, E27 to E29, E35, E36: the `agentops` command line, driven through Typer's runner.
+
+`run` writes its checkpoint file and audit directory in the working directory, so every test
+here runs inside its own temporary directory.
+"""
 
 import json
 import re
@@ -21,6 +25,11 @@ SCENARIO_FILE_NAME = "clean_bad_deploy.json"
 AMBIGUOUS_FILE_NAME = "ambiguous_two_causes.json"
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def in_a_temporary_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
 
 
 def scenario_document() -> dict:
@@ -69,7 +78,13 @@ def test_run_scripted_prints_root_cause_and_exits_zero() -> None:
     assert int(evidence_count.group(1)) >= 5
     assert "root cause: recent_deploy_regression" in result.stdout
     assert "remediation: rollback_deploy" in result.stdout
-    assert "increment 3" in result.stdout
+    thread = re.search(r"^thread: ([0-9a-f]+)$", result.stdout, re.MULTILINE)
+    assert thread is not None
+    assert "pending approval: Would apply rollback_deploy" in result.stdout
+    assert f"Waiting for an operator's decision on thread {thread.group(1)}" in result.stdout
+    assert "Nothing was changed." in result.stdout
+    assert Path("agentops.sqlite").is_file()
+    assert (Path("audit") / f"{thread.group(1)}.jsonl").is_file()
 
 
 def test_usage_errors_exit_one_with_a_named_cause(tmp_path: Path) -> None:
@@ -358,4 +373,4 @@ def test_report_counts_failed_actions_when_every_source_read_fails(
 
     assert result.exit_code == 0, result.output
     assert re.search(r"actions: \d+ \([1-9]\d* failed\)", result.stdout)
-    assert "escalation: no_evidence" in result.stdout
+    assert "escalation: source_outage" in result.stdout
