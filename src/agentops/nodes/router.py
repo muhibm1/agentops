@@ -1,7 +1,7 @@
 """The router: which evidence sources to ask next, decided by code from the state alone (ADR 0003).
 
 A source scores one point for each open hypothesis (score at or above 0.2) it can confirm or rule
-out, judged by keywords in the hypothesis name. Sources are ordered by score, then logs, metrics,
+out, judged by keywords that start a `_`-separated word of the hypothesis name. Sources are ordered by score, then logs, metrics,
 deploys. A source that already holds evidence or was asked in two rounds is dropped. The longest
 prefix whose nominal cost fits the remaining budget is kept.
 """
@@ -114,9 +114,9 @@ def holds_evidence(state: IncidentState, source: SourceName) -> bool:
 
 
 def sources_able_to_judge(hypothesis_name: str) -> list[SourceName]:
-    name = hypothesis_name.lower()
-    about_metrics = any(keyword in name for keyword in METRIC_KEYWORDS)
-    about_deploys = any(keyword in name for keyword in DEPLOY_KEYWORDS)
+    tokens = hypothesis_name.lower().split("_")
+    about_metrics = names_keyword(tokens, METRIC_KEYWORDS)
+    about_deploys = names_keyword(tokens, DEPLOY_KEYWORDS)
     if not about_metrics and not about_deploys:
         return list(SOURCE_ORDER)
     judges: list[SourceName] = ["logs"]
@@ -125,3 +125,9 @@ def sources_able_to_judge(hypothesis_name: str) -> list[SourceName]:
     if about_deploys:
         judges.append("deploys")
     return judges
+
+
+def names_keyword(name_tokens: list[str], keywords: tuple[str, ...]) -> bool:
+    """True when a `_`-separated token of the name starts with a keyword, so 'deployment' matches
+    'deploy' but 'conversion' does not match 'version' and 'thrown' does not match 'row'."""
+    return any(token.startswith(keyword) for token in name_tokens for keyword in keywords)
