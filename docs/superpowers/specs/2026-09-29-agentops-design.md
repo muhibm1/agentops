@@ -1,6 +1,6 @@
 # AgentOps: a LangGraph incident-response runtime
 
-Status: draft for owner review, 2026-09-29. Supersedes "AgentOps — Project Plan" (PDF, 2026-09-29)
+Status: approved by the owner on 2026-09-30. Supersedes "AgentOps — Project Plan" (PDF, 2026-09-29)
 where the two differ; everything in that plan not contradicted here stands.
 
 Every version number and API shape below was confirmed against PyPI and the LangChain docs on
