@@ -12,8 +12,11 @@ import re
 import subprocess
 import sys
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -231,6 +234,76 @@ def test_fork_continues_a_new_thread_and_leaves_the_original_history_intact(
     assert [line.group(0) for line in history_lines(workspace, "red-1")] == original
 
 
+# A fork explores a counterfactual: it must not inherit the original's applied actions.
+def test_a_fork_after_an_apply_has_its_own_empty_ledger_and_applies_for_itself(
+    workspace: Workspace,
+) -> None:
+    run_scenario(workspace, CLEAN_BAD_DEPLOY, "incident-1")
+    after_triage = next(
+        line
+        for line in reversed(history_lines(workspace, "incident-1"))
+        if "metrics" in line["next"]
+    )
+    agentops(workspace, "approve", "incident-1", "--decision", "approve")
+
+    forked = agentops(
+        workspace,
+        "fork",
+        "incident-1",
+        "--at",
+        after_triage["id"],
+        "--set",
+        "recent_deploy_regression=0.9",
+    )
+    fork_ledger_before_approval = workspace.ledger("incident-1-fork-1")
+    approved = agentops(workspace, "approve", "incident-1-fork-1", "--decision", "approve")
+
+    assert forked.exit_code == 0, forked.output
+    assert "pending approval: Would apply rollback_deploy" in forked.stdout
+    assert fork_ledger_before_approval == []
+    assert approved.exit_code == 0, approved.output
+    assert "execution: applied rollback_deploy" in approved.stdout
+    assert len(workspace.ledger("incident-1-fork-1")) == 1
+    assert len(workspace.ledger("incident-1")) == 1
+
+
+# An answer the node refuses re-asks the question, and the command must say it failed.
+def test_approve_with_an_edit_the_node_refuses_exits_one_and_applies_nothing(
+    workspace: Workspace, tmp_path: Path
+) -> None:
+    run_scenario(workspace, CLEAN_BAD_DEPLOY, "incident-1")
+    edit = tmp_path / "edit.json"
+    edit.write_text(
+        json.dumps(
+            {
+                "action": "drop_table",
+                "target": "orders",
+                "params": {},
+                "reason": "x",
+                "evidence_ids": ["log-001"],
+                "risk": "low",
+                "rollback": "none",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    refused = agentops(
+        workspace,
+        "approve",
+        "incident-1",
+        "--decision",
+        "edit",
+        "--remediation-file",
+        str(edit),
+    )
+
+    assert refused.exit_code == 1
+    assert "last answer refused" in refused.stdout
+    assert "was refused" in refused.stderr
+    assert workspace.ledger("incident-1") == []
+
+
 # E31: resume on a thread that waits for a decision only shows the decision to make.
 def test_resume_on_a_waiting_thread_prints_the_proposal_and_applies_nothing(
     workspace: Workspace,
@@ -298,6 +371,28 @@ def test_a_bad_decision_and_an_unknown_hypothesis_exit_one_naming_the_value(
     assert "unknown_hypothesis" in bad_hypothesis.stderr
     assert workspace.ledger("red-1") == []
     assert [line.group(0) for line in history_lines(workspace, "red-1")] == before
+
+
+def test_a_thread_whose_checkpoint_holds_no_incident_exits_one_with_a_sentence(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class EmptySaver:
+        def get_tuple(self, config: Any) -> SimpleNamespace:
+            return SimpleNamespace(checkpoint={"channel_values": {}})
+
+    @contextmanager
+    def empty_checkpoints(state_db: Path) -> Iterator[EmptySaver]:
+        yield EmptySaver()
+
+    workspace.state_db.write_text("", encoding="utf-8")
+    monkeypatch.setattr("agentops.cli.open_checkpoints", empty_checkpoints)
+
+    result = agentops(workspace, "history", "empty-1")
+
+    assert result.exit_code == 1
+    assert "empty-1" in result.stderr
+    assert "no usable checkpoint" in result.stderr
+    assert "Traceback" not in result.output
 
 
 # E61: a checkpoint path that cannot be opened is a failed run, before anything is written.
