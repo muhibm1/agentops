@@ -47,7 +47,9 @@ def build_graph(
     graph.add_node("deploys", partial(deploys, source=source))
     graph.add_node("merge", merge)
     graph.add_node("rca", partial(rca, model=model), retry_policy=MODEL_NODE_RETRY)
-    graph.add_node("escalate", partial(escalate, model=model), retry_policy=MODEL_NODE_RETRY)
+    # Escalate retries inside the node and falls back to a summary written by code, so a run never
+    # ends without a hand-off.
+    graph.add_node("escalate", partial(escalate, model=model))
 
     graph.add_edge(START, "triage")
     graph.add_conditional_edges("triage", route_to_sources, [*EVIDENCE_NODES, "merge"])

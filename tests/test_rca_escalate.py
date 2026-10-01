@@ -187,12 +187,9 @@ ALL_SOURCES_ASKED_TWICE = (
 ) * 2
 
 
-def test_escalation_citations_are_checked_like_any_other() -> None:
+def test_escalation_keeps_a_summary_whose_citations_exist() -> None:
     state = triaged_state()
     state["evidence"] = [evidence_item("log-001")]
-
-    with pytest.raises(CitationError, match="log-999"):
-        escalate_with(state, {"summary": "s", "evidence_ids": ["log-999"]})
 
     update = escalate_with(state, {"summary": "s", "evidence_ids": ["log-001"]})
 
@@ -257,3 +254,40 @@ def test_escalate_keeps_the_reason_rca_wrote_even_when_the_budget_is_spent() -> 
     update = escalate_with(state, {"summary": "hand over"})
 
     assert update["escalation_reason"] == "ambiguous"
+
+
+def test_rca_rejects_a_duplicated_hypothesis_name() -> None:
+    reply = rca_reply()
+    reply["hypotheses"].append(hypothesis("bad_deploy", 0.3))
+
+    with pytest.raises(RcaConsistencyError, match="bad_deploy"):
+        run_rca(reply)
+
+
+def test_escalate_retries_a_bad_citation_and_keeps_the_good_answer() -> None:
+    state = triaged_state()
+    bad = {"summary": "first try", "evidence_ids": ["log-999"]}
+    good = {"summary": "second try", "evidence_ids": ["log-001"]}
+    model = ScriptedChatModel(script_by_schema={Escalation: [bad, good]})
+
+    update = escalate(state, model=model)
+
+    assert update["escalation"].summary == "second try"
+    assert len(model.calls) == 2
+
+
+def test_three_bad_citations_still_hand_off_with_a_summary_built_by_code() -> None:
+    state = triaged_state()
+    bad = {"summary": "model text that must not be used", "evidence_ids": ["log-999"]}
+    model = ScriptedChatModel(script_by_schema={Escalation: [bad, bad, bad]})
+
+    update = escalate(state, model=model)
+
+    assert len(model.calls) == 3
+    assert update["status"] == "escalated"
+    assert update["escalation_reason"] == "ambiguous"
+    summary = update["escalation"].summary
+    assert "model text" not in summary
+    assert "bad_deploy" in summary and "0.5" in summary
+    assert "database_saturation" in summary and "0.4" in summary
+    assert update["escalation"].evidence_ids == []
