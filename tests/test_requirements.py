@@ -35,3 +35,24 @@ def test_dev_requirements_install_the_package_itself() -> None:
     lines = requirement_lines("requirements-dev.txt")
 
     assert lines[-1] == EDITABLE_SELF_INSTALL
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        "langgraph-checkpoint-sqlite==3.1.1  # MIT",
+        "aiosqlite==0.22.1  # MIT",
+        "sqlite-vec==0.1.9  # MIT or Apache-2.0",
+        "pyyaml==6.0.3  # MIT",
+    ],
+)
+def test_runtime_requirements_pin_the_checkpointer_and_the_runbook_parser(pin: str) -> None:
+    lines = requirement_lines("requirements.txt")
+
+    assert pin in lines
+
+
+def test_pyyaml_is_a_runtime_requirement_only() -> None:
+    dev_lines = requirement_lines("requirements-dev.txt")
+
+    assert not any(line.startswith("pyyaml==") for line in dev_lines)
