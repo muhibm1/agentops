@@ -1,0 +1,4 @@
+$ .venv/Scripts/python.exe -m ruff check .
+# exit 0 after 0.1s via C:\Program Files\Git\bin\bash.exe
+
+[1;32mAll checks passed![0m

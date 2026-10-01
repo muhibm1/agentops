@@ -1,0 +1,67 @@
+{
+  "commit": "ad3be8ecf29513ef85fd0e8651bd1451640b899b",
+  "at": "2026-10-01T06:42:13.544Z",
+  "branch": "wh/2026-10-01-increment-2-investigation-half",
+  "checks_green": true,
+  "defined": 4,
+  "failed": [],
+  "checks": [
+    {
+      "check": "install",
+      "command": "python -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements.txt -r requirements-dev.txt",
+      "status": "skipped (runs with --install)"
+    },
+    {
+      "check": "typecheck",
+      "command": ".venv/Scripts/python.exe -m pyright",
+      "exit": 0,
+      "seconds": 3.4,
+      "log": "verify-logs/typecheck.log",
+      "status": "passed",
+      "measured": "Type check: 0 errors (`.venv/Scripts/python.exe -m pyright`).",
+      "first_error": null
+    },
+    {
+      "check": "lint",
+      "command": ".venv/Scripts/python.exe -m ruff check .",
+      "exit": 0,
+      "seconds": 0.1,
+      "log": "verify-logs/lint.log",
+      "status": "passed",
+      "measured": "Lint: 0 errors (`.venv/Scripts/python.exe -m ruff check .`).",
+      "first_error": null
+    },
+    {
+      "check": "test",
+      "command": ".venv/Scripts/python.exe -m pytest -q",
+      "exit": 0,
+      "seconds": 16.4,
+      "log": "verify-logs/test.log",
+      "status": "passed",
+      "measured": "Test suite: 239 passed, 0 failed, 1 skipped (`.venv/Scripts/python.exe -m pytest -q`).",
+      "first_error": null
+    },
+    {
+      "check": "build",
+      "status": "no check defined"
+    },
+    {
+      "check": "e2e",
+      "status": "no check defined"
+    },
+    {
+      "check": "security_audit",
+      "command": ".venv/Scripts/python.exe -m pip_audit -r requirements.txt",
+      "exit": 0,
+      "seconds": 22.7,
+      "log": "verify-logs/security_audit.log",
+      "status": "passed",
+      "measured": "Dependency audit: 0 known vulnerabilities (`.venv/Scripts/python.exe -m pip_audit -r requirements.txt`).",
+      "first_error": null
+    },
+    {
+      "check": "screenshot",
+      "status": "no check defined"
+    }
+  ]
+}
