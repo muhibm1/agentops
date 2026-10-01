@@ -7,16 +7,17 @@ idempotently. Python 3.11, MIT. The approved design is
 
 ## Commands
 
-Status: planned. None of these files exist until increment 1 lands.
-
 - Setup: `python -m venv .venv`, activate it (`.venv\Scripts\activate` on Windows,
   `source .venv/bin/activate` elsewhere), then
   `python -m pip install -r requirements.txt -r requirements-dev.txt`
-- Lint: `python -m ruff check .` (format with `python -m ruff format`)
+- Lint: `python -m ruff check .`; format check: `python -m ruff format --check .` (fix with
+  `python -m ruff format .`)
 - Typecheck: `python -m pyright`
 - Test: `python -m pytest -q` (no API key needed; tests use a fake chat model)
 - Dependency audit: `python -m pip_audit -r requirements.txt`
-- Run: `agentops run --scenario <id>`; local server: `langgraph dev`
+- Demo: `agentops run --scenario clean_bad_deploy --model scripted` (no API key; prints the
+  hypotheses, evidence count, root cause and remediation). `--model anthropic` arrives in
+  increment 2; `langgraph dev` needs `langgraph.json`, not yet in the repository.
 
 ## Architecture in five lines
 

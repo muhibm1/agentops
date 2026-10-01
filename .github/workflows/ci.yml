@@ -1,0 +1,48 @@
+# Lint, format, typecheck, tests with a test-count floor, and a dependency audit.
+# Read-only token; this workflow reads no repository secret. Re-resolve an action pin with:
+#   gh api repos/<owner>/<repo>/git/ref/tags/<tag>
+name: ci
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+env:
+  MIN_TESTS: "30"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Create the virtual environment
+        run: python -m venv .venv
+
+      - name: Install pinned requirements
+        run: .venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint
+        run: .venv/bin/python -m ruff check .
+
+      - name: Format check
+        run: .venv/bin/python -m ruff format --check .
+
+      - name: Typecheck
+        run: .venv/bin/python -m pyright
+
+      - name: Tests
+        run: .venv/bin/python -m pytest -q --junitxml=junit.xml
+
+      - name: Test-count floor
+        run: .venv/bin/python scripts/check_test_count.py junit.xml "$MIN_TESTS"
+
+      - name: Dependency audit
+        run: .venv/bin/python -m pip_audit -r requirements.txt

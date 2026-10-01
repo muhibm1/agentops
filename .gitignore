@@ -13,3 +13,4 @@ __pycache__/
 *.sqlite3
 audit/
 .langgraph_api/
+*.egg-info/
