@@ -19,7 +19,9 @@ on the default would make a malformed structured response fail the run on its fi
 evidence)`, which raises when `ids` is empty or names an id absent from `evidence`. `triage`
 and `rca` call it on every output before returning. `build_graph` attaches
 `RetryPolicy(max_attempts=3, retry_on=(CitationError, ValidationError))` to both model nodes.
-The evidence node keeps `RetryPolicy(max_attempts=2)` with the default predicate. Eval case E23
+The evidence node keeps `RetryPolicy(max_attempts=2)` with the default predicate.
+Correction (task 6): the default predicate does not retry the `RuntimeError` E37 raises, so the
+evidence node uses `RetryPolicy(max_attempts=2, retry_on=Exception)` (confirmed by E37). Eval case E23
 proves the retry empirically with a bad-then-good script; the "believed" above becomes
 confirmed or refuted by that test, and the builder records which in the commit message.
 

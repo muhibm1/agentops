@@ -11,8 +11,8 @@ Approval, execution, the live model and the evaluation harness arrive in later i
 
 To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md), then run
 `agentops run --scenario clean_bad_deploy --model scripted`. The command prints the triage
-hypotheses, the evidence it collected and the root cause with its remediation. Until task 7 of
-increment 1 lands, `agentops --version` is the only command.
+hypotheses, the evidence it collected and the root cause with its remediation. Approval and
+execution are not part of this increment, so the command changes nothing.
 
 The design, its decisions and the plan for each increment are in
 [docs/superpowers/specs/2026-09-29-agentops-design.md](docs/superpowers/specs/2026-09-29-agentops-design.md).
