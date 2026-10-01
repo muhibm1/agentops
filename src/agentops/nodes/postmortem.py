@@ -67,7 +67,7 @@ def postmortem(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
 
 
 def postmortem_human_prompt(state: IncidentState, nonce: str) -> str:
-    """The service, symptoms, root cause and applied action, then the fenced evidence."""
+    """The service, symptoms, root cause and every applied action, then the fenced evidence."""
     symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
     lines = [
         f"Service: {neutralise_delimiters(state['service'])}",
@@ -78,9 +78,9 @@ def postmortem_human_prompt(state: IncidentState, nonce: str) -> str:
         lines.append(
             f"Root cause: {root_cause.label}: {neutralise_delimiters(root_cause.explanation)}"
         )
-    execution = state["execution"]
-    if execution is not None:
-        lines.append(f"Action applied: {execution.action} on {execution.target}")
+    applied = applied_descriptions(state)
+    if applied:
+        lines.append(f"Actions applied: {'; '.join(applied)}")
     return "\n".join(lines) + "\n\n" + render_evidence(state["evidence"], nonce)
 
 
@@ -89,18 +89,37 @@ def fallback_postmortem(state: IncidentState) -> Postmortem:
     from the root cause and the action evidence already in state."""
     root_cause = state["root_cause"]
     label = root_cause.label if root_cause is not None else "unknown"
-    execution = state["execution"]
-    applied = f"{execution.action} on {execution.target}" if execution else "the approved action"
+    applied = applied_descriptions(state) or ["the approved action"]
     summary = (
         "Automatic postmortem: the model's postmortem could not be validated. "
-        f"Root cause {label}; {applied} was applied and verification found the symptoms cleared."
+        f"Root cause {label}; {' and '.join(applied)} "
+        f"{'was' if len(applied) == 1 else 'were'} applied and verification found the symptoms "
+        "cleared."
     )
     return Postmortem(
         summary=summary,
-        timeline=[f"Applied {applied}.", "Verification found the symptoms cleared."],
+        timeline=[
+            *(f"Applied {item}." for item in applied),
+            "Verification found the symptoms cleared.",
+        ],
         root_cause=label,
         evidence_ids=fallback_citations(state),
     )
+
+
+def applied_descriptions(state: IncidentState) -> list[str]:
+    """`<action> on <target>` for every change in effect, in the order applied. The action
+    evidence is the record of every loop; the last execution is the fallback when it has none."""
+    described: dict[str, str] = {}
+    for item in state["evidence"]:
+        if item.kind == "action" and item.payload.get("applied") is True:
+            key = str(item.payload.get("idempotency_key", item.id))
+            action = neutralise_delimiters(str(item.payload.get("action", item.id)))
+            described[key] = f"{action} on {neutralise_delimiters(str(item.payload.get('target')))}"
+    execution = state["execution"]
+    if not described and execution is not None and execution.applied:
+        described[execution.idempotency_key] = f"{execution.action} on {execution.target}"
+    return list(described.values())
 
 
 def fallback_citations(state: IncidentState) -> list[str]:
