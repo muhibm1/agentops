@@ -37,3 +37,6 @@
 2026-10-01T06:50:04.242Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/3
 2026-10-01T06:50:27.989Z | review | wh-shipper | ship.md, PR 3 ready, Actions green
 2026-10-01T06:50:28.052Z | review | conductor | G4 Ship presented
+2026-10-01T06:56:50.419Z | review | conductor | resumed at review after G4 approved; PR #3 merged by owner (44f68f1), no environment has a deploy command
+2026-10-01T06:56:50.544Z | deploy | conductor | D1: deploy recorded as owner's merge, nothing deployed (no deploy command in profile) -> shipper deploy mode skipped
+2026-10-01T06:56:53.717Z | deploy | conductor | done: change closed, retro dispatched
