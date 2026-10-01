@@ -1,0 +1,15 @@
+.worktrees/
+.workhorse/active
+.workhorse/state/
+.env*
+!.env.example
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.db
+*.sqlite
+*.sqlite3
+audit/
+.langgraph_api/

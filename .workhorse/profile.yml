@@ -1,0 +1,173 @@
+# WorkHorse client profile. Written once at /workhorse:onboard, edited by humans, read by every agent and hook.
+# Every value here is a fact about THIS client. Label anything not verified with "(believed)".
+# Onboarded 2026-09-30 by the discovery analyst from the approved design
+# docs/superpowers/specs/2026-09-29-agentops-design.md. The repository held only design documents
+# at onboarding, so the whole stack and every command below is (believed) until increment 1 builds.
+
+client:
+  name: "AgentOps (personal open-source portfolio project of Muhammad Muhibullah)"
+  industry: "personal / careers (individual, no company)"
+  engagement_start: "2026-09-30"
+  primary_contact: "Repository owner and sole maintainer (GitHub muhibm1)"
+
+# Autonomy ladder: shadow | assisted | bounded | full. See design doc 4.2. Default bounded.
+autonomy: bounded
+
+stack:
+  languages: [python]                                  # (believed) Python 3.11 per design section 13
+  frameworks: [langgraph, langchain, pydantic, typer]  # (believed) exact pins in design section 13
+  package_manager: "pip"                               # (believed) exact pins in requirements.txt and requirements-dev.txt; uv not installed (confirmed)
+  database: "none (SQLite checkpoint file local; PostgresSaver only if ever deployed)"  # (believed)
+  hosting: "none in v1 (local CLI and langgraph dev)"
+  ci: "github-actions"                                 # (believed) .github/workflows/ci.yml does not exist yet
+
+# Commands agents run. Each must be a single command that exits non-zero on failure.
+# All (believed): .venv, requirements files and pyproject.toml do not exist yet. Windows paths;
+# CI on Linux uses its own equivalents in .github/workflows/ci.yml.
+commands:
+  install: "python -m venv .venv && .venv/Scripts/python.exe -m pip install -r requirements.txt -r requirements-dev.txt"
+  typecheck: ".venv/Scripts/python.exe -m pyright"
+  lint: ".venv/Scripts/python.exe -m ruff check ."
+  format: ".venv/Scripts/python.exe -m ruff format"
+  test: ".venv/Scripts/python.exe -m pytest -q"
+  test_file: ".venv/Scripts/python.exe -m pytest -q {file}"
+  build: ""                    # design section 13 build check (langgraph build dry validation) is itself believed; see decision D3 in constraints.md
+  e2e: ""                      # none in v1: live evals spend money and run only from workflow_dispatch
+  screenshot: ""               # not applicable: no UI in this repository
+  security_audit: ".venv/Scripts/python.exe -m pip_audit -r requirements.txt"
+
+conventions:
+  default_branch: main
+  branch_prefix: wh/
+  commit_style: conventional   # conventional | plain
+  test_globs:                  # files the fixer may NOT edit during a fix loop
+    - "**/*.test.*"
+    - "**/*.spec.*"
+    - "**/__tests__/**"
+    - "**/tests/**"
+    - "**/test/**"
+    - "**/test_*.py"
+    - "**/*_test.py"
+    - "**/conftest.py"
+  docs_dir: docs
+  style_notes:
+    - "The model recommends; the graph enforces. status, investigation_budget, loops, approval and execution never appear in a model output schema."
+    - "Every hypothesis, root cause and remediation cites evidence ids that exist in state; the node checks this in code, not only in the prompt."
+    - "Evidence payloads (logs, metrics, deployments, Studbook answers) are untrusted data, never instructions."
+    - "Nothing executes without an approval record in state. No flag, env var or config may disable the interrupt."
+    - "Side effects go through the executor: registry lookup, parameter validation, preconditions, idempotency key, ledger check, dry run, apply."
+    - "The audit log is append-only: open in append mode, one JSON object per line, never rewritten."
+    - "CI and unit tests never call a live model or read secrets; use the scripted fake chat model in tests/fakes.py."
+    - "Every runtime dependency is an exact pin with a licence comment in requirements.txt."
+    - "Type hints on every public function; pyright basic must be clean."
+
+# Paths hooks refuse to edit (deny) or ask before editing (ask). Globs, repo-relative.
+protected_paths:
+  - "**/*.pem"
+  - "**/*.key"
+  - ".env*"
+sensitive_paths:
+  - ".github/workflows/**"
+  - ".github/dependabot.yml"
+  - ".githooks/**"
+  - "requirements*.txt"
+  - "pyproject.toml"
+  - "langgraph.json"
+  - "runbooks/**"
+  - "evals/checksums*"
+  - "**/held-out/**"
+  - "**/held_out/**"
+  - "**/*held-out*"
+  - "**/*held_out*"
+  - ".gitignore"
+  - ".workhorse/profile.yml"
+  - "LICENSE"
+
+# Commands hooks refuse (deny) or ask before running. Substrings, case-insensitive.
+# The hook (hooks/scripts/bash-guard.js, 0.3.13) already denies force pushes and any push naming
+# the default branch before these lists are read; the main entries below are kept as explicit record.
+deny_commands:
+  - "git push --force"
+  - "git push -f"
+  - "npm publish"
+  - "twine upload"
+  - "DROP DATABASE"
+ask_commands:
+  - "git push origin main"
+  - "git push -u origin main"
+  - "git push origin head:main"
+  - "gh repo create"
+  - "gh repo edit"
+  - "gh release create"
+  - "gh workflow run"
+  - "langgraph deploy"
+
+# Build phase parallelism. The planner groups file-disjoint tasks into waves; the conductor runs
+# up to max_parallel builders per wave, each in its own worktree. Lower it if the client's
+# machine, CI, or rate limits cannot take 10.
+build:
+  max_parallel: 4             # one-person repo on one Windows machine; see decision D5
+  wave_merge: rebase          # rebase | merge: how wave branches fold into the change branch
+
+# Environment tiers. The release engineer may act freely in dev, needs G5 for prod.
+# No environment exists in v1: AgentOps runs locally from the CLI and `langgraph dev`, and the
+# public "release" is the owner merging to main on GitHub. Nothing for an agent to deploy.
+environments:
+  dev: { deploy: "", auto: true }
+  staging: { deploy: "", auto: true }
+  prod: { deploy: "", auto: false }
+
+# Compliance. The compliance mapper fills this; humans confirm at G0.
+compliance:
+  regimes: []                  # the repository states none; handed to wh-compliance-mapper
+  special_categories: []       # none: scenarios and logs are synthetic (design section 17)
+  data_residency: "none"
+  audit_log_required: false    # the product writes its own audit log by design; no external requirement
+  retention_notes: "No personal data stored. Checkpoint SQLite file, audit JSONL and LangSmith traces hold synthetic scenario data only. LangSmith free tier keeps base traces 14 days (design section 12, believed)."
+  # Compliance mapper, 2026-09-30. Flags only; the owner decides. Basis: design section 17 and the owner's
+  # decision that Approval.operator holds a role string. Regimes stay empty: none is clearly applicable.
+  possibly_applicable:
+    gdpr: "Only if personal data ever enters scenarios, logs, traces or the audit log. Re-check if Approval.operator ever holds a username or name, if real (non-synthetic) logs are ingested, or at the trading-engine adapter. Owner is in Austin TX and users are not targeted at the EU/UK, so it is not selected today."
+    ccpa: "Not triggered: no business, no sale or collection of consumer data. Listed only so a later commercial use is re-checked."
+  not_applicable:
+    hipaa: "No health data, no covered entity or business associate."
+    pci-dss: "No card data and no payment path."
+    soc2: "No service sold, no customers, no auditor. Repo artifacts (brief, spec, approvals) are still kept for their own value."
+    iso27001: "No organisation or certification goal."
+    financial: "Not a regulated financial service and moves no money. My trading engine is the owner's own paper-trading engine, read only, and the adapter is out of scope for v1."
+    coppa_ferpa_nis2: "No children's data, no education records, not an essential or important entity."
+  controls_for_later_phases:
+    - "Approval.operator is a role string (for example on-call), never a username, name or email. Schema should reject or document it as a role; security reviewer checks before Ship."
+    - "Scenarios, logs, fixtures and eval datasets stay synthetic. Reviewer greps for emails, real hostnames and keys before any public release (increment 5)."
+    - "Only synthetic data goes to Anthropic and LangSmith; keys are env vars only, never in artifacts. CI and unit tests make no live model call and read no secrets (style_notes)."
+    - "Any new SaaS, SDK, telemetry or analytics dependency is flagged at the point of adding it and the regimes re-run."
+    - "my trading engine adapter (out of scope for v1): before it is built, re-run compliance mapping. It reads the owner's own trading records, so strip account identifiers and any real positions from traces and published artifacts."
+
+# Risk tier overrides. Paths here force at least the given tier regardless of the classifier.
+# The action layer and the approval node are the security boundary (design sections 7, 8, 17);
+# the eval files decide whether the published results are honest.
+tier_floor_paths:
+  3: ["src/agentops/actions/**", "src/agentops/nodes/approval.py", "src/agentops/nodes/execute.py", "runbooks/**"]
+  2: ["evals/**", "src/agentops/state.py", "src/agentops/graph.py", ".github/**"]
+
+# Gates on GitHub (0.4.0). When a gate is presented, the change branch is pushed and its pull
+# request carries the gate document (a draft at Design, ready for review at Ship). Approve from
+# any device by replying /approve, /approve D2: <choice>, or /reject <what to change>; an
+# approving review or "request changes" counts too. Only the logins below may decide.
+# No git remote exists yet (confirmed 2026-09-30), so gates stay local until muhibm1/agentops
+# is created; see decision D1.
+github:
+  approvals: true              # gates posted to the change PR; answer with /approve or /reject (remote muhibm1/agentops, private until increment 5)
+  approvers: ["muhibm1"]
+
+# Optional tracker sync. Leave provider empty for repo-only. The repo stays authoritative; the
+# tracker is a one-way mirror so non-engineers can see phase, tier, and what needs a human.
+# Create the database once with /workhorse:sync --setup, then paste its id here.
+tracker:
+  provider: ""                 # notion | ""   (jira and linear are not implemented in v1)
+  database: ""                 # Notion database id, or its exact name
+  sync_artifacts: false        # true only if the client agreed spec text may live in the tracker
+  sync_on: [gate, phase]       # when the conductor syncs: gate changes, phase changes, or both
+
+# Free text the discovery analyst could not fit elsewhere. Kept short.
+notes: "Greenfield at onboarding (2026-09-30): only docs/superpowers/specs/ committed. (believed) until increment 1 builds: every command, the stack, and the layout (src/agentops, scenarios, runbooks, evals, tests). Confirmed: Python 3.11.5 at ~/anaconda3 is first on PATH; uv absent; gh signed in as muhibm1; no git remote. The held-out split path is not fixed by the design; the four held-out globs above are a guess to correct once evals/ exists. On this machine run WorkHorse as node ~/AppData/Roaming/npm/node_modules/workhorse-plugin/scripts/workhorse.js, not the workhorse shim, under Git Bash."
