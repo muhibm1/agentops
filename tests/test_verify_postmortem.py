@@ -18,7 +18,7 @@ from agentops.fakes import ScriptedChatModel, scripted_model_for
 from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN
 from agentops.nodes.escalate import escalate
 from agentops.nodes.evidence import as_evidence, deploys, logs, metrics
-from agentops.nodes.postmortem import postmortem
+from agentops.nodes.postmortem import fallback_postmortem, postmortem, postmortem_human_prompt
 from agentops.nodes.router import route_to_sources
 from agentops.nodes.verify import (
     after_verify,
@@ -33,6 +33,7 @@ from agentops.sources.simulator import SimulatorSource
 from agentops.state import (
     RCA,
     Escalation,
+    Evidence,
     ExecutionRecord,
     Hypothesis,
     IncidentState,
@@ -359,6 +360,61 @@ def test_three_uncited_postmortems_fall_back_to_a_code_built_one() -> None:
     assert update["postmortem"].root_cause == "recent_deploy_regression"
     known = {item.id for item in state["evidence"]}
     assert set(update["postmortem"].evidence_ids) <= known
+
+
+def two_applied_actions_state() -> IncidentState:
+    """The loop scenario after both actions: the execution record is only the last one."""
+    scenario = scenario_named("two_concurrent_faults")
+    state = executed_state(scenario, SimulatorSource(scenario))
+    state["execution"] = state["execution"].model_copy(  # type: ignore[union-attr]
+        update={"action": "scale_db_pool", "target": "postgres"}
+    )
+    state["evidence"] = [
+        *state["evidence"],
+        *(
+            Evidence(
+                id=f"action-{number}",
+                source="apply",
+                kind="action",
+                payload={"idempotency_key": f"key-{number}", **payload, "applied": True},
+                collected_at=datetime.now(UTC),
+            )
+            for number, payload in enumerate(
+                [
+                    {"action": "rollback_deploy", "target": "deploy-001"},
+                    {"action": "scale_db_pool", "target": "postgres"},
+                ],
+                start=1,
+            )
+        ),
+    ]
+    return state
+
+
+def test_the_fallback_postmortem_names_every_applied_action_in_order() -> None:
+    result = fallback_postmortem(two_applied_actions_state())
+
+    assert "rollback_deploy on deploy-001" in result.summary
+    assert "scale_db_pool on postgres" in result.summary
+    assert result.timeline[:2] == [
+        "Applied rollback_deploy on deploy-001.",
+        "Applied scale_db_pool on postgres.",
+    ]
+
+
+def test_the_postmortem_prompt_names_every_applied_action() -> None:
+    prompt = postmortem_human_prompt(two_applied_actions_state(), "0123456789abcdef")
+
+    assert "Actions applied: rollback_deploy on deploy-001; scale_db_pool on postgres" in prompt
+
+
+def test_an_action_that_changed_nothing_is_not_named_as_applied() -> None:
+    state = two_applied_actions_state()
+    state["evidence"][-1].payload["applied"] = False
+
+    result = fallback_postmortem(state)
+
+    assert "scale_db_pool" not in result.summary
 
 
 @pytest.mark.parametrize(
