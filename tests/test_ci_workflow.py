@@ -68,7 +68,9 @@ def test_workflow_runs_the_gates_in_order_with_a_read_only_token() -> None:
 
     assert {"push", "pull_request"} <= set(workflow_triggers(workflow))
     assert workflow["permissions"] == {"contents": "read"}
-    assert workflow["env"]["MIN_TESTS"] == "30"
+    assert job["runs-on"] == "ubuntu-24.04"
+    assert not str(job["runs-on"]).endswith("-latest")
+    assert workflow["env"]["MIN_TESTS"] == "80"
     assert len(checkout_steps) == 1
     assert checkout_steps[0]["with"]["persist-credentials"] is False
     assert gates_missing_or_out_of_order(run_text) == []
