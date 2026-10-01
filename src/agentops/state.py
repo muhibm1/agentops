@@ -173,7 +173,8 @@ MODEL_OUTPUT_SCHEMAS: tuple[type[BaseModel], ...] = (Triage, RcaOutput, Postmort
 class CitationError(Exception):
     """A model output cited no evidence, or an id absent from the state's evidence.
 
-    Deliberately not a ValueError, so the graph's retry policy names it explicitly (ADR 0002).
+    Deliberately not a ValueError, so the graph's retry policy names it explicitly
+    (increment-1 ADR 0002).
     """
 
 

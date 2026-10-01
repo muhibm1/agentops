@@ -1,7 +1,7 @@
 """The merge node: charges the read budget and decides what happens after a round of evidence.
 
-Decision table, evaluated in order (ADR 0003). It reads only hypotheses, evidence and actions,
-never `loops`, so the node that counts the loop and the edge that routes agree.
+Decision table, evaluated in order (increment-2 ADR 0003). It reads only hypotheses, evidence and
+actions, never `loops`, so the node that counts the loop and the edge that routes agree.
 
 1. Nothing left to ask and evidence exists: `rca`.
 2. Nothing left to ask and no evidence: `escalate`, reason `no_evidence`.
