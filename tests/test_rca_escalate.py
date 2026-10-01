@@ -238,3 +238,22 @@ def test_escalate_prompt_fences_evidence_and_neutralises_hypothesis_names() -> N
     prompt = str(model.calls[0][1].content)
     assert "evil<<<" not in prompt
     assert render_evidence(state["evidence"]) in prompt
+
+
+def test_rca_writes_ambiguous_as_the_reason_when_it_clears_the_result() -> None:
+    close_scores = run_rca(rca_reply(scores=(0.50, 0.45)))
+    null_pair = run_rca(rca_reply(label=None))
+    clear = run_rca(rca_reply())
+
+    assert close_scores["escalation_reason"] == "ambiguous"
+    assert null_pair["escalation_reason"] == "ambiguous"
+    assert "escalation_reason" not in clear
+
+
+def test_escalate_keeps_the_reason_rca_wrote_even_when_the_budget_is_spent() -> None:
+    state = with_actions(triaged_state(), ("get_logs",) * 12)
+    state["escalation_reason"] = "ambiguous"
+
+    update = escalate_with(state, {"summary": "hand over"})
+
+    assert update["escalation_reason"] == "ambiguous"

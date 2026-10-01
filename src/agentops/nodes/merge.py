@@ -31,12 +31,16 @@ __all__ = [
 
 
 def merge(state: IncidentState) -> dict[str, Any]:
-    """Write the remaining budget (never below zero) and count a loop when sources are re-asked."""
-    is_asking_again = isinstance(decide_next_step(state), list)
-    return {
+    """Write the remaining budget (never below zero), count a loop when sources are re-asked, and
+    write the stop reason when the next step is escalate."""
+    next_step = decide_next_step(state)
+    update: dict[str, Any] = {
         "investigation_budget": max(0, INITIAL_INVESTIGATION_BUDGET - source_read_attempts(state)),
-        "loops": state["loops"] + 1 if is_asking_again else state["loops"],
+        "loops": state["loops"] + 1 if isinstance(next_step, list) else state["loops"],
     }
+    if next_step == "escalate":
+        update["escalation_reason"] = reason_for_escalating_before_rca(state)
+    return update
 
 
 def after_merge(state: IncidentState) -> list[Send] | str:
