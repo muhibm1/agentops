@@ -6,3 +6,4 @@
 2026-10-01T07:27:11.004Z | design | wh-eval-designer | evals 52 -> 64 of 80
 2026-10-01T07:34:17.048Z | design | wh-designer | brief updated with D21-D24; 24 decisions
 2026-10-01T07:34:17.118Z | design | conductor | G2 Design presented
+2026-10-01T07:34:24.003Z | design | conductor | G2 Design posted to https://github.com/muhibm1/agentops/pull/5
