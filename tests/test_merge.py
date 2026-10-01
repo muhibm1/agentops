@@ -126,3 +126,36 @@ def test_merge_writes_its_stop_reason_when_it_routes_to_escalate() -> None:
     assert merge(no_evidence)["escalation_reason"] == "no_evidence"
     assert merge(budget_spent)["escalation_reason"] == "budget_exhausted"
     assert "escalation_reason" not in merge(carry_on)
+
+
+def failed_reads(tools: tuple[str, ...], rounds: int) -> list[Action]:
+    """Both attempts of every tool failing, `rounds` times over."""
+    return [
+        Action(tool=tool, ok=False, latency_ms=1.0, attempt=attempt)
+        for _ in range(rounds)
+        for tool in tools
+        for attempt in (1, 2)
+    ]
+
+
+def test_every_read_failing_with_no_evidence_escalates_as_a_source_outage() -> None:
+    state = incident_with(evidence_tools=(), action_tools=())
+    state["actions"] = failed_reads(
+        ("get_logs", "get_metrics", "get_dependency_health", "get_deployments"), rounds=2
+    )
+
+    update = merge(state)
+
+    assert decide_next_step(state) == "escalate"
+    assert update["escalation_reason"] == "source_outage"
+    assert update["unreachable_sources"] == ["logs", "metrics", "deploys"]
+
+
+def test_merge_names_only_sources_whose_every_attempt_failed() -> None:
+    state = incident_with(
+        evidence_tools=("get_logs", "get_metrics"),
+        action_tools=("get_logs", "get_metrics", "get_dependency_health"),
+    )
+    state["actions"] = [*state["actions"], *failed_reads(("get_deployments",), rounds=1)]
+
+    assert merge(state)["unreachable_sources"] == ["deploys"]

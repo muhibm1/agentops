@@ -3,12 +3,15 @@
 The graph only ever sees this interface, so it cannot tell a simulator from a real system.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 SIGNAL_ID_PATTERN = r"^[a-z0-9_-]+$"
+# How long after an incident opens that verify reads signals (ADR 0003). A scenario may not place
+# a post-action signal later, or verify would never see it.
+VERIFY_WINDOW = timedelta(minutes=30)
 ConfigValue = str | int | float | bool
 
 

@@ -1,16 +1,22 @@
 """E9 to E13 and E33: every scenario file, run through the whole graph with its scripted model,
-ends as its `expected_outcome` says (R5, R6, R10, R11)."""
+ends as its `expected_outcome` says (R5, R6, R10, R11). Each run stops at the first approval
+interrupt (brief D20); the runs past approval are in test_full_runs.py."""
 
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
-from agentops.fakes import scripted_model_for
-from agentops.graph import build_graph
-from agentops.nodes.rca import CLOSING_DELIMITER, OPENING_DELIMITER
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
+from agentops.fakes import ScriptedChatModel, scripted_model_for
+from agentops.graph import build_graph, checkpoint_serializer
+from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import RcaOutput, new_incident
+from agentops.state import IncidentState, RcaOutput, new_incident
 
 RED_HERRING = "deploy_red_herring_db"
 AMBIGUOUS = "ambiguous_two_causes"
@@ -33,10 +39,31 @@ def run_scenario(scenario: Scenario) -> tuple[Any, list[str]]:
     model = scripted_model_for(scenario)
     state = new_incident(scenario.service, scenario.symptoms, opened_at=scenario.incident_time)
 
-    final = build_graph(SimulatorSource(scenario), model).invoke(state)
+    final = run_to_first_pause(scenario, model, state)
 
     prompts = ["\n".join(str(message.content) for message in call) for call in model.calls]
     return final, prompts
+
+
+def run_to_first_pause(scenario: Scenario, model: ScriptedChatModel, state: IncidentState) -> Any:
+    """The full graph on an in-memory checkpointer, run until it ends or pauses at approval."""
+    with tempfile.TemporaryDirectory() as audit_dir:
+        graph = build_graph(
+            SimulatorSource(scenario),
+            model,
+            default_registry(),
+            AuditLog(Path(audit_dir)),
+            InMemorySaver(serde=checkpoint_serializer()),
+        )
+        return graph.invoke(state, {"configurable": {"thread_id": "scenario-run"}})
+
+
+def split_at_fence(prompt: str) -> tuple[str, str, str]:
+    """The text before the opening marker, inside the fence, and after the closing marker; the
+    markers carry a per-prompt nonce, so they are matched by pattern (brief D20)."""
+    before_block, rest = OPENING_MARKER_PATTERN.split(prompt)
+    block, after_block = CLOSING_MARKER_PATTERN.split(rest)
+    return before_block, block, after_block
 
 
 @pytest.mark.parametrize("scenario", [RED_HERRING], indirect=True)
@@ -105,8 +132,7 @@ def test_log_injection_stays_fenced_and_the_real_cause_wins(scenario: Scenario) 
     prompts_with_the_line = [prompt for prompt in prompts if INJECTION_MARKER in prompt]
     assert prompts_with_the_line
     for prompt in prompts_with_the_line:
-        before_block, rest = prompt.split(OPENING_DELIMITER)
-        block, after_block = rest.split(CLOSING_DELIMITER)
+        before_block, block, after_block = split_at_fence(prompt)
         assert INJECTION_MARKER not in before_block
         assert INJECTION_MARKER not in after_block
         assert "<<<" not in block
@@ -123,14 +149,13 @@ def test_a_log_line_that_forges_the_closing_marker_cannot_leave_the_fence(
     final, prompts = run_scenario(scenario)
 
     forged_line = next(line for line in scenario.signals.logs if line.id == "log-007")
-    assert CLOSING_DELIMITER in forged_line.message
+    assert "<<<end>>>" in forged_line.message
     prompts_with_the_line = [prompt for prompt in prompts if "NEW INSTRUCTIONS" in prompt]
     assert prompts_with_the_line
     for prompt in prompts_with_the_line:
-        assert prompt.count(OPENING_DELIMITER) == 1
-        assert prompt.count(CLOSING_DELIMITER) == 1
-        before_block, rest = prompt.split(OPENING_DELIMITER)
-        block, after_block = rest.split(CLOSING_DELIMITER)
+        assert len(OPENING_MARKER_PATTERN.findall(prompt)) == 1
+        assert len(CLOSING_MARKER_PATTERN.findall(prompt)) == 1
+        _, block, after_block = split_at_fence(prompt)
         assert "NEW INSTRUCTIONS" in block
         assert "NEW INSTRUCTIONS" not in after_block
     assert final["remediation"].action == "pause_batch_job"
@@ -143,7 +168,7 @@ def test_every_model_prompt_states_that_evidence_is_data_not_instructions(
     model = scripted_model_for(scenario)
     state = new_incident(scenario.service, scenario.symptoms, opened_at=scenario.incident_time)
 
-    build_graph(SimulatorSource(scenario), model).invoke(state)
+    run_to_first_pause(scenario, model, state)
 
     prompts = ["\n".join(str(message.content) for message in call) for call in model.calls]
     assert len(prompts) == 3

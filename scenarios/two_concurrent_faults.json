@@ -181,6 +181,37 @@
           ]
         }
       ]
+    },
+    "rollback_deploy+scale_db_pool": {
+      "metrics": [
+        {
+          "id": "metric-db_pool_utilisation",
+          "name": "db_pool_utilisation",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-20T11:50:00Z", "value": 0.55 },
+            { "at": "2026-03-20T11:55:00Z", "value": 0.55 }
+          ]
+        },
+        {
+          "id": "metric-error_rate",
+          "name": "error_rate",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-20T11:50:00Z", "value": 0.005 },
+            { "at": "2026-03-20T11:55:00Z", "value": 0.005 }
+          ]
+        },
+        {
+          "id": "metric-p99_latency_ms",
+          "name": "p99_latency_ms",
+          "unit": "ms",
+          "points": [
+            { "at": "2026-03-20T11:50:00Z", "value": 300 },
+            { "at": "2026-03-20T11:55:00Z", "value": 300 }
+          ]
+        }
+      ]
     }
   },
   "scripted_outputs": {
@@ -222,13 +253,59 @@
       },
       "remediation": {
         "action": "rollback_deploy",
-        "target": "orders",
+        "target": "deploy-001",
         "params": { "to_version": "v7.7.3" },
         "reason": "The rollback removes the failing discount code and the extra queries. Whether the pool is still saturated afterwards is for the verification step to show.",
         "evidence_ids": ["deploy-001", "log-003"],
         "risk": "medium",
         "rollback": "Redeploy v7.8.0."
       }
+    },
+    "rca_after_action": {
+      "hypotheses": [
+        {
+          "name": "recent_deploy_regression",
+          "score": 0.1,
+          "supporting_evidence": [],
+          "contradicting_evidence": ["metric-db_pool_utilisation"]
+        },
+        {
+          "name": "database_saturation",
+          "score": 0.8,
+          "supporting_evidence": ["metric-db_pool_utilisation", "log-004"],
+          "contradicting_evidence": []
+        }
+      ],
+      "root_cause": {
+        "label": "database_saturation",
+        "explanation": "The rollback is applied, yet pool utilisation is still at 0.97 (metric-db_pool_utilisation) and requests still wait for a connection with all 48 in use (log-004). The pool is saturated on its own account, not only through the extra queries of v7.8.0.",
+        "evidence_ids": ["metric-db_pool_utilisation", "log-004"]
+      },
+      "remediation": {
+        "action": "scale_db_pool",
+        "target": "postgres",
+        "params": { "pool_size": 96 },
+        "reason": "Doubling the pool from 48 to 96 connections gives the waiting requests a connection. The rollback already removed the failing discount code.",
+        "evidence_ids": ["metric-db_pool_utilisation", "log-004"],
+        "risk": "medium",
+        "rollback": "Scale the pool back to 48."
+      }
+    },
+    "postmortem": {
+      "summary": "Two faults overlapped on orders. Version v7.8.0 failed on orders with no discount record, and the database connection pool was saturated. Rolling back the deployment removed the errors from the new code but left the pool at 0.97; scaling the pool to 96 connections then cleared the latency and the remaining errors.",
+      "timeline": [
+        "Version v7.8.0 deployed (deploy-001).",
+        "From 11:04 apply_discount_rules throws NullPointerException (log-003).",
+        "From 11:05 pool utilisation sits at 0.98 and requests wait for a connection (metric-db_pool_utilisation, log-004).",
+        "The deployment was rolled back after operator approval; the pool stayed saturated.",
+        "The pool was scaled to 96 after a second approval and the symptoms cleared."
+      ],
+      "root_cause": "recent_deploy_regression",
+      "evidence_ids": ["deploy-001", "log-003", "metric-db_pool_utilisation", "log-004"],
+      "follow_ups": [
+        "Handle orders with no discount record before redeploying v7.8.0.",
+        "Find what raised connection demand on orders beyond the per line item queries."
+      ]
     }
   }
 }

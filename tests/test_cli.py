@@ -1,7 +1,12 @@
-"""E1, E27 to E29, E35, E36: the `agentops` command line, driven through Typer's runner."""
+"""E1, E27 to E29, E35, E36: the `agentops` command line, driven through Typer's runner.
+
+`run` writes its checkpoint file and audit directory in the working directory, so every test
+here runs inside its own temporary directory.
+"""
 
 import json
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,13 +19,18 @@ from agentops import cli
 from agentops.cli import app
 from agentops.sources.scenario import load_scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import Remediation
+from agentops.state import Evidence, Remediation, new_incident
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 SCENARIO_FILE_NAME = "clean_bad_deploy.json"
 AMBIGUOUS_FILE_NAME = "ambiguous_two_causes.json"
 
 runner = CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def in_a_temporary_directory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
 
 
 def scenario_document() -> dict:
@@ -69,7 +79,13 @@ def test_run_scripted_prints_root_cause_and_exits_zero() -> None:
     assert int(evidence_count.group(1)) >= 5
     assert "root cause: recent_deploy_regression" in result.stdout
     assert "remediation: rollback_deploy" in result.stdout
-    assert "increment 3" in result.stdout
+    thread = re.search(r"^thread: ([0-9a-f]+)$", result.stdout, re.MULTILINE)
+    assert thread is not None
+    assert "pending approval: Would apply rollback_deploy" in result.stdout
+    assert f"Waiting for an operator's decision on thread {thread.group(1)}" in result.stdout
+    assert "Nothing was changed." in result.stdout
+    assert Path("agentops.sqlite").is_file()
+    assert (Path("audit") / f"{thread.group(1)}.jsonl").is_file()
 
 
 def test_usage_errors_exit_one_with_a_named_cause(tmp_path: Path) -> None:
@@ -248,6 +264,28 @@ def test_report_escapes_control_characters_in_model_free_text(tmp_path: Path) ->
     assert r"two causes\nstatus: resolved\x1b[31m" in escalated.stdout
 
 
+def test_approve_and_history_escape_control_characters_in_model_free_text(tmp_path: Path) -> None:
+    document = scenario_document()
+    document["scripted_outputs"]["postmortem"]["summary"] = "fixed\nstatus: failed\x1b[2J"
+    write_scenario(tmp_path, document)
+    options = ["--scenarios-dir", str(tmp_path)]
+    runner.invoke(
+        app,
+        ["run", "--scenario", "clean_bad_deploy", "--model", "scripted", "--thread", "esc-1"]
+        + options,
+    )
+
+    approved = runner.invoke(app, ["approve", "esc-1", "--decision", "approve", *options])
+    listed = runner.invoke(app, ["history", "esc-1", *options])
+
+    assert approved.exit_code == 0, approved.output
+    assert listed.exit_code == 0, listed.output
+    for result in (approved, listed):
+        assert "\x1b" not in result.stdout
+        assert "\nstatus: failed" not in result.stdout
+    assert r"postmortem: fixed\nstatus: failed\x1b[2J" in approved.stdout
+
+
 def test_error_path_escapes_control_characters_in_model_text(tmp_path: Path) -> None:
     document = scenario_document()
     document["scripted_outputs"]["rca"]["root_cause"]["evidence_ids"] = ["log-9\x1b[2J\nfake: line"]
@@ -358,4 +396,34 @@ def test_report_counts_failed_actions_when_every_source_read_fails(
 
     assert result.exit_code == 0, result.output
     assert re.search(r"actions: \d+ \([1-9]\d* failed\)", result.stdout)
-    assert "escalation: no_evidence" in result.stdout
+    assert "escalation: source_outage" in result.stdout
+
+
+def test_the_closing_sentence_says_a_change_was_made_when_action_evidence_shows_an_apply() -> None:
+    state = new_incident("checkout", ["errors"], opened_at=datetime(2026, 3, 10, tzinfo=UTC))
+    assert "Nothing was changed." in cli.closing_sentence(state, "t", is_waiting=False)
+    state["evidence"] = [
+        Evidence(
+            id="action-1",
+            source="apply",
+            kind="action",
+            payload={"applied": True},
+            collected_at=datetime(2026, 3, 10, tzinfo=UTC),
+        )
+    ]
+
+    sentence = cli.closing_sentence(state, "t", is_waiting=True)
+
+    assert sentence.endswith("An approved action was applied.")
+
+
+def test_error_path_cuts_a_long_failure_message(tmp_path: Path) -> None:
+    document = scenario_document()
+    document["scripted_outputs"]["rca"]["root_cause"]["evidence_ids"] = ["log-" + "9" * 500]
+    write_scenario(tmp_path, document)
+
+    result = run_scripted(tmp_path)
+
+    assert result.exit_code == 2
+    assert "CitationError" in result.stderr
+    assert "9" * 300 not in result.stderr
