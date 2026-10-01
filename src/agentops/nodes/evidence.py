@@ -26,7 +26,7 @@ METRIC_CATALOGUE = [
     "error_rate",
     "p99_latency_ms",
     "db_pool_utilisation",
-    "dependency_p99_latency_ms",
+    "dependency_p99_ms",
     "rows_written",
     "ingestion_lag_seconds",
     "disk_io_utilisation",

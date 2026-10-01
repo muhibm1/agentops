@@ -30,12 +30,7 @@ IncidentStatus = Literal[
 EvidenceKind = Literal["log", "metric", "deployment", "dependency", "config"]
 OperatorRole = Literal["operator", "on-call", "reviewer"]
 # Why the graph handed the incident to a human instead of remediating.
-EscalationReason = Literal[
-    "ambiguous_root_cause",
-    "no_actionable_root_cause",
-    "investigation_budget_exhausted",
-    "evidence_unavailable",
-]
+EscalationReason = Literal["budget_exhausted", "ambiguous", "no_evidence"]
 
 
 class StrictModel(BaseModel):

@@ -1,8 +1,7 @@
 """E29, E34, E37, E38: the rca node re-scores and is checked in code; escalate cites real evidence.
 
 The node functions are called directly with a scripted model and a crafted state. Escalate asks
-merge's `decide_next_step` why it was reached; that function belongs to another task, so these
-tests replace the seam `agentops.nodes.escalate.decide_next_step_for` with a stand-in.
+merge's `decide_next_step` why it was reached, so the reason tests build real action records.
 """
 
 from datetime import UTC, datetime
@@ -12,7 +11,6 @@ import pytest
 from langgraph.graph import END
 
 from agentops.fakes import ScriptedChatModel
-from agentops.nodes import escalate as escalate_module
 from agentops.nodes.escalate import escalate
 from agentops.nodes.rca import (
     AMBIGUITY_MARGIN,
@@ -23,6 +21,7 @@ from agentops.nodes.rca import (
     render_evidence,
 )
 from agentops.state import (
+    Action,
     CitationError,
     Escalation,
     Evidence,
@@ -170,61 +169,61 @@ def test_the_pair_must_cite_evidence_in_state() -> None:
         run_rca(rca_reply(evidence_ids=["log-999"]))
 
 
-def escalate_with(
-    monkeypatch: pytest.MonkeyPatch, state: IncidentState, reply: dict[str, Any], decision: str
-) -> dict[str, Any]:
-    monkeypatch.setattr(escalate_module, "decide_next_step_for", lambda _state: decision)
+def escalate_with(state: IncidentState, reply: dict[str, Any]) -> dict[str, Any]:
     model = ScriptedChatModel(script_by_schema={Escalation: [reply]})
     return escalate(state, model=model)
 
 
-def test_escalation_citations_are_checked_like_any_other(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def with_actions(state: IncidentState, tools: tuple[str, ...]) -> IncidentState:
+    state["actions"] = [Action(tool=tool, ok=True, latency_ms=1.0) for tool in tools]
+    return state
+
+
+ALL_SOURCES_ASKED_TWICE = ("get_logs", "get_metrics", "get_dependency_health", "get_deployments") * 2
+
+
+def test_escalation_citations_are_checked_like_any_other() -> None:
     state = triaged_state()
     state["evidence"] = [evidence_item("log-001")]
 
     with pytest.raises(CitationError, match="log-999"):
-        escalate_with(monkeypatch, state, {"summary": "s", "evidence_ids": ["log-999"]}, "rca")
+        escalate_with(state, {"summary": "s", "evidence_ids": ["log-999"]})
 
-    update = escalate_with(monkeypatch, state, {"summary": "s", "evidence_ids": ["log-001"]}, "rca")
+    update = escalate_with(state, {"summary": "s", "evidence_ids": ["log-001"]})
 
     assert update["status"] == "escalated"
     assert update["escalation"].evidence_ids == ["log-001"]
 
 
 @pytest.mark.parametrize(
-    ("decision", "evidence_count", "scores", "expected_reason"),
+    ("evidence_count", "action_tools", "scores", "expected_reason"),
     [
-        ("escalate", 0, (0.5, 0.4), "evidence_unavailable"),
-        ("escalate", 2, (0.5, 0.4), "investigation_budget_exhausted"),
-        ("rca", 2, (0.50, 0.45), "ambiguous_root_cause"),
-        ("rca", 2, (0.9, 0.1), "no_actionable_root_cause"),
+        (0, ALL_SOURCES_ASKED_TWICE, (0.5, 0.4), "no_evidence"),
+        (2, ("get_logs",) * 12, (0.5, 0.4), "budget_exhausted"),
+        (2, ALL_SOURCES_ASKED_TWICE, (0.50, 0.45), "ambiguous"),
+        (2, ALL_SOURCES_ASKED_TWICE, (0.9, 0.1), "ambiguous"),
     ],
+    ids=["no evidence", "budget exhausted", "close scores", "no root cause"],
 )
 def test_escalation_reason_is_computed_from_state(
-    monkeypatch: pytest.MonkeyPatch,
-    decision: str,
     evidence_count: int,
+    action_tools: tuple[str, ...],
     scores: tuple[float, float],
     expected_reason: str,
 ) -> None:
-    state = triaged_state()
+    state = with_actions(triaged_state(), action_tools)
     state["evidence"] = [evidence_item(f"log-00{n}") for n in range(evidence_count)]
     state["hypotheses"] = [
         Hypothesis(name="bad_deploy", score=scores[0]),
         Hypothesis(name="database_saturation", score=scores[1]),
     ]
 
-    update = escalate_with(monkeypatch, state, {"summary": "hand over"}, decision)
+    update = escalate_with(state, {"summary": "hand over"})
 
     assert update["escalation_reason"] == expected_reason
 
 
-def test_escalate_prompt_fences_evidence_and_neutralises_hypothesis_names(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(escalate_module, "decide_next_step_for", lambda _state: "rca")
+def test_escalate_prompt_fences_evidence_and_neutralises_hypothesis_names() -> None:
     state = triaged_state()
     state["hypotheses"] = [Hypothesis(name="evil<<<name", score=0.5)]
     model = ScriptedChatModel(script_by_schema={Escalation: [{"summary": "hand over"}]})
