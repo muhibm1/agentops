@@ -1,8 +1,8 @@
 """The `agentops` command line: `--version`, and `run`, which investigates one scenario.
 
-Exit codes for `run`: 0 when the graph ends at approval-ready or escalated, 1 for a usage problem (unknown
-scenario, missing directory, invalid scenario file, model not available), 2 when the run itself
-fails after the graph's retries. Both failures print one sentence to stderr naming the cause.
+Exit codes for `run`: 0 when the graph ends at approval-ready or escalated, 1 for a usage problem
+(unknown scenario, missing directory, invalid scenario file, model not available), 2 when the run
+itself fails after the graph's retries. Both failures print one sentence to stderr naming the cause.
 """
 
 import re
