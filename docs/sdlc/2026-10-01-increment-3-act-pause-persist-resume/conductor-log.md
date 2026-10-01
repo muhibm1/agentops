@@ -29,3 +29,5 @@
 2026-10-01T10:29:23.287Z | review | wh.js verify | checks green at 8465aa2 (4 defined)
 2026-10-01T10:30:49.379Z | review | wh-bug-reviewer | re-check 2: regression closed, crash recovery intact; verify green at 8465aa2
 2026-10-01T10:34:27.270Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/5
+2026-10-01T10:36:33.635Z | review | wh-shipper | ship.md written, PR 5 checks green and marked ready
+2026-10-01T10:36:33.817Z | review | conductor | G4 Ship presented
