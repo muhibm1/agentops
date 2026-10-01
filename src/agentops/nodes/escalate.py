@@ -1,10 +1,14 @@
-"""The escalate node: hands the incident to a human with a short summary and the reason why."""
+"""The escalate node: hands the incident to a human with a short summary and the reason why, and
+writes an `escalation` record to the audit log naming the reason and any proposed action."""
 
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import idempotency_key
 from agentops.nodes import (
     UNTRUSTED_DATA_RULE,
     ask_model,
@@ -13,7 +17,7 @@ from agentops.nodes import (
     new_fence_nonce,
 )
 from agentops.nodes.merge import decide_next_step, reason_for_escalating_before_rca
-from agentops.nodes.rca import render_evidence
+from agentops.nodes.rca import render_evidence, run_thread_id
 from agentops.state import (
     ESCALATION_SUMMARY_MAX_LENGTH,
     Action,
@@ -42,13 +46,33 @@ def escalate_system_prompt(nonce: str) -> str:
     return f"{ESCALATE_INSTRUCTIONS}{fence_rule(nonce)} {UNTRUSTED_DATA_RULE}"
 
 
-def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
+def escalate(
+    state: IncidentState,
+    config: RunnableConfig,
+    *,
+    model: BaseChatModel,
+    audit: AuditLog,
+) -> dict[str, Any]:
     """Ask the model for a hand-off summary, up to `ESCALATE_ATTEMPTS` times.
 
     If every attempt is rejected (a bad reply or a citation not in state), the summary is built by
     code from the hypotheses, so the run never ends without a hand-off. The reason comes from the
-    state, never from the model.
+    state, never from the model. Raises ValueError when the run's `configurable` has no thread id.
     """
+    thread_id = run_thread_id(config, "escalate")
+    result, actions = hand_off_summary(state, model)
+    reason = escalation_reason(state)
+    audit.append(state["incident_id"], thread_id, escalation_record(state, reason))
+    return {
+        "escalation": result,
+        "escalation_reason": reason,
+        "status": "escalated",
+        "actions": actions,
+    }
+
+
+def hand_off_summary(state: IncidentState, model: BaseChatModel) -> tuple[Escalation, list[Action]]:
+    """The model's validated summary, or the code-built fallback, and one action per attempt."""
     hypotheses = "\n".join(
         f"- {neutralise_delimiters(item.name)}: {item.score}" for item in state["hypotheses"]
     )
@@ -81,11 +105,20 @@ def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
         result = candidate
         actions.append(action.model_copy(update={"attempt": attempt}))
         break
+    return result, actions
+
+
+def escalation_record(state: IncidentState, reason: EscalationReason) -> dict[str, Any]:
+    """The audit record of the hand-off: the reason and, when one exists, the proposed action."""
+    remediation = state["remediation"]
+    if remediation is None:
+        return {"event": "escalation", "reason": reason, "proposed_action": None}
     return {
-        "escalation": result,
-        "escalation_reason": escalation_reason(state),
-        "status": "escalated",
-        "actions": actions,
+        "event": "escalation",
+        "idempotency_key": idempotency_key(state["incident_id"], remediation),
+        "reason": reason,
+        "proposed_action": remediation.action,
+        "target": remediation.target,
     }
 
 

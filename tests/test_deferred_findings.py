@@ -3,12 +3,17 @@ not as missing evidence, and a run never records more than twelve source read at
 (R1, R2, R3; ADR 0004)."""
 
 import json
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
 from agentops.fakes import ScriptedChatModel
-from agentops.graph import build_graph
+from agentops.graph import build_graph, checkpoint_serializer
 from agentops.nodes.evidence import SOURCE_READ_TOOLS
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
@@ -90,8 +95,17 @@ class FirstAttemptFailsSimulator(SimulatorSource):
 
 
 def run(scenario: Scenario, source: SimulatorSource, model: ScriptedChatModel) -> Any:
+    """Run the full graph until it ends or pauses at its first approval interrupt (brief D20)."""
     state = new_incident(scenario.service, scenario.symptoms, opened_at=scenario.incident_time)
-    return build_graph(source, model).invoke(state)
+    with tempfile.TemporaryDirectory() as audit_dir:
+        graph = build_graph(
+            source,
+            model,
+            default_registry(),
+            AuditLog(Path(audit_dir)),
+            InMemorySaver(serde=checkpoint_serializer()),
+        )
+        return graph.invoke(state, {"configurable": {"thread_id": "deferred-findings"}})
 
 
 def source_reads(final: Any) -> list[Action]:

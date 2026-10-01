@@ -3,9 +3,13 @@ same text, catches look-alike and zero-width-split runs, and every fence carries
 
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
+from langchain_core.runnables import RunnableConfig
 
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
 from agentops.fakes import ScriptedChatModel
 from agentops.nodes import neutralise_delimiters
 from agentops.nodes.rca import rca
@@ -91,12 +95,17 @@ def rca_ready_state() -> IncidentState:
     return state
 
 
-def test_two_rca_prompts_for_one_state_carry_one_fence_each_with_distinct_nonces() -> None:
+def test_two_rca_prompts_for_one_state_carry_one_fence_each_with_distinct_nonces(
+    tmp_path: Path,
+) -> None:
     reply = {"hypotheses": [{"name": "bad_deploy", "score": 0.5}]}
     model = ScriptedChatModel(script_by_schema={RcaOutput: [reply, reply]})
+    registry = default_registry()
+    audit = AuditLog(tmp_path)
+    config: RunnableConfig = {"configurable": {"thread_id": "prompt-test"}}
 
-    rca(rca_ready_state(), model=model)
-    rca(rca_ready_state(), model=model)
+    rca(rca_ready_state(), config, model=model, registry=registry, audit=audit)
+    rca(rca_ready_state(), config, model=model, registry=registry, audit=audit)
 
     nonces = []
     for system_message, human_message in model.calls:

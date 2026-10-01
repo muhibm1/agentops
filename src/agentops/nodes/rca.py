@@ -1,14 +1,18 @@
 """The rca node: re-scores the triage hypotheses and, when one cause stands out, names it with one
 remediation. The graph, not the model, decides whether the result is clear enough to act on: an
-ambiguous result, or an open hypothesis only an unreachable source could settle, escalates."""
+ambiguous result, an open hypothesis only an unreachable source could settle, or an action the
+runbook does not declare, escalates. Every remediation the model proposes is written to the audit
+log as a `proposal` record."""
 
 import json
 from collections.abc import Sequence
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langgraph.graph import END
+from langchain_core.runnables import RunnableConfig
 
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import Registry, idempotency_key
 from agentops.nodes import (
     UNTRUSTED_DATA_RULE,
     ask_model,
@@ -25,6 +29,7 @@ from agentops.state import (
     Hypothesis,
     IncidentState,
     RcaOutput,
+    Remediation,
     assert_cited,
 )
 
@@ -54,14 +59,24 @@ class RcaConsistencyError(CitationError):
     """
 
 
-def rca(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
+def rca(
+    state: IncidentState,
+    config: RunnableConfig,
+    *,
+    model: BaseChatModel,
+    registry: Registry,
+    audit: AuditLog,
+) -> dict[str, Any]:
     """Ask the model to re-score the hypotheses and propose a cause and remediation.
 
-    Raises `CitationError` if any cited id is not in state, and `RcaConsistencyError` if the
-    names differ from triage or the label is not the top-scored name. When the result is
-    ambiguous, has no cause, or leaves open a hypothesis only an unreachable source could settle,
-    `root_cause` and `remediation` are written as None and the reason is written for escalate.
+    Raises `CitationError` if any cited id is not in state, `RcaConsistencyError` if the names
+    differ from triage or the label is not the top-scored name, and ValueError when the run's
+    `configurable` has no thread id. When the result is ambiguous, has no cause, or leaves open a
+    hypothesis only an unreachable source could settle, `root_cause` and `remediation` are
+    written as None and the reason is written for escalate. A proposal naming an action outside
+    the runbook is kept in state, so escalate can name it, with the reason `action_not_allowed`.
     """
+    thread_id = run_thread_id(config, "rca")
     nonce = new_fence_nonce()
     human_prompt = rca_human_prompt(state, nonce)
 
@@ -69,13 +84,28 @@ def rca(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
 
     check_citations(result, state["evidence"])
     check_consistent_with_triage(result, state)
-    update: dict[str, Any] = {"hypotheses": result.hypotheses, "actions": [action]}
+    if result.remediation is not None:
+        audit.append(
+            state["incident_id"],
+            thread_id,
+            proposal_record(state["incident_id"], result.remediation),
+        )
+    return {
+        "hypotheses": result.hypotheses,
+        "actions": [action],
+        **outcome_fields(result, state["unreachable_sources"], registry),
+    }
+
+
+def outcome_fields(
+    result: RcaOutput, unreachable_sources: Sequence[str], registry: Registry
+) -> dict[str, Any]:
+    """The cause, remediation, status and escalation reason rca writes for `result`."""
     stop_reason = reason_to_stop_after_rca(
-        result.hypotheses, result.root_cause is not None, state["unreachable_sources"]
+        result.hypotheses, result.root_cause is not None, unreachable_sources
     )
     if stop_reason is not None:
         return {
-            **update,
             "root_cause": None,
             "remediation": None,
             "status": "investigating",
@@ -83,11 +113,42 @@ def rca(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
             # spent.
             "escalation_reason": stop_reason,
         }
+    if not is_allowed(result.remediation, registry):
+        return {
+            "root_cause": result.root_cause,
+            "remediation": result.remediation,
+            "status": "investigating",
+            "escalation_reason": "action_not_allowed",
+        }
     return {
-        **update,
         "root_cause": result.root_cause,
         "remediation": result.remediation,
         "status": "awaiting_approval",
+    }
+
+
+def run_thread_id(config: RunnableConfig, node: str) -> str:
+    """The thread id from the run's `configurable`; every audit record must name its thread."""
+    thread_id = (config.get("configurable") or {}).get("thread_id")
+    if not isinstance(thread_id, str) or not thread_id:
+        raise ValueError(f"The {node} node needs a thread_id in the run's configurable.")
+    return thread_id
+
+
+def is_allowed(remediation: Remediation | None, registry: Registry) -> bool:
+    """True when the remediation names an action the runbook declares (spec R13)."""
+    return remediation is not None and registry.has(remediation.action)
+
+
+def proposal_record(incident_id: str, remediation: Remediation) -> dict[str, Any]:
+    return {
+        "event": "proposal",
+        "idempotency_key": idempotency_key(incident_id, remediation),
+        "action": remediation.action,
+        "target": remediation.target,
+        "params": dict(remediation.params),
+        "evidence_ids": list(remediation.evidence_ids),
+        "risk": remediation.risk,
     }
 
 
@@ -172,13 +233,15 @@ def reason_to_stop_after_rca(
 
 
 def after_rca(state: IncidentState) -> str:
-    """The edge after rca: `escalate` when there is no root cause, the scores are ambiguous or an
-    open hypothesis waits on an unreachable source, else the end of the graph with an
-    approval-ready remediation."""
+    """The edge after rca: `escalate` when rca wrote a reason (an action outside the runbook
+    among them), there is no root cause, the scores are ambiguous or an open hypothesis waits on
+    an unreachable source; otherwise `approval`."""
+    if state["escalation_reason"] is not None:
+        return "escalate"
     stop_reason = reason_to_stop_after_rca(
         state["hypotheses"], state["root_cause"] is not None, state["unreachable_sources"]
     )
-    return END if stop_reason is None else "escalate"
+    return "approval" if stop_reason is None else "escalate"
 
 
 def rca_human_prompt(state: IncidentState, nonce: str) -> str:

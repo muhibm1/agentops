@@ -2,14 +2,19 @@
 
 The node functions are called directly with a scripted model and a crafted state. Escalate asks
 merge's `decide_next_step` why it was reached, so the reason tests build real action records.
+The audit records both nodes write are kept in memory here; test_full_runs.py reads the file.
 """
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
-from langgraph.graph import END
+from langchain_core.runnables import RunnableConfig
 
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
 from agentops.fakes import ScriptedChatModel
 from agentops.nodes import OPENING_MARKER_PATTERN
 from agentops.nodes.escalate import escalate
@@ -33,6 +38,26 @@ from agentops.state import (
 )
 
 OPENED_AT = datetime(2026, 3, 10, 10, 30, tzinfo=UTC)
+NODE_CONFIG: RunnableConfig = {"configurable": {"thread_id": "node-test"}}
+
+
+class AuditInMemory(AuditLog):
+    """An audit log that keeps its records in a list instead of a file."""
+
+    def __init__(self) -> None:
+        super().__init__(Path("unused-audit-directory"))
+        self.records: list[dict[str, Any]] = []
+
+    def append(self, incident_id: str, thread_id: str, record: Mapping[str, Any]) -> None:
+        self.records.append(dict(record))
+
+
+def call_rca(state: IncidentState, model: ScriptedChatModel) -> dict[str, Any]:
+    return rca(state, NODE_CONFIG, model=model, registry=default_registry(), audit=AuditInMemory())
+
+
+def call_escalate(state: IncidentState, model: ScriptedChatModel) -> dict[str, Any]:
+    return escalate(state, NODE_CONFIG, model=model, audit=AuditInMemory())
 
 
 def evidence_item(evidence_id: str) -> Evidence:
@@ -90,7 +115,7 @@ def rca_reply(
 
 def run_rca(reply: dict[str, Any]) -> dict[str, Any]:
     model = ScriptedChatModel(script_by_schema={RcaOutput: [reply]})
-    return rca(triaged_state(), model=model)
+    return call_rca(triaged_state(), model)
 
 
 def test_a_clear_result_awaits_approval_with_the_rescored_hypotheses() -> None:
@@ -131,7 +156,7 @@ def test_ambiguity_margin_boundary_single_hypothesis_and_null_root_cause() -> No
     assert after_rca(state) == "escalate"
 
     state["root_cause"] = run_rca(rca_reply())["root_cause"]
-    assert after_rca(state) == END
+    assert after_rca(state) == "approval"
 
 
 def test_a_null_pair_from_the_model_escalates_without_a_proposal() -> None:
@@ -172,7 +197,7 @@ def test_the_pair_must_cite_evidence_in_state() -> None:
 
 def escalate_with(state: IncidentState, reply: dict[str, Any]) -> dict[str, Any]:
     model = ScriptedChatModel(script_by_schema={Escalation: [reply]})
-    return escalate(state, model=model)
+    return call_escalate(state, model)
 
 
 def with_actions(state: IncidentState, tools: tuple[str, ...]) -> IncidentState:
@@ -231,7 +256,7 @@ def test_escalate_prompt_fences_evidence_and_neutralises_hypothesis_names() -> N
     state["hypotheses"] = [Hypothesis(name="evil<<<name", score=0.5)]
     model = ScriptedChatModel(script_by_schema={Escalation: [{"summary": "hand over"}]})
 
-    escalate(state, model=model)
+    call_escalate(state, model)
 
     prompt = str(model.calls[0][1].content)
     nonce = OPENING_MARKER_PATTERN.findall(prompt)[0].removesuffix(">>>").split()[-1]
@@ -271,7 +296,7 @@ def action_evidence(evidence_id: str, action: str, applied: bool) -> Evidence:
 
 def rca_prompt_for(state: IncidentState) -> str:
     model = ScriptedChatModel(script_by_schema={RcaOutput: [rca_reply()]})
-    rca(state, model=model)
+    call_rca(state, model)
     return str(model.calls[0][1].content)
 
 
@@ -324,7 +349,7 @@ def test_escalate_retries_a_bad_citation_and_keeps_the_good_answer() -> None:
     good = {"summary": "second try", "evidence_ids": ["log-001"]}
     model = ScriptedChatModel(script_by_schema={Escalation: [bad, good]})
 
-    update = escalate(state, model=model)
+    update = call_escalate(state, model)
 
     assert update["escalation"].summary == "second try"
     assert len(model.calls) == 2
@@ -335,7 +360,7 @@ def test_three_bad_citations_still_hand_off_with_a_summary_built_by_code() -> No
     bad = {"summary": "model text that must not be used", "evidence_ids": ["log-999"]}
     model = ScriptedChatModel(script_by_schema={Escalation: [bad, bad, bad]})
 
-    update = escalate(state, model=model)
+    update = call_escalate(state, model)
 
     assert len(model.calls) == 3
     assert update["status"] == "escalated"

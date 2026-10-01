@@ -1,23 +1,33 @@
 """The `agentops` command line: `--version`, and `run`, which investigates one scenario.
 
-Exit codes for `run`: 0 when the graph ends at approval-ready or escalated, 1 for a usage problem
+`run` checkpoints the thread to `agentops.sqlite` in the working directory, under a thread id
+equal to the incident id, and writes the audit log and the simulator ledger under `audit/`. It
+stops at the approval pause or at an escalation.
+
+Exit codes for `run`: 0 when the graph pauses for approval or ends escalated, 1 for a usage problem
 (unknown scenario, missing directory, invalid scenario file, model not available), 2 when the run
 itself fails after the graph's retries. Both failures print one sentence to stderr naming the cause.
 """
 
 import re
+import sqlite3
+from contextlib import closing
 from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import typer
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ValidationError
 
 from agentops import __version__
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
 from agentops.fakes import scripted_model_for
-from agentops.graph import build_graph
+from agentops.graph import build_graph, checkpoint_serializer
 from agentops.sources.base import SIGNAL_ID_PATTERN
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
-from agentops.sources.simulator import SimulatorSource
+from agentops.sources.simulator import SimulatorSource, ledger_path_for
 from agentops.state import INITIAL_INVESTIGATION_BUDGET, IncidentState, new_incident
 
 USAGE_ERROR = 1
@@ -25,6 +35,8 @@ RUN_FAILED = 2
 RECURSION_LIMIT = 60
 SCRIPTED_MODEL = "scripted"
 LIVE_MODEL = "anthropic"
+STATE_DB = Path("agentops.sqlite")
+AUDIT_DIR = Path("audit")
 
 app = typer.Typer(help="Investigate a simulated production incident with cited evidence.")
 
@@ -62,18 +74,43 @@ def run(
         Path, typer.Option("--scenarios-dir", help="Directory holding the scenario files.")
     ] = Path("scenarios"),
 ) -> None:
-    """Investigate one scenario through triage, evidence and root-cause analysis."""
+    """Investigate one scenario until the approval pause or an escalation."""
     check_model_is_available(model)
     loaded = load_named_scenario(scenario, scenarios_dir)
-    graph = build_graph(SimulatorSource(loaded), scripted_model_for(loaded))
     incident = new_incident(
         loaded.service, loaded.symptoms, opened_at=loaded.incident_time, scenario_id=loaded.id
     )
     try:
-        final_state = graph.invoke(incident, config={"recursion_limit": RECURSION_LIMIT})
+        final_state, pending = run_to_pause(loaded, incident)
     except Exception as error:  # the command's outer boundary: any failure becomes exit 2
         fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {error}")
-    typer.echo(report(IncidentState(**final_state)))
+    typer.echo(report(final_state, pending))
+
+
+def run_to_pause(
+    scenario: Scenario, incident: IncidentState
+) -> tuple[IncidentState, dict[str, Any] | None]:
+    """Run the thread named by the incident id until it pauses or ends, writing each checkpoint
+    to `STATE_DB` before the next step starts. Returns the state and the pending approval
+    payload, or None when the run did not pause."""
+    thread_id = incident["incident_id"]
+    source = SimulatorSource(scenario, ledger_path=ledger_path_for(AUDIT_DIR, thread_id))
+    config: RunnableConfig = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": RECURSION_LIMIT,
+    }
+    with closing(sqlite3.connect(STATE_DB, check_same_thread=False)) as connection:
+        graph = build_graph(
+            source,
+            scripted_model_for(scenario),
+            default_registry(),
+            AuditLog(AUDIT_DIR),
+            SqliteSaver(connection, serde=checkpoint_serializer()),
+        )
+        result = graph.invoke(incident, config, durability="sync")
+        final_state = IncidentState(**graph.get_state(config).values)
+    interrupts = result.get("__interrupt__") or []
+    return final_state, interrupts[0].value if interrupts else None
 
 
 def check_model_is_available(model: str) -> None:
@@ -121,9 +158,21 @@ def escape_for_terminal(text: str) -> str:
     )
 
 
-def report(state: IncidentState) -> str:
+def report(state: IncidentState, pending: dict[str, Any] | None = None) -> str:
+    """The run's outcome in plain lines, the pending proposal when the run is paused for
+    approval, and where the audit log is. Every model string is escaped for the terminal."""
+    lines = investigation_lines(state)
+    if pending is not None:
+        lines += pending_proposal_lines(pending)
+    lines.append(f"audit: {AUDIT_DIR / (state['incident_id'] + '.jsonl')}")
+    lines.append(closing_sentence(state))
+    return "\n".join(lines)
+
+
+def investigation_lines(state: IncidentState) -> list[str]:
     lines = [
         f"incident: {state['incident_id']}",
+        f"thread: {state['incident_id']}",
         f"status: {state['status']}",
         f"loops: {state['loops']}",
         f"budget remaining: {state['investigation_budget']} of {INITIAL_INVESTIGATION_BUDGET}",
@@ -149,8 +198,30 @@ def report(state: IncidentState) -> str:
             f"remediation: {escape_for_terminal(remediation.action)} on "
             f"{escape_for_terminal(remediation.target)} (risk {remediation.risk})"
         )
-    lines.append("Approval and execution arrive in increment 3; nothing was changed.")
-    return "\n".join(lines)
+    return lines
+
+
+def pending_proposal_lines(pending: dict[str, Any]) -> list[str]:
+    """The dry run and fingerprint of the proposal waiting for an operator's decision."""
+    return [
+        f"pending approval: {escape_for_terminal(str(pending.get('dry_run', '')))}",
+        f"  idempotency key: {escape_for_terminal(str(pending.get('idempotency_key', '')))}",
+    ]
+
+
+def closing_sentence(state: IncidentState) -> str:
+    """What happens next, and whether anything was changed so far."""
+    execution = state["execution"]
+    changes = (
+        "An approved action was applied."
+        if execution is not None and execution.applied
+        else "Nothing was changed."
+    )
+    if state["status"] == "awaiting_approval":
+        return f"Waiting for an operator's decision on thread {state['incident_id']}. {changes}"
+    if state["status"] == "escalated":
+        return f"Handed to a human. {changes}"
+    return f"The run ended with status {state['status']}. {changes}"
 
 
 def fail(exit_code: int, sentence: str) -> NoReturn:
