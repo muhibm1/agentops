@@ -1,0 +1,48 @@
+== tests/test_approval.py
+............                                                             [100%]
+12 passed in 0.64s
+== tests/test_audit.py
+...........                                                              [100%]
+11 passed in 0.14s
+== tests/test_ci_workflow.py
+....                                                                     [100%]
+4 passed in 0.11s
+== tests/test_cli_lifecycle.py
+..........                                                               [100%]
+10 passed in 4.74s
+== tests/test_deferred_findings.py
+....................                                                     [100%]
+20 passed in 0.76s
+== tests/test_executor.py
+......................                                                   [100%]
+22 passed in 0.66s
+== tests/test_fakes.py
+............                                                             [100%]
+12 passed in 0.10s
+== tests/test_full_runs.py
+...............                                                          [100%]
+15 passed in 0.94s
+== tests/test_graph.py
+........................                                                 [100%]
+24 passed in 6.55s
+== tests/test_preconditions.py
+...............                                                          [100%]
+15 passed in 0.12s
+== tests/test_prompt_helpers.py
+.........................                                                [100%]
+25 passed in 0.19s
+== tests/test_repo_documents.py
+..                                                                       [100%]
+2 passed in 0.10s
+== tests/test_runbook.py
+......................................                                   [100%]
+38 passed in 0.21s
+== tests/test_scenarios.py
+....................................................................     [100%]
+68 passed in 0.25s
+== tests/test_simulator.py
+..............................                                           [100%]
+30 passed in 0.21s
+== tests/test_verify_postmortem.py
+............                                                             [100%]
+12 passed in 0.27s
