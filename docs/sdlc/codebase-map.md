@@ -1,13 +1,14 @@
 # AgentOps codebase map
 
 Written 2026-09-30 at onboarding and updated by increment 1 (change
-`2026-10-01-increment-1-scaffold`). "What exists today" is confirmed against the repository; the
+`2026-10-01-increment-1-scaffold`) and increment 3 (change
+`2026-10-01-increment-3-act-pause-persist-resume`). "What exists today" is confirmed against the repository; the
 sections after it describe the **planned** system from the approved design
 (`docs/superpowers/specs/2026-09-29-agentops-design.md`, cited below as "design §n"), and any
 planned path not in the table below is believed, not verified. Update this file in the change
 that makes a statement here true or false.
 
-## What exists today (confirmed 2026-10-01, increment 1)
+## What exists today (confirmed 2026-10-01, increment 3)
 
 | Path | What it is |
 |---|---|
@@ -15,20 +16,23 @@ that makes a statement here true or false.
 | `docs/superpowers/specs/2026-09-30-*.md` | Companions: eval methodology, cookbook, workshop, and the operator console (a **separate** repository, `muhibm1/agentops-console`) |
 | `pyproject.toml`, `requirements.txt`, `requirements-dev.txt` | Package metadata and the `agentops` entry point; exact pins with licence comments |
 | `LICENSE`, `README.md`, `CONTRIBUTING.md`, `docs/ci.md` | MIT licence, status and demo command, contributor setup, what CI checks |
-| `src/agentops/cli.py` | Typer app: `--version` and `run --scenario <id> --model scripted` (exit 0 for `awaiting_approval` or `escalated`, 1 usage, 2 run failed); the report prints loops, budget remaining and the escalation reason and summary, every model string escaped |
+| `src/agentops/cli.py`, `src/agentops/__main__.py` | Typer app: `--version`, `run`, `approve`, `resume`, `history` and `fork` over SQLite checkpoints (`--state-db`, default `agentops.sqlite`), thread id equal to the incident id; exit 0 for waiting, escalated or resolved, 1 usage, 2 run failed or state file unusable; the hidden `approve --crash-after-apply` is the crash demo; every model string escaped. `python -m agentops` runs the same app |
 | `src/agentops/state.py` | `IncidentState`, the Pydantic models, `CONTROL_FIELDS`, `new_incident`, `CitationError`, `assert_cited` |
-| `src/agentops/graph.py` | `build_graph`: `START -> triage -> router -> logs/metrics/deploys -> merge -> rca or escalate or the sources again`, with retry policies |
-| `src/agentops/nodes/` | `triage.py`, `router.py` (`route_to_sources`), `evidence.py` (parallel logs, metrics, deploys nodes), `merge.py` (budget, loops, `after_merge`), `rca.py`, `escalate.py`, shared helpers in `__init__.py` |
-| `src/agentops/sources/` | `EvidenceSource` protocol and value types (`base.py`), `Scenario` (`scenario.py`), `SimulatorSource` (`simulator.py`) |
+| `src/agentops/graph.py` | `build_graph`: `START -> triage -> router -> logs/metrics/deploys -> merge -> rca -> approval -> execute -> verify -> postmortem`, with escalate and the loops back to the router, retry policies and the checkpoint serializer |
+| `src/agentops/nodes/` | `triage.py`, `router.py` (`route_to_sources`), `evidence.py` (parallel logs, metrics, deploys nodes), `merge.py` (budget, loops, `after_merge`), `rca.py`, `approval.py` (`interrupt()`, re-validated edits), `execute.py` (calls the executor), `verify.py` (re-reads the source, cleared or not), `postmortem.py`, `escalate.py`, shared helpers in `__init__.py` |
+| `src/agentops/actions/` | `runbook.py` (loads and validates the runbook with `yaml.safe_load`), `registry.py` (`has`, `get`, `validate_params`), `preconditions.py` (six check kinds against the `EvidenceSource`), `audit.py` (append-only JSONL audit log), `executor.py` (registry, parameters, preconditions, idempotency key, ledger check, dry run, apply, audit) |
+| `runbooks/default.yaml` | The action allowlist: `scale_db_pool`, `rollback_deploy`, `circuit_break_dependency`, `rerun_partition`, `pause_batch_job` |
+| `src/agentops/sources/` | `EvidenceSource` protocol and value types (`base.py`), `Scenario` (`scenario.py`, combined worlds keyed `a+b`), `SimulatorSource` (`simulator.py`, applied actions kept in a ledger file) |
 | `src/agentops/fakes.py` | `ScriptedChatModel` and `scripted_model_for`; in the package because the CLI demo uses it (ADR 0001) |
-| `scenarios/*.json` | Eight scenarios with `scripted_outputs` (triage, rca and, for escalating ones, escalate); `scripted_model_for` turns one into a model |
+| `scenarios/*.json` | Eight scenarios with `scripted_outputs` (triage, rca, escalate for escalating ones, postmortem for the seven that apply an action, `rca_after_action` for `two_concurrent_faults`); `scripted_model_for` turns one into a model |
 | `tests/` | pytest, one test per eval case; `conftest.py` clears LangSmith tracing variables |
 | `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.githooks/pre-push`, `scripts/check_test_count.py` | CI with SHA-pinned actions and a test-count floor, Dependabot, the pre-push hook |
-| `.gitignore` | Tracked. Ignores `.env*` (except `.env.example`), `.venv/`, `*.egg-info/`, `*.db`, `*.sqlite*`, `audit/`, caches and the WorkHorse working folders |
+| `.gitignore` | Tracked. Ignores `.env*` (except `.env.example`), `.venv/`, `*.egg-info/`, `*.db`, `*.sqlite`, `*.sqlite-*` (the SQLite WAL sidecars), `*.sqlite3`, `audit/`, caches and the WorkHorse working folders |
+| `agentops.sqlite` and its `-wal`, `-shm` sidecars | Runtime, not tracked: the checkpoint file the CLI writes in the current directory |
+| `audit/<incident_id>.jsonl`, `audit/<incident_id>.ledger.jsonl` | Runtime, not tracked: the append-only audit log (`proposal`, `approval`, `precondition`, `dry_run`, `apply`, `verify`, `escalation` records) and the simulator's ledger of applied actions |
 | `.workhorse/profile.yml` | The WorkHorse profile; its commands are run on the change branch |
 
-Not yet present: `langgraph.json`, `runbooks/`, `evals/`, `src/agentops/actions/`, the
-approval, execute, verify and postmortem nodes, the live model.
+Not yet present: `langgraph.json`, `evals/`, `baseline.py`, `models.py`, the live model.
 
 ## What the system does
 

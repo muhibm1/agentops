@@ -39,6 +39,7 @@ SOURCE_READ_TOOLS: dict[SourceName, tuple[str, ...]] = {
     "metrics": ("get_metrics", "get_dependency_health"),
     "deploys": ("get_deployments",),
 }
+ALL_SOURCE_READ_TOOLS = frozenset(tool for tools in SOURCE_READ_TOOLS.values() for tool in tools)
 
 SourceItem = TypeVar("SourceItem", bound=BaseModel)
 
@@ -91,8 +92,23 @@ def window_for(state: IncidentState) -> Window:
 
 def source_read_attempts(state: IncidentState) -> int:
     """How many source read attempts the state records, failed attempts included."""
-    read_tools = {tool for tools in SOURCE_READ_TOOLS.values() for tool in tools}
-    return sum(1 for action in state["actions"] if action.tool in read_tools)
+    return sum(1 for action in state["actions"] if action.tool in ALL_SOURCE_READ_TOOLS)
+
+
+def every_source_read_failed(state: IncidentState) -> bool:
+    """True when the state records at least one source read attempt and none succeeded."""
+    reads = [action for action in state["actions"] if action.tool in ALL_SOURCE_READ_TOOLS]
+    return bool(reads) and not any(action.ok for action in reads)
+
+
+def unreachable_sources(state: IncidentState) -> list[SourceName]:
+    """Sources with at least one recorded read attempt, every one of which failed."""
+    unreachable: list[SourceName] = []
+    for source, tools in SOURCE_READ_TOOLS.items():
+        attempts = [action for action in state["actions"] if action.tool in tools]
+        if attempts and not any(action.ok for action in attempts):
+            unreachable.append(source)
+    return unreachable
 
 
 def read_with_one_retry(

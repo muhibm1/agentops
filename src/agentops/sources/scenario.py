@@ -5,6 +5,8 @@
 key and test data; only `SimulatorSource.apply` reads `post_action_world`, and nothing serves it.
 """
 
+import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal, Self
 
@@ -12,6 +14,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from agentops.sources.base import (
     SIGNAL_ID_PATTERN,
+    VERIFY_WINDOW,
     ConfigValue,
     DependencyStatus,
     Deployment,
@@ -20,6 +23,7 @@ from agentops.sources.base import (
 )
 
 ActionName = str
+COMBINED_WORLD_SEPARATOR = "+"
 
 
 class ScenarioPart(BaseModel):
@@ -45,7 +49,10 @@ class GroundTruth(ScenarioPart):
 
 class PostActionWorld(ScenarioPart):
     """Signals added once an action is applied: metric points extend the series with the same
-    id, log lines are appended."""
+    id, log lines are appended.
+
+    A world is keyed by one action name, or by several distinct names sorted and joined by `+`
+    (see `combined_world_key`): that combined world is served once all of them are applied."""
 
     metrics: list[Series] = Field(default_factory=list)
     logs: list[LogLine] = Field(default_factory=list)
@@ -53,12 +60,18 @@ class PostActionWorld(ScenarioPart):
 
 class ScriptedOutputs(ScenarioPart):
     """What the scripted chat model answers for this scenario. Kept as raw JSON objects here;
-    the node that asks for a `Triage`, an `RcaOutput` or an `Escalation` validates them against
-    that schema. `escalate` is present only for scenarios whose run ends in escalation."""
+    the node that asks for a `Triage`, an `RcaOutput`, an `Escalation` or a `Postmortem`
+    validates them against that schema.
+
+    `escalate` is present only for scenarios whose run ends in escalation; `postmortem` for
+    scenarios whose run applies an action; `rca_after_action` is the rca answer once an action
+    is applied, required for a `loop` scenario."""
 
     triage: dict[str, Any]
     rca: dict[str, Any]
     escalate: dict[str, Any] | None = None
+    rca_after_action: dict[str, Any] | None = None
+    postmortem: dict[str, Any] | None = None
 
 
 class Scenario(ScenarioPart):
@@ -80,6 +93,7 @@ class Scenario(ScenarioPart):
             *duplicate_signal_id_problems(self.signals),
             *unknown_required_evidence_problems(self),
             *post_action_world_problems(self),
+            *missing_scripted_output_problems(self),
         ]
         if self.ground_truth.correct_action in self.wrong_actions:
             problems.append(
@@ -98,6 +112,11 @@ def load_scenario(path: Path) -> Scenario:
 def list_scenario_ids(directory: Path) -> list[str]:
     """Scenario ids are the file stems of the `*.json` files in `directory`, sorted."""
     return sorted(path.stem for path in directory.glob("*.json"))
+
+
+def combined_world_key(action_names: Iterable[str]) -> str:
+    """The `post_action_world` key for a set of applied actions: distinct names, sorted, `+`."""
+    return COMBINED_WORLD_SEPARATOR.join(sorted(set(action_names)))
 
 
 def duplicate_signal_id_problems(signals: Signals) -> list[str]:
@@ -124,6 +143,7 @@ def post_action_world_problems(scenario: Scenario) -> list[str]:
     declared = set(scenario.signals.ids())
     problems: list[str] = []
     for action, world in scenario.post_action_world.items():
+        problems += world_key_problems(action)
         problems += [
             f"post_action_world[{action!r}] metric {series.id!r} extends no declared metric"
             for series in world.metrics
@@ -134,4 +154,41 @@ def post_action_world_problems(scenario: Scenario) -> list[str]:
             for line in world.logs
             if line.id in declared
         ]
+        problems += late_signal_problems(scenario, action, world)
+    return problems
+
+
+def late_signal_problems(scenario: Scenario, action: str, world: PostActionWorld) -> list[str]:
+    """Every post-action point or line later than verify's window, which verify would never read."""
+    last_readable = scenario.incident_time + VERIFY_WINDOW
+    moments = [
+        (f"metric {series.id!r}", point.at) for series in world.metrics for point in series.points
+    ] + [(f"log {line.id!r}", line.timestamp) for line in world.logs]
+    return [
+        f"post_action_world[{action!r}] {what} is after the verify window ({VERIFY_WINDOW})"
+        for what, moment in moments
+        if moment > last_readable
+    ]
+
+
+def world_key_problems(key: str) -> list[str]:
+    names = key.split(COMBINED_WORLD_SEPARATOR)
+    names_are_ids = all(re.fullmatch(SIGNAL_ID_PATTERN, name) for name in names)
+    if names_are_ids and key == combined_world_key(names) and len(set(names)) == len(names):
+        return []
+    return [
+        f"post_action_world key {key!r} must be one action name, or distinct action names "
+        f"sorted and joined by {COMBINED_WORLD_SEPARATOR!r}"
+    ]
+
+
+def missing_scripted_output_problems(scenario: Scenario) -> list[str]:
+    outputs = scenario.scripted_outputs
+    problems: list[str] = []
+    if scenario.expected_outcome in ("remediate", "loop") and outputs.postmortem is None:
+        problems.append(
+            f"scripted_outputs.postmortem is required for a {scenario.expected_outcome} scenario"
+        )
+    if scenario.expected_outcome == "loop" and outputs.rca_after_action is None:
+        problems.append("scripted_outputs.rca_after_action is required for a loop scenario")
     return problems

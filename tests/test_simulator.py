@@ -8,7 +8,7 @@ import pytest
 
 from agentops.sources.base import ActionRequest, EvidenceSource, Window
 from agentops.sources.scenario import Scenario, load_scenario
-from agentops.sources.simulator import SimulatorSource
+from agentops.sources.simulator import LedgerError, SimulatorSource, ledger_path_for
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 CLEAN_BAD_DEPLOY = "clean_bad_deploy"
@@ -206,3 +206,193 @@ def test_reads_for_another_service_return_nothing() -> None:
     assert source.get_deployments("billing", window) == []
     assert source.get_config("billing") == {}
     assert source.get_dependency_health("billing") == []
+
+
+# E32, E33, E41 (R20): the ledger file survives the process, and combined worlds.
+
+TWO_CONCURRENT_FAULTS = "two_concurrent_faults"
+ROLLBACK = ActionRequest(action="rollback_deploy", target="deploy-001")
+SCALE_POOL = ActionRequest(action="scale_db_pool", target="postgres", params={"pool_size": 96})
+
+
+def latest_on(source: SimulatorSource, service: str, metric_name: str, window: Window) -> float:
+    (series,) = source.get_metrics(service, [metric_name], window)
+    return max(series.points, key=lambda point: point.at).value
+
+
+def ledger_lines(path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_apply_appends_one_json_line_to_the_ledger_file_before_returning(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    source = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    source.apply(ROLLBACK, "key-rollback-1")
+
+    assert ledger_lines(ledger_path) == [
+        {
+            "idempotency_key": "key-rollback-1",
+            "action": "rollback_deploy",
+            "target": "deploy-001",
+            "params": {},
+        }
+    ]
+
+
+def test_refused_and_repeated_applies_add_nothing_to_the_ledger_file(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    source = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    refused = source.apply(ActionRequest(action="drop_table", target="orders"), "key-drop-1")
+    assert not ledger_path.exists()
+    source.apply(ROLLBACK, "key-rollback-1")
+    repeated = source.apply(ROLLBACK, "key-rollback-1")
+
+    assert refused.ok is False
+    assert repeated.applied is False
+    assert len(ledger_lines(ledger_path)) == 1
+
+
+def test_a_source_on_a_ledger_path_with_no_file_yet_starts_empty_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+
+    source = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert source.ledger() == []
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_new_source_on_the_same_ledger_file_serves_the_post_action_world(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named(CLEAN_BAD_DEPLOY)
+    window = whole_day_around(scenario.incident_time)
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    SimulatorSource(scenario, ledger_path=ledger_path).apply(ROLLBACK, "key-rollback-1")
+    applied_in_memory = SimulatorSource(scenario)
+    applied_in_memory.apply(ROLLBACK, "key-rollback-1")
+
+    restarted = SimulatorSource(scenario, ledger_path=ledger_path)
+    repeated = restarted.apply(ROLLBACK, "key-rollback-1")
+
+    assert restarted.get_metrics("checkout", ["error_rate"], window) == (
+        applied_in_memory.get_metrics("checkout", ["error_rate"], window)
+    )
+    assert [entry.idempotency_key for entry in restarted.ledger()] == ["key-rollback-1"]
+    assert repeated.ok is True
+    assert repeated.applied is False
+    assert len(ledger_lines(ledger_path)) == 1
+
+
+def test_scenario_six_serves_the_combined_world_once_both_actions_are_applied() -> None:
+    scenario = scenario_named(TWO_CONCURRENT_FAULTS)
+    source = SimulatorSource(scenario)
+    window = whole_day_around(scenario.incident_time)
+
+    source.apply(ROLLBACK, "key-rollback-1")
+    pool_after_rollback = latest_on(source, "orders", "db_pool_utilisation", window)
+    source.apply(SCALE_POOL, "key-scale-1")
+
+    assert pool_after_rollback == pytest.approx(0.97)
+    assert latest_on(source, "orders", "db_pool_utilisation", window) == pytest.approx(0.55)
+    assert latest_on(source, "orders", "error_rate", window) == pytest.approx(0.005)
+    assert latest_on(source, "orders", "p99_latency_ms", window) == pytest.approx(300)
+
+
+def test_a_restarted_source_replays_both_actions_into_the_combined_world(tmp_path: Path) -> None:
+    scenario = scenario_named(TWO_CONCURRENT_FAULTS)
+    window = whole_day_around(scenario.incident_time)
+    ledger_path = ledger_path_for(tmp_path, "inc-006")
+    first = SimulatorSource(scenario, ledger_path=ledger_path)
+    first.apply(ROLLBACK, "key-rollback-1")
+    first.apply(SCALE_POOL, "key-scale-1")
+
+    restarted = SimulatorSource(scenario, ledger_path=ledger_path)
+
+    metric_names = [series.name for series in scenario.signals.metrics]
+    assert restarted.get_metrics("orders", metric_names, window) == (
+        first.get_metrics("orders", metric_names, window)
+    )
+    assert restarted.ledger() == first.ledger()
+
+
+@pytest.mark.parametrize(
+    "second_line",
+    [
+        "{not json",
+        '{"idempotency_key": "k"}',
+        json.dumps({"idempotency_key": "k", **ROLLBACK.model_dump(), "x": 1}),
+    ],
+    ids=["not json", "missing fields", "unknown key"],
+)
+def test_a_malformed_ledger_line_stops_the_source_naming_the_line(
+    tmp_path: Path, second_line: str
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    first_line = json.dumps({"idempotency_key": "key-rollback-1", **ROLLBACK.model_dump()})
+    ledger_path.write_text(f"{first_line}\n{second_line}\n", encoding="utf-8")
+
+    with pytest.raises(LedgerError, match="line 2"):
+        SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+
+def test_a_ledger_line_for_an_action_the_world_cannot_model_stops_the_source(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    entry = {"idempotency_key": "key-drop-1", "action": "drop_table", "target": "x", "params": {}}
+    ledger_path.write_text(json.dumps(entry) + "\n", encoding="utf-8")
+
+    with pytest.raises(LedgerError, match="line 1"):
+        SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+
+@pytest.mark.parametrize("incident_id", ["../x", "a/b", "C:\\x", "", "x\n", "Upper"])
+def test_ledger_path_for_refuses_an_incident_id_outside_the_signal_id_pattern(
+    tmp_path: Path, incident_id: str
+) -> None:
+    with pytest.raises(LedgerError, match="incident id"):
+        ledger_path_for(tmp_path, incident_id)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("file_name", ["inc-001.jsonl", ".ledger.jsonl", "Inc 1.ledger.jsonl"])
+def test_a_ledger_path_whose_name_is_not_an_incident_ledger_is_refused(
+    tmp_path: Path, file_name: str
+) -> None:
+    with pytest.raises(LedgerError, match="incident id"):
+        SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=tmp_path / file_name)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_the_same_action_under_a_new_key_does_not_merge_its_world_a_second_time(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named(CLEAN_BAD_DEPLOY)
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    source = SimulatorSource(scenario, ledger_path=ledger_path)
+    window = Window(start=scenario.incident_time, end=scenario.incident_time + timedelta(hours=1))
+    other_version = ActionRequest(
+        action="rollback_deploy", target="deploy-001", params={"to_version": "v2.14.0"}
+    )
+
+    source.apply(ROLLBACK, "key-rollback-1")
+    second = source.apply(other_version, "key-rollback-2")
+    replayed = SimulatorSource(scenario, ledger_path=ledger_path)
+
+    assert second.applied is True
+    for served in (source, replayed):
+        log_ids = [line.id for line in served.get_logs(scenario.service, window, None)]
+        assert log_ids.count("log-009") == 1
+        point_times = [
+            point.at
+            for series in served.get_metrics(scenario.service, ["error_rate"], window)
+            for point in series.points
+        ]
+        assert len(point_times) == len(set(point_times))
+    assert len(source.ledger()) == 2

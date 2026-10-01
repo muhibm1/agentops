@@ -1,22 +1,27 @@
 """E4 to E8: the incident state, the model-output schemas and the citation rule (R4 to R6)."""
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
 from agentops.state import (
+    APPROVAL_REASON_MAX_LENGTH,
     CONTROL_FIELDS,
     ESCALATION_SUMMARY_MAX_LENGTH,
     HYPOTHESIS_NAME_MAX_LENGTH,
     MODEL_OUTPUT_SCHEMAS,
+    MODEL_TEXT_MAX_LENGTH,
     RCA,
     Action,
     Approval,
+    ApprovalDecision,
     CitationError,
     Escalation,
+    EscalationReason,
     Evidence,
+    ExecutionRecord,
     Hypothesis,
     Postmortem,
     RcaOutput,
@@ -93,6 +98,8 @@ def test_control_fields_absent_from_every_model_output_schema() -> None:
         "approval",
         "execution",
         "escalation_reason",
+        "unreachable_sources",
+        "approval_error",
     }
     assert set(MODEL_OUTPUT_SCHEMAS) == {Triage, RcaOutput, Postmortem, Escalation}
 
@@ -105,7 +112,12 @@ def test_control_fields_absent_from_every_model_output_schema() -> None:
 
 def test_approval_accepts_a_role_operator() -> None:
     approval = Approval.model_validate(
-        {"decision": "approve", "operator": "on-call", "decided_at": OPENED_AT.isoformat()}
+        {
+            "decision": "approve",
+            "operator": "on-call",
+            "decided_at": OPENED_AT.isoformat(),
+            "idempotency_key": "a" * 64,
+        }
     )
 
     assert approval.operator == "on-call"
@@ -126,7 +138,12 @@ def test_scores_outside_unit_interval_and_empty_citations_are_rejected(score: fl
 def test_operator_rejects_usernames_emails_and_case_variants(operator: str) -> None:
     with pytest.raises(ValidationError):
         Approval.model_validate(
-            {"decision": "approve", "operator": operator, "decided_at": OPENED_AT.isoformat()}
+            {
+                "decision": "approve",
+                "operator": operator,
+                "decided_at": OPENED_AT.isoformat(),
+                "idempotency_key": "a" * 64,
+            }
         )
 
 
@@ -260,6 +277,24 @@ def test_hypothesis_name_and_escalation_summary_have_a_length_cap() -> None:
         Escalation(summary="s" * (ESCALATION_SUMMARY_MAX_LENGTH + 1))
 
 
+def test_rca_explanation_has_a_length_cap() -> None:
+    def rca(explanation: str) -> RCA:
+        return RCA(label="bad_deploy", explanation=explanation, evidence_ids=["log-1"])
+
+    assert rca("e" * MODEL_TEXT_MAX_LENGTH)
+    with pytest.raises(ValidationError):
+        rca("e" * (MODEL_TEXT_MAX_LENGTH + 1))
+
+
+def test_postmortem_summary_has_a_length_cap() -> None:
+    def postmortem(summary: str) -> Postmortem:
+        return Postmortem(summary=summary, root_cause="A bad deploy.", evidence_ids=["log-1"])
+
+    assert postmortem("s" * MODEL_TEXT_MAX_LENGTH)
+    with pytest.raises(ValidationError):
+        postmortem("s" * (MODEL_TEXT_MAX_LENGTH + 1))
+
+
 def test_triage_rejects_a_repeated_hypothesis_name() -> None:
     with pytest.raises(ValidationError, match="bad_deploy"):
         Triage(
@@ -276,3 +311,139 @@ def test_triage_accepts_distinct_hypothesis_names() -> None:
     )
 
     assert len(triage.hypotheses) == 2
+
+
+# Increment 3 additions to the state (spec Data, brief D12, D21, D22).
+
+
+def test_new_incident_starts_with_no_unreachable_source_and_no_approval_error() -> None:
+    state = new_incident("checkout", ["error rate 12%"], opened_at=OPENED_AT)
+
+    assert state["unreachable_sources"] == []
+    assert state["approval_error"] is None
+
+
+def test_approval_requires_the_key_of_the_remediation_the_operator_saw() -> None:
+    with pytest.raises(ValidationError, match="idempotency_key"):
+        Approval.model_validate(
+            {"decision": "approve", "operator": "on-call", "decided_at": OPENED_AT.isoformat()}
+        )
+
+
+def test_an_approve_decision_defaults_to_the_operator_role() -> None:
+    decision = ApprovalDecision.model_validate({"decision": "approve"})
+
+    assert decision.operator == "operator"
+    assert decision.reason is None
+    assert decision.remediation is None
+
+
+def test_an_edit_decision_carries_its_remediation() -> None:
+    decision = ApprovalDecision.model_validate(
+        {"decision": "edit", "remediation": remediation_payload(), "operator": "reviewer"}
+    )
+
+    assert decision.remediation is not None
+    assert decision.remediation.action == "rollback_deploy"
+
+
+@pytest.mark.parametrize(
+    ("payload", "named_in_message"),
+    [
+        ({"decision": "reject"}, "reason"),
+        ({"decision": "reject", "reason": "   "}, "reason"),
+        ({"decision": "reject", "reason": "x" * (APPROVAL_REASON_MAX_LENGTH + 1)}, "reason"),
+        ({"decision": "edit"}, "remediation"),
+        ({"decision": "approve", "remediation": remediation_payload()}, "remediation"),
+        ({"decision": "approve "}, "decision"),
+        ({"decision": "approve", "status": "resolved"}, "status"),
+        ({"decision": "approve", "operator": "muhibm1"}, "operator"),
+    ],
+    ids=[
+        "reject without reason",
+        "reject with blank reason",
+        "reject with oversized reason",
+        "edit without remediation",
+        "approve with remediation",
+        "padded decision",
+        "smuggled control field",
+        "username as operator",
+    ],
+)
+def test_an_approval_decision_that_does_not_fit_its_rules_is_rejected(
+    payload: dict[str, Any], named_in_message: str
+) -> None:
+    with pytest.raises(ValidationError, match=named_in_message):
+        ApprovalDecision.model_validate(payload)
+
+
+def test_an_execution_record_names_its_action_target_and_whether_it_applied() -> None:
+    record = ExecutionRecord(
+        idempotency_key="a" * 64,
+        action="rollback_deploy",
+        target="checkout",
+        applied=False,
+        result="refused",
+        dry_run_output="Would roll checkout back.",
+    )
+
+    assert record.applied is False
+    assert record.applied_at is None
+    with pytest.raises(ValidationError):
+        ExecutionRecord.model_validate({**record.model_dump(), "action": "Drop Table"})
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "source_outage",
+        "action_not_allowed",
+        "precondition_failed",
+        "apply_failed",
+        "symptoms_persist",
+    ],
+)
+def test_the_new_escalation_reasons_are_accepted(reason: str) -> None:
+    assert reason in get_args(EscalationReason)
+
+
+@pytest.mark.parametrize("kind", ["action", "precondition", "operator"])
+def test_the_new_evidence_kinds_are_accepted(kind: str) -> None:
+    item = Evidence.model_validate(
+        {
+            "id": f"{kind}-1",
+            "source": "graph",
+            "kind": kind,
+            "payload": {},
+            "collected_at": OPENED_AT,
+        }
+    )
+
+    assert item.kind == kind
+
+
+def execution_record_payload(target: str) -> dict[str, Any]:
+    return {
+        "idempotency_key": "a" * 64,
+        "action": "rollback_deploy",
+        "target": target,
+        "applied": False,
+        "result": "refused",
+        "dry_run_output": "",
+    }
+
+
+def test_a_target_of_sixty_four_characters_is_accepted_on_both_records() -> None:
+    target = "a" * 64
+
+    assert Remediation.model_validate(remediation_payload(target=target)).target == target
+    assert ExecutionRecord.model_validate(execution_record_payload(target)).target == target
+
+
+def test_a_target_of_sixty_five_characters_is_rejected_on_both_records() -> None:
+    target = "a" * 65
+
+    with pytest.raises(ValidationError, match="target"):
+        Remediation.model_validate(remediation_payload(target=target))
+    with pytest.raises(ValidationError, match="target"):
+        ExecutionRecord.model_validate(execution_record_payload(target))

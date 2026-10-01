@@ -15,10 +15,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 SNAKE_CASE_NAME = r"^[a-z0-9_]+$"
 # A remediation target names a service, deployment or config key; it is never free text.
 TARGET_NAME = r"^[a-z0-9_.-]+$"
+TARGET_MAX_LENGTH = 64
 INITIAL_INVESTIGATION_BUDGET = 12
 # Caps on model free text that is printed and re-sent in later prompts.
 HYPOTHESIS_NAME_MAX_LENGTH = 80
 ESCALATION_SUMMARY_MAX_LENGTH = 1000
+MODEL_TEXT_MAX_LENGTH = 2000
+# An operator's reject reason reaches the audit file, the checkpoint and the next rca prompt.
+APPROVAL_REASON_MAX_LENGTH = 1000
 
 IncidentStatus = Literal[
     "triage",
@@ -30,10 +34,23 @@ IncidentStatus = Literal[
     "escalated",
     "failed",
 ]
-EvidenceKind = Literal["log", "metric", "deployment", "dependency", "config"]
+# `action` is an apply outcome, `precondition` a failed runbook check and `operator` the reason
+# an operator gave for rejecting a proposal.
+EvidenceKind = Literal[
+    "log", "metric", "deployment", "dependency", "config", "action", "precondition", "operator"
+]
 OperatorRole = Literal["operator", "on-call", "reviewer"]
 # Why the graph handed the incident to a human instead of remediating.
-EscalationReason = Literal["budget_exhausted", "ambiguous", "no_evidence"]
+EscalationReason = Literal[
+    "budget_exhausted",
+    "ambiguous",
+    "no_evidence",
+    "source_outage",
+    "action_not_allowed",
+    "precondition_failed",
+    "apply_failed",
+    "symptoms_persist",
+]
 
 
 class StrictModel(BaseModel):
@@ -65,13 +82,13 @@ class Triage(StrictModel):
 
 class RCA(StrictModel):
     label: str = Field(pattern=SNAKE_CASE_NAME)
-    explanation: str = Field(min_length=1)
+    explanation: str = Field(min_length=1, max_length=MODEL_TEXT_MAX_LENGTH)
     evidence_ids: list[str] = Field(min_length=1)
 
 
 class Remediation(StrictModel):
     action: str = Field(pattern=SNAKE_CASE_NAME)
-    target: str = Field(pattern=TARGET_NAME)
+    target: str = Field(pattern=TARGET_NAME, max_length=TARGET_MAX_LENGTH)
     params: dict[str, str | int | float | bool] = Field(default_factory=dict)
     reason: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
@@ -104,7 +121,7 @@ class Escalation(StrictModel):
 class Postmortem(StrictModel):
     """Model output of the postmortem node (increment 3 onward)."""
 
-    summary: str = Field(min_length=1)
+    summary: str = Field(min_length=1, max_length=MODEL_TEXT_MAX_LENGTH)
     timeline: list[str] = Field(default_factory=list)
     root_cause: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
@@ -132,16 +149,51 @@ class Action(StrictModel):
     attempt: int = Field(default=1, ge=1)
 
 
+ApprovalChoice = Literal["approve", "reject", "edit"]
+
+
 class Approval(StrictModel):
-    decision: Literal["approve", "reject", "edit"]
+    decision: ApprovalChoice
     # A role, never a person's name, username or email (compliance control 1, brief D10).
     operator: OperatorRole
     edited_remediation: Remediation | None = None
     decided_at: datetime
+    # The key of the remediation the operator saw; the executor refuses any other (brief D22).
+    idempotency_key: str = Field(min_length=1)
+
+
+class ApprovalDecision(StrictModel):
+    """The value an operator resumes the approval interrupt with, validated before it is used.
+
+    A reject needs a reason; an edit needs a remediation and is the only decision that may carry
+    one, so an approve can never quietly change what runs.
+    """
+
+    decision: ApprovalChoice
+    # Free text: describe the evidence, not people (a name here is the profile's GDPR trigger).
+    reason: str | None = Field(default=None, max_length=APPROVAL_REASON_MAX_LENGTH)
+    remediation: Remediation | None = None
+    # A role, never a person's name, username or email (compliance control 1).
+    operator: OperatorRole = "operator"
+
+    @model_validator(mode="after")
+    def check_fields_fit_the_decision(self) -> Self:
+        if self.decision == "reject" and not (self.reason and self.reason.strip()):
+            raise ValueError("A reject needs a reason describing the evidence.")
+        if self.decision == "edit" and self.remediation is None:
+            raise ValueError("An edit needs the edited remediation.")
+        if self.decision != "edit" and self.remediation is not None:
+            raise ValueError("Only an edit may carry a remediation.")
+        return self
 
 
 class ExecutionRecord(StrictModel):
     idempotency_key: str = Field(min_length=1)
+    action: str = Field(pattern=SNAKE_CASE_NAME)
+    target: str = Field(pattern=TARGET_NAME, max_length=TARGET_MAX_LENGTH)
+    # True when the change is in effect: this execution applied it, or the key was already applied
+    # before (a repeat, or a run resumed after a crash). A refusal or a failure leaves it False.
+    applied: bool
     applied_at: datetime | None = None
     result: str
     dry_run_output: str
@@ -173,10 +225,23 @@ class IncidentState(TypedDict):
     approval: Approval | None
     execution: ExecutionRecord | None
     escalation_reason: EscalationReason | None
+    # Evidence sources whose every recorded read attempt failed, written by merge (spec R2).
+    unreachable_sources: list[str]
+    # Why the last operator answer at the approval interrupt was refused, or None.
+    approval_error: str | None
 
 
 CONTROL_FIELDS = frozenset(
-    {"status", "investigation_budget", "loops", "approval", "execution", "escalation_reason"}
+    {
+        "status",
+        "investigation_budget",
+        "loops",
+        "approval",
+        "execution",
+        "escalation_reason",
+        "unreachable_sources",
+        "approval_error",
+    }
 )
 MODEL_OUTPUT_SCHEMAS: tuple[type[BaseModel], ...] = (Triage, RcaOutput, Postmortem, Escalation)
 
@@ -222,6 +287,8 @@ def new_incident(
         approval=None,
         execution=None,
         escalation_reason=None,
+        unreachable_sources=[],
+        approval_error=None,
     )
 
 

@@ -150,6 +150,20 @@
         "risk": "low",
         "rollback": "Delete the re-run output for the 2026-03-18 partition to restore the previous empty table."
       }
+    },
+    "postmortem": {
+      "summary": "The daily revenue rollup ran before its upstream partition landed, wrote zero rows and reported success. Re-running the 2026-03-18 partition once the data arrived filled the dashboard.",
+      "timeline": [
+        "The rollup ran at 06:31 and reported success (log-002).",
+        "Rows written stayed at 0 (metric-rows_written) while ingestion lag grew past six hours (metric-ingestion_lag_seconds).",
+        "The partition was re-run after operator approval and the rows arrived."
+      ],
+      "root_cause": "late_upstream_partition",
+      "evidence_ids": ["metric-rows_written", "metric-ingestion_lag_seconds", "log-002"],
+      "follow_ups": [
+        "Make the rollup wait for the upstream partition instead of running on an empty one.",
+        "Fail the job when it writes zero rows for a daily partition."
+      ]
     }
   }
 }

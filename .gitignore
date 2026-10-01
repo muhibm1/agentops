@@ -10,6 +10,7 @@ __pycache__/
 .ruff_cache/
 *.db
 *.sqlite
+*.sqlite-*
 *.sqlite3
 audit/
 .langgraph_api/

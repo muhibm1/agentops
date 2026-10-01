@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentops.sources.scenario import list_scenario_ids, load_scenario
-from agentops.state import Escalation, RcaOutput, Triage
+from agentops.state import Escalation, Postmortem, RcaOutput, Triage
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 SCENARIO_FILES = sorted(SCENARIOS_DIR.glob("*.json"))
@@ -188,3 +188,160 @@ def test_ambiguous_scenario_scores_its_two_causes_inside_the_escalation_margin()
 
     top, second = sorted((h.score for h in rca.hypotheses), reverse=True)[:2]
     assert top - second < 0.15
+
+
+# E20 (R20): postmortems, scenario 6's answer after its first action, and combined worlds.
+
+TWO_CONCURRENT_FAULTS = "two_concurrent_faults"
+COMBINED_WORLD_KEY = "rollback_deploy+scale_db_pool"
+REMEDIATING_FILES = [
+    path for path in SCENARIO_FILES if EXPECTED_OUTCOMES[path.stem] in ("remediate", "loop")
+]
+
+
+def raw_scenario(scenario_id: str) -> dict[str, Any]:
+    return json.loads((SCENARIOS_DIR / f"{scenario_id}.json").read_text(encoding="utf-8"))
+
+
+def ids_cited_by_rca(rca: RcaOutput) -> set[str]:
+    return {
+        *(cited for h in rca.hypotheses for cited in h.supporting_evidence),
+        *(cited for h in rca.hypotheses for cited in h.contradicting_evidence),
+        *(rca.root_cause.evidence_ids if rca.root_cause else []),
+        *(rca.remediation.evidence_ids if rca.remediation else []),
+    }
+
+
+def test_seven_scenarios_end_in_an_action_and_each_needs_a_postmortem() -> None:
+    assert len(REMEDIATING_FILES) == 7
+
+
+@pytest.mark.parametrize("path", REMEDIATING_FILES, ids=lambda path: path.stem)
+def test_scripted_postmortem_cites_only_signals_its_rca_answers_cited(path: Path) -> None:
+    scenario = load_scenario(path)
+    outputs = scenario.scripted_outputs
+    assert outputs.postmortem is not None
+
+    postmortem = Postmortem.model_validate(outputs.postmortem)
+
+    rca_answers = [outputs.rca, *([outputs.rca_after_action] if outputs.rca_after_action else [])]
+    cited_by_rca: set[str] = set()
+    for answer in rca_answers:
+        cited_by_rca |= ids_cited_by_rca(RcaOutput.model_validate(answer))
+    assert set(postmortem.evidence_ids) <= set(scenario.signals.ids())
+    assert set(postmortem.evidence_ids) <= cited_by_rca
+
+
+def test_the_escalating_scenario_scripts_no_postmortem_and_no_second_rca() -> None:
+    scenario = load_scenario(SCENARIOS_DIR / "ambiguous_two_causes.json")
+
+    assert scenario.scripted_outputs.postmortem is None
+    assert scenario.scripted_outputs.rca_after_action is None
+
+
+def test_scenario_six_scripts_a_pool_scale_up_once_the_rollback_is_applied() -> None:
+    scenario = load_scenario(SCENARIOS_DIR / f"{TWO_CONCURRENT_FAULTS}.json")
+    triage = Triage.model_validate(scenario.scripted_outputs.triage)
+    assert scenario.scripted_outputs.rca_after_action is not None
+
+    rca = RcaOutput.model_validate(scenario.scripted_outputs.rca_after_action)
+
+    assert rca.root_cause is not None
+    assert rca.remediation is not None
+    assert max(rca.hypotheses, key=lambda h: h.score).name == "database_saturation"
+    assert max(h.score for h in rca.hypotheses) == pytest.approx(0.8)
+    assert rca.root_cause.label == "database_saturation"
+    assert rca.remediation.action == "scale_db_pool"
+    assert rca.remediation.target == "postgres"
+    assert rca.remediation.params == {"pool_size": 96}
+    assert set(rca.remediation.evidence_ids) == {"metric-db_pool_utilisation", "log-004"}
+    assert {h.name for h in rca.hypotheses} == {h.name for h in triage.hypotheses}
+
+
+def test_scenario_six_declares_the_combined_world_of_both_actions() -> None:
+    scenario = load_scenario(SCENARIOS_DIR / f"{TWO_CONCURRENT_FAULTS}.json")
+
+    combined = scenario.post_action_world[COMBINED_WORLD_KEY]
+
+    latest = {series.name: series.points[-1] for series in combined.metrics}
+    assert latest["db_pool_utilisation"].value == pytest.approx(0.55)
+    assert latest["error_rate"].value == pytest.approx(0.005)
+    assert latest["p99_latency_ms"].value == pytest.approx(300)
+    point_times = {point.at.strftime("%H:%M") for s in combined.metrics for point in s.points}
+    assert point_times == {"11:50", "11:55"}
+
+
+@pytest.mark.parametrize(
+    ("scenario_id", "missing_field"),
+    [
+        ("clean_bad_deploy", "postmortem"),
+        (TWO_CONCURRENT_FAULTS, "postmortem"),
+        (TWO_CONCURRENT_FAULTS, "rca_after_action"),
+    ],
+)
+def test_scenario_missing_an_answer_its_outcome_needs_is_rejected_naming_the_field(
+    tmp_path: Path, scenario_id: str, missing_field: str
+) -> None:
+    raw = raw_scenario(scenario_id)
+    raw["scripted_outputs"].pop(missing_field, None)
+    path = write_variant(tmp_path, raw, f"{scenario_id}.json")
+
+    with pytest.raises(ValidationError) as raised:
+        load_scenario(path)
+
+    assert missing_field in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    ["scale_db_pool+rollback_deploy", "rollback_deploy+rollback_deploy", "Rollback Deploy", ""],
+    ids=["unsorted", "repeated", "not an id", "empty"],
+)
+def test_post_action_world_key_that_is_not_sorted_distinct_action_names_is_rejected(
+    tmp_path: Path, bad_key: str
+) -> None:
+    raw = raw_scenario(TWO_CONCURRENT_FAULTS)
+    worlds = raw["post_action_world"]
+    worlds[bad_key] = worlds.pop(COMBINED_WORLD_KEY, worlds["scale_db_pool"])
+    path = write_variant(tmp_path, raw, f"{TWO_CONCURRENT_FAULTS}.json")
+
+    with pytest.raises(ValidationError) as raised:
+        load_scenario(path)
+
+    assert f"post_action_world key {bad_key!r}" in str(raised.value)
+
+
+def moved_world_signal(raw: dict[str, Any], kind: str, timestamp: str) -> None:
+    """Set the time of the first metric point or log line of the first post-action world."""
+    world = next(iter(raw["post_action_world"].values()))
+    if kind == "metric":
+        world["metrics"][0]["points"][0]["at"] = timestamp
+    else:
+        world["logs"][0]["timestamp"] = timestamp
+
+
+@pytest.mark.parametrize("kind", ["metric", "log"])
+def test_a_post_action_signal_after_the_verify_window_is_rejected(
+    tmp_path: Path, kind: str
+) -> None:
+    raw = raw_scenario("clean_bad_deploy")
+    moved_world_signal(raw, kind, "2026-03-10T11:01:00Z")
+    path = write_variant(tmp_path, raw, "clean_bad_deploy.json")
+
+    with pytest.raises(ValidationError) as raised:
+        load_scenario(path)
+
+    assert "after the verify window" in str(raised.value)
+
+
+@pytest.mark.parametrize("kind", ["metric", "log"])
+def test_a_post_action_signal_at_the_end_of_the_verify_window_is_accepted(
+    tmp_path: Path, kind: str
+) -> None:
+    raw = raw_scenario("clean_bad_deploy")
+    moved_world_signal(raw, kind, "2026-03-10T11:00:00Z")
+    path = write_variant(tmp_path, raw, "clean_bad_deploy.json")
+
+    scenario = load_scenario(path)
+
+    assert scenario.id == "clean_bad_deploy"
