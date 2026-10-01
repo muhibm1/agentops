@@ -1,0 +1,203 @@
+{
+  "id": "dependency_timeout_noisy_neighbour",
+  "service": "checkout",
+  "symptoms": [
+    "checkout p99 latency 5x baseline since 15:41",
+    "checkout error rate 9% since 15:41"
+  ],
+  "incident_time": "2026-03-17T16:00:00Z",
+  "signals": {
+    "logs": [
+      {
+        "id": "log-001",
+        "timestamp": "2026-03-17T15:30:02Z",
+        "level": "INFO",
+        "message": "checkout-api-5b8 served 1100 requests in the last minute",
+        "service": "checkout"
+      },
+      {
+        "id": "log-002",
+        "timestamp": "2026-03-17T15:41:10Z",
+        "level": "WARN",
+        "message": "fraud-check call timed out after 2000 ms (attempt 1 of 2)",
+        "service": "checkout"
+      },
+      {
+        "id": "log-003",
+        "timestamp": "2026-03-17T15:44:37Z",
+        "level": "ERROR",
+        "message": "fraud-check call timed out after 2000 ms; order held as unverifiable",
+        "service": "checkout"
+      },
+      {
+        "id": "log-004",
+        "timestamp": "2026-03-17T15:50:21Z",
+        "level": "ERROR",
+        "message": "fraud-check call timed out after 2000 ms; order held as unverifiable",
+        "service": "checkout"
+      },
+      {
+        "id": "log-005",
+        "timestamp": "2026-03-17T15:52:00Z",
+        "level": "WARN",
+        "message": "co-located recommendations-worker logged 340 errors in 5 minutes; it shares the host but is not on the checkout request path",
+        "service": "checkout"
+      },
+      {
+        "id": "log-006",
+        "timestamp": "2026-03-17T15:57:15Z",
+        "level": "ERROR",
+        "message": "fraud-check call timed out after 2000 ms; order held as unverifiable",
+        "service": "checkout"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "metric-dependency_p99_ms",
+        "name": "dependency_p99_ms",
+        "unit": "ms",
+        "points": [
+          { "at": "2026-03-17T15:30:00Z", "value": 140 },
+          { "at": "2026-03-17T15:40:00Z", "value": 150 },
+          { "at": "2026-03-17T15:42:00Z", "value": 2300 },
+          { "at": "2026-03-17T15:50:00Z", "value": 2400 },
+          { "at": "2026-03-17T16:00:00Z", "value": 2400 }
+        ]
+      },
+      {
+        "id": "metric-error_rate",
+        "name": "error_rate",
+        "unit": "ratio",
+        "points": [
+          { "at": "2026-03-17T15:30:00Z", "value": 0.004 },
+          { "at": "2026-03-17T15:40:00Z", "value": 0.004 },
+          { "at": "2026-03-17T15:42:00Z", "value": 0.08 },
+          { "at": "2026-03-17T15:50:00Z", "value": 0.09 },
+          { "at": "2026-03-17T16:00:00Z", "value": 0.09 }
+        ]
+      },
+      {
+        "id": "metric-p99_latency_ms",
+        "name": "p99_latency_ms",
+        "unit": "ms",
+        "points": [
+          { "at": "2026-03-17T15:30:00Z", "value": 320 },
+          { "at": "2026-03-17T15:40:00Z", "value": 330 },
+          { "at": "2026-03-17T15:42:00Z", "value": 1550 },
+          { "at": "2026-03-17T15:50:00Z", "value": 1600 },
+          { "at": "2026-03-17T16:00:00Z", "value": 1600 }
+        ]
+      }
+    ],
+    "deployments": [],
+    "dependencies": [
+      {
+        "id": "dep-fraud-check",
+        "name": "fraud-check",
+        "status": "degraded",
+        "detail": "p99 2400 ms; about 31% of calls have timed out since 15:41."
+      },
+      {
+        "id": "dep-inventory",
+        "name": "inventory",
+        "status": "healthy",
+        "detail": "p99 90 ms, no errors in the last 30 minutes."
+      }
+    ],
+    "config": {
+      "fraud_check_timeout_ms": 2000,
+      "fraud_check_circuit_breaker_enabled": false
+    }
+  },
+  "ground_truth": {
+    "root_cause": "dependency_timeout_fraud_check",
+    "correct_action": "circuit_break_dependency"
+  },
+  "required_evidence": ["dep-fraud-check", "log-003"],
+  "wrong_actions": ["rollback_deploy", "scale_db_pool"],
+  "expected_outcome": "remediate",
+  "post_action_world": {
+    "circuit_break_dependency": {
+      "metrics": [
+        {
+          "id": "metric-error_rate",
+          "name": "error_rate",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-17T16:10:00Z", "value": 0.012 },
+            { "at": "2026-03-17T16:15:00Z", "value": 0.004 }
+          ]
+        },
+        {
+          "id": "metric-p99_latency_ms",
+          "name": "p99_latency_ms",
+          "unit": "ms",
+          "points": [
+            { "at": "2026-03-17T16:10:00Z", "value": 480 },
+            { "at": "2026-03-17T16:15:00Z", "value": 335 }
+          ]
+        }
+      ]
+    }
+  },
+  "scripted_outputs": {
+    "triage": {
+      "hypotheses": [
+        {
+          "name": "dependency_timeout_fraud_check",
+          "score": 0.5,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "noisy_neighbour_error_spike",
+          "score": 0.3,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "rollout_regression",
+          "score": 0.25,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        }
+      ]
+    },
+    "rca": {
+      "hypotheses": [
+        {
+          "name": "dependency_timeout_fraud_check",
+          "score": 0.85,
+          "supporting_evidence": ["dep-fraud-check", "metric-dependency_p99_ms", "log-003"],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "noisy_neighbour_error_spike",
+          "score": 0.1,
+          "supporting_evidence": [],
+          "contradicting_evidence": ["log-005"]
+        },
+        {
+          "name": "rollout_regression",
+          "score": 0.05,
+          "supporting_evidence": [],
+          "contradicting_evidence": ["log-001"]
+        }
+      ],
+      "root_cause": {
+        "label": "dependency_timeout_fraud_check",
+        "explanation": "From 15:41 the fraud-check dependency answers in about 2400 ms against a 2000 ms timeout (dep-fraud-check, metric-dependency_p99_ms) and checkout logs a timeout per held order (log-003). The error spike on the co-located worker is on a different request path (log-005), and no deployment landed in the window.",
+        "evidence_ids": ["dep-fraud-check", "metric-dependency_p99_ms", "log-003"]
+      },
+      "remediation": {
+        "action": "circuit_break_dependency",
+        "target": "fraud-check",
+        "params": { "fallback": "manual_review_queue" },
+        "reason": "Opening the circuit stops checkout waiting on a dependency that is timing out; held orders go to manual review instead of failing.",
+        "evidence_ids": ["dep-fraud-check", "metric-dependency_p99_ms"],
+        "risk": "medium",
+        "rollback": "Close the circuit breaker so checkout calls fraud-check again."
+      }
+    }
+  }
+}

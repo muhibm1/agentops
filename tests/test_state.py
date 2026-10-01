@@ -4,17 +4,24 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from agentops.state import (
     CONTROL_FIELDS,
+    ESCALATION_SUMMARY_MAX_LENGTH,
+    HYPOTHESIS_NAME_MAX_LENGTH,
     MODEL_OUTPUT_SCHEMAS,
     RCA,
+    Action,
     Approval,
     CitationError,
+    Escalation,
     Evidence,
     Hypothesis,
+    Postmortem,
+    RcaOutput,
     Remediation,
+    Triage,
     assert_cited,
     new_incident,
 )
@@ -79,8 +86,15 @@ def test_new_incident_starts_in_triage_with_full_budget() -> None:
 
 
 def test_control_fields_absent_from_every_model_output_schema() -> None:
-    assert CONTROL_FIELDS == {"status", "investigation_budget", "loops", "approval", "execution"}
-    assert len(MODEL_OUTPUT_SCHEMAS) == 3
+    assert CONTROL_FIELDS == {
+        "status",
+        "investigation_budget",
+        "loops",
+        "approval",
+        "execution",
+        "escalation_reason",
+    }
+    assert set(MODEL_OUTPUT_SCHEMAS) == {Triage, RcaOutput, Postmortem, Escalation}
 
     for schema in MODEL_OUTPUT_SCHEMAS:
         names = property_names_in(schema.model_json_schema())
@@ -153,3 +167,112 @@ def test_assert_cited_raises_on_empty_or_unknown_ids(ids: list[str], named_in_me
 
 def test_citation_error_is_not_a_value_error() -> None:
     assert not issubclass(CitationError, ValueError)
+
+
+def hypothesis_payload() -> dict[str, Any]:
+    return {"name": "bad_deploy", "score": 0.9}
+
+
+def root_cause_payload() -> dict[str, Any]:
+    return {
+        "label": "bad_deploy",
+        "explanation": "The deploy broke checkout.",
+        "evidence_ids": ["deploy-001"],
+    }
+
+
+def test_root_cause_and_remediation_are_both_present_or_both_null() -> None:
+    hypotheses = [hypothesis_payload()]
+
+    both_null = RcaOutput.model_validate(
+        {"hypotheses": hypotheses, "root_cause": None, "remediation": None}
+    )
+    both_present = RcaOutput.model_validate(
+        {
+            "hypotheses": hypotheses,
+            "root_cause": root_cause_payload(),
+            "remediation": remediation_payload(),
+        }
+    )
+
+    assert both_null.root_cause is None and both_null.remediation is None
+    assert both_present.root_cause is not None and both_present.remediation is not None
+    with pytest.raises(ValidationError, match="both"):
+        RcaOutput.model_validate(
+            {"hypotheses": hypotheses, "root_cause": root_cause_payload(), "remediation": None}
+        )
+    with pytest.raises(ValidationError, match="both"):
+        RcaOutput.model_validate(
+            {"hypotheses": hypotheses, "root_cause": None, "remediation": remediation_payload()}
+        )
+
+
+def test_rca_output_requires_at_least_one_hypothesis() -> None:
+    with pytest.raises(ValidationError):
+        RcaOutput.model_validate({"hypotheses": [], "root_cause": None, "remediation": None})
+
+
+def test_escalation_evidence_ids_default_to_empty() -> None:
+    escalation = Escalation(summary="Two causes fit equally well.")
+
+    assert escalation.evidence_ids == []
+
+
+def test_action_attempt_defaults_to_one_and_must_be_at_least_one() -> None:
+    assert Action(tool="triage", ok=True, latency_ms=1.0).attempt == 1
+    with pytest.raises(ValidationError):
+        Action(tool="triage", ok=True, latency_ms=1.0, attempt=0)
+
+
+def test_new_incident_has_no_escalation() -> None:
+    state = new_incident("checkout", ["error rate 12%"], opened_at=OPENED_AT)
+
+    assert state["escalation"] is None
+    assert state["escalation_reason"] is None
+
+
+@pytest.mark.parametrize(
+    ("schema", "payload"),
+    [
+        (Triage, {"hypotheses": [hypothesis_payload()]}),
+        (
+            RcaOutput,
+            {"hypotheses": [hypothesis_payload()], "root_cause": None, "remediation": None},
+        ),
+        (Escalation, {"summary": "Two causes fit equally well."}),
+    ],
+    ids=["Triage", "RcaOutput", "Escalation"],
+)
+@pytest.mark.parametrize("control_field", sorted(CONTROL_FIELDS))
+def test_every_model_output_schema_rejects_a_smuggled_control_field(
+    schema: type[BaseModel], payload: dict[str, Any], control_field: str
+) -> None:
+    with pytest.raises(ValidationError):
+        schema.model_validate({**payload, control_field: "resolved"})
+
+
+def test_hypothesis_name_and_escalation_summary_have_a_length_cap() -> None:
+    assert Hypothesis(name="a" * HYPOTHESIS_NAME_MAX_LENGTH, score=0.5)
+    with pytest.raises(ValidationError):
+        Hypothesis(name="a" * (HYPOTHESIS_NAME_MAX_LENGTH + 1), score=0.5)
+    assert Escalation(summary="s" * ESCALATION_SUMMARY_MAX_LENGTH)
+    with pytest.raises(ValidationError):
+        Escalation(summary="s" * (ESCALATION_SUMMARY_MAX_LENGTH + 1))
+
+
+def test_triage_rejects_a_repeated_hypothesis_name() -> None:
+    with pytest.raises(ValidationError, match="bad_deploy"):
+        Triage(
+            hypotheses=[
+                Hypothesis(name="bad_deploy", score=0.6),
+                Hypothesis(name="bad_deploy", score=0.5),
+            ]
+        )
+
+
+def test_triage_accepts_distinct_hypothesis_names() -> None:
+    triage = Triage(
+        hypotheses=[Hypothesis(name="bad_deploy", score=0.6), Hypothesis(name="pool", score=0.5)]
+    )
+
+    assert len(triage.hypotheses) == 2

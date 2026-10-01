@@ -15,20 +15,20 @@ that makes a statement here true or false.
 | `docs/superpowers/specs/2026-09-30-*.md` | Companions: eval methodology, cookbook, workshop, and the operator console (a **separate** repository, `muhibm1/agentops-console`) |
 | `pyproject.toml`, `requirements.txt`, `requirements-dev.txt` | Package metadata and the `agentops` entry point; exact pins with licence comments |
 | `LICENSE`, `README.md`, `CONTRIBUTING.md`, `docs/ci.md` | MIT licence, status and demo command, contributor setup, what CI checks |
-| `src/agentops/cli.py` | Typer app: `--version` and `run --scenario <id> --model scripted` (exit 0, 1 usage, 2 run failed) |
+| `src/agentops/cli.py` | Typer app: `--version` and `run --scenario <id> --model scripted` (exit 0 for `awaiting_approval` or `escalated`, 1 usage, 2 run failed); the report prints loops, budget remaining and the escalation reason and summary, every model string escaped |
 | `src/agentops/state.py` | `IncidentState`, the Pydantic models, `CONTROL_FIELDS`, `new_incident`, `CitationError`, `assert_cited` |
-| `src/agentops/graph.py` | `build_graph`: `START -> triage -> evidence -> rca -> END` with retry policies |
-| `src/agentops/nodes/` | `triage.py`, `evidence.py` (`collect_evidence`), `rca.py`, shared helpers in `__init__.py` |
+| `src/agentops/graph.py` | `build_graph`: `START -> triage -> router -> logs/metrics/deploys -> merge -> rca or escalate or the sources again`, with retry policies |
+| `src/agentops/nodes/` | `triage.py`, `router.py` (`route_to_sources`), `evidence.py` (parallel logs, metrics, deploys nodes), `merge.py` (budget, loops, `after_merge`), `rca.py`, `escalate.py`, shared helpers in `__init__.py` |
 | `src/agentops/sources/` | `EvidenceSource` protocol and value types (`base.py`), `Scenario` (`scenario.py`), `SimulatorSource` (`simulator.py`) |
 | `src/agentops/fakes.py` | `ScriptedChatModel` and `scripted_model_for`; in the package because the CLI demo uses it (ADR 0001) |
-| `scenarios/clean_bad_deploy.json`, `scenarios/deploy_red_herring_db.json` | Scenarios 1 and 2 with `scripted_outputs` |
+| `scenarios/*.json` | Eight scenarios with `scripted_outputs` (triage, rca and, for escalating ones, escalate); `scripted_model_for` turns one into a model |
 | `tests/` | pytest, one test per eval case; `conftest.py` clears LangSmith tracing variables |
 | `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.githooks/pre-push`, `scripts/check_test_count.py` | CI with SHA-pinned actions and a test-count floor, Dependabot, the pre-push hook |
 | `.gitignore` | Tracked. Ignores `.env*` (except `.env.example`), `.venv/`, `*.egg-info/`, `*.db`, `*.sqlite*`, `audit/`, caches and the WorkHorse working folders |
 | `.workhorse/profile.yml` | The WorkHorse profile; its commands are run on the change branch |
 
-Not yet present: `langgraph.json`, `runbooks/`, `evals/`, `src/agentops/actions/`, the router,
-approval, execute, verify, postmortem and escalate nodes, the live model.
+Not yet present: `langgraph.json`, `runbooks/`, `evals/`, `src/agentops/actions/`, the
+approval, execute, verify and postmortem nodes, the live model.
 
 ## What the system does
 

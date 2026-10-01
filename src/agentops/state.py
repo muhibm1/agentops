@@ -8,14 +8,17 @@ import operator
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any, Literal, Self, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 SNAKE_CASE_NAME = r"^[a-z0-9_]+$"
 # A remediation target names a service, deployment or config key; it is never free text.
 TARGET_NAME = r"^[a-z0-9_.-]+$"
 INITIAL_INVESTIGATION_BUDGET = 12
+# Caps on model free text that is printed and re-sent in later prompts.
+HYPOTHESIS_NAME_MAX_LENGTH = 80
+ESCALATION_SUMMARY_MAX_LENGTH = 1000
 
 IncidentStatus = Literal[
     "triage",
@@ -29,6 +32,8 @@ IncidentStatus = Literal[
 ]
 EvidenceKind = Literal["log", "metric", "deployment", "dependency", "config"]
 OperatorRole = Literal["operator", "on-call", "reviewer"]
+# Why the graph handed the incident to a human instead of remediating.
+EscalationReason = Literal["budget_exhausted", "ambiguous", "no_evidence"]
 
 
 class StrictModel(BaseModel):
@@ -38,7 +43,7 @@ class StrictModel(BaseModel):
 
 
 class Hypothesis(StrictModel):
-    name: str = Field(min_length=1)
+    name: str = Field(min_length=1, max_length=HYPOTHESIS_NAME_MAX_LENGTH)
     score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
     supporting_evidence: list[str] = Field(default_factory=list)
     contradicting_evidence: list[str] = Field(default_factory=list)
@@ -48,6 +53,14 @@ class Triage(StrictModel):
     """Model output of the triage node."""
 
     hypotheses: list[Hypothesis] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def check_hypothesis_names_are_distinct(self) -> Self:
+        names = [item.name for item in self.hypotheses]
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise ValueError(f"Hypothesis names must be distinct. Repeated: {repeated}.")
+        return self
 
 
 class RCA(StrictModel):
@@ -67,10 +80,25 @@ class Remediation(StrictModel):
 
 
 class RcaOutput(StrictModel):
-    """Model output of the rca node."""
+    """Model output of the rca node: re-scored hypotheses and, when one cause stands out, the
+    root cause with its remediation. A model that cannot name a cause returns both as null."""
 
-    root_cause: RCA
-    remediation: Remediation
+    hypotheses: list[Hypothesis] = Field(min_length=1)
+    root_cause: RCA | None = None
+    remediation: Remediation | None = None
+
+    @model_validator(mode="after")
+    def check_root_cause_and_remediation_come_together(self) -> Self:
+        if (self.root_cause is None) != (self.remediation is None):
+            raise ValueError("root_cause and remediation must both be present or both be null.")
+        return self
+
+
+class Escalation(StrictModel):
+    """Model output of the escalate node: a hand-off summary for the human."""
+
+    summary: str = Field(min_length=1, max_length=ESCALATION_SUMMARY_MAX_LENGTH)
+    evidence_ids: list[str] = Field(default_factory=list)
 
 
 class Postmortem(StrictModel):
@@ -100,6 +128,8 @@ class Action(StrictModel):
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
     detail: str | None = None
+    # Which try of a retried node this record belongs to, so cost accounting sees every attempt.
+    attempt: int = Field(default=1, ge=1)
 
 
 class Approval(StrictModel):
@@ -130,6 +160,7 @@ class IncidentState(TypedDict):
     root_cause: RCA | None
     remediation: Remediation | None
     postmortem: Postmortem | None
+    escalation: Escalation | None
 
     # evidence: append-only through reducers, so parallel nodes never clobber each other
     evidence: Annotated[list[Evidence], operator.add]
@@ -141,24 +172,20 @@ class IncidentState(TypedDict):
     loops: int
     approval: Approval | None
     execution: ExecutionRecord | None
+    escalation_reason: EscalationReason | None
 
 
-CONTROL_FIELDS = frozenset({"status", "investigation_budget", "loops", "approval", "execution"})
-MODEL_OUTPUT_SCHEMAS: tuple[type[BaseModel], ...] = (Triage, RcaOutput, Postmortem)
-
-
-class NoEvidenceError(Exception):
-    """The evidence node collected nothing, so no later step has anything to cite.
-
-    Deliberately outside both retry policies: asking the same source again for the same window
-    would return the same empty answer.
-    """
+CONTROL_FIELDS = frozenset(
+    {"status", "investigation_budget", "loops", "approval", "execution", "escalation_reason"}
+)
+MODEL_OUTPUT_SCHEMAS: tuple[type[BaseModel], ...] = (Triage, RcaOutput, Postmortem, Escalation)
 
 
 class CitationError(Exception):
     """A model output cited no evidence, or an id absent from the state's evidence.
 
-    Deliberately not a ValueError, so the graph's retry policy names it explicitly (ADR 0002).
+    Deliberately not a ValueError, so the graph's retry policy names it explicitly
+    (increment-1 ADR 0002).
     """
 
 
@@ -186,6 +213,7 @@ def new_incident(
         root_cause=None,
         remediation=None,
         postmortem=None,
+        escalation=None,
         evidence=[],
         actions=[],
         status="triage",
@@ -193,6 +221,7 @@ def new_incident(
         loops=0,
         approval=None,
         execution=None,
+        escalation_reason=None,
     )
 
 

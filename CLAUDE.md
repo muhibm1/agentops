@@ -16,14 +16,16 @@ idempotently. Python 3.11, MIT. The approved design is
 - Test: `python -m pytest -q` (no API key needed; tests use a fake chat model)
 - Dependency audit: `python -m pip_audit -r requirements.txt`
 - Demo: `agentops run --scenario clean_bad_deploy --model scripted` (no API key; prints the
-  hypotheses, evidence count, root cause and remediation). `--model anthropic` arrives in
-  increment 2; `langgraph dev` needs `langgraph.json`, not yet in the repository.
+  hypotheses, loops, remaining budget, evidence count, then root cause and remediation or the
+  escalation reason and summary). `--model anthropic` exits 1: the live model is not wired yet.
+  `langgraph dev` needs `langgraph.json`, not yet in the repository.
 
 ## Architecture in five lines
 
 1. `src/agentops/graph.py` builds a `StateGraph` over one typed `IncidentState` (`state.py`):
-   triage, router, three parallel evidence nodes, merge, rca, approval, execute, verify,
-   postmortem, escalate.
+   triage, a fan-out router, three parallel evidence nodes, merge (owns the investigation budget
+   and the loop count), rca, escalate; approval, execute, verify and postmortem arrive in
+   increment 3. A run ends at `awaiting_approval` or `escalated`.
 2. The model runs only in triage, rca, postmortem and escalate. Every edge, budget, retry and side
    effect is code. Model outputs are validated Pydantic models that never contain control fields.
 3. Evidence comes through the `EvidenceSource` protocol (`sources/`); v1 uses `SimulatorSource`

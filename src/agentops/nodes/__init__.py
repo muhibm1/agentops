@@ -6,6 +6,7 @@ source call as an `Action` through `timed_action`.
 
 import re
 import time
+import unicodedata
 from collections.abc import Callable
 from typing import Any, TypeVar
 
@@ -51,13 +52,27 @@ def timed_action(tool: str, call: Callable[[], CallResult]) -> tuple[CallResult,
 
 def neutralise_delimiters(value: Any) -> Any:
     """Return `value` with every run of three or more `<` or `>` in its strings and keys spaced
-    out, at any depth, so no run can contain the prompt delimiters `<<<` or `>>>`."""
+    out, at any depth, so no run can contain the prompt delimiters `<<<` or `>>>`. Strings are
+    NFKC-normalised first, so fullwidth brackets cannot slip past as look-alikes."""
     if isinstance(value, str):
-        return ANGLE_BRACKET_RUN.sub(lambda run: " ".join(run.group()), value)
+        normalised = unicodedata.normalize("NFKC", value)
+        return ANGLE_BRACKET_RUN.sub(lambda run: " ".join(run.group()), normalised)
     if isinstance(value, dict):
-        return {
-            neutralise_delimiters(key): neutralise_delimiters(item) for key, item in value.items()
-        }
+        return neutralise_dict(value)
     if isinstance(value, list):
         return [neutralise_delimiters(item) for item in value]
     return value
+
+
+def neutralise_dict(value: dict[Any, Any]) -> dict[Any, Any]:
+    """Neutralise keys and values; when two keys become the same text the later one is kept
+    under the key plus ` (2)`, ` (3)` and so on, so no entry is lost."""
+    neutralised: dict[Any, Any] = {}
+    for key, item in value.items():
+        unique_key = neutralised_key = neutralise_delimiters(key)
+        suffix = 2
+        while unique_key in neutralised:
+            unique_key = f"{neutralised_key} ({suffix})"
+            suffix += 1
+        neutralised[unique_key] = neutralise_delimiters(item)
+    return neutralised

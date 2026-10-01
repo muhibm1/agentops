@@ -28,3 +28,4 @@
 2026-10-01T05:00:30.922Z | deploy | conductor | blocked: Deploy step denied by the permission classifier (production deploy). The PR merge to main is the release and must be done by the owner (muhibm1): read the first Actions run on the PR, then merge it. Afterwards run /workhorse:run again to finish done and retro.
 2026-10-01T05:04:46.465Z | deploy | conductor | resumed at deploy; owner merged PR 1 (merge commit 45e026d); no environment has a deploy command
 2026-10-01T05:05:16.557Z | deploy | wh-shipper | deploy record appended to ship.md, nothing deployed
+2026-10-01T05:05:22.059Z | done | conductor | done; retro dispatched

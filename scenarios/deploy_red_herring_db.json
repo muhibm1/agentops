@@ -177,6 +177,20 @@
       ]
     },
     "rca": {
+      "hypotheses": [
+        {
+          "name": "database_saturation",
+          "score": 0.9,
+          "supporting_evidence": ["metric-db_pool_utilisation"],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "recent_deploy_regression",
+          "score": 0.1,
+          "supporting_evidence": [],
+          "contradicting_evidence": ["deploy-001"]
+        }
+      ],
       "root_cause": {
         "label": "database_saturation",
         "explanation": "Pool utilisation jumped to 0.97 at 14:02 (metric-db_pool_utilisation) and latency followed. The deploy four minutes earlier (deploy-001) only changed a log level, so its timing is coincidence.",

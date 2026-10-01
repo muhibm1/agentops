@@ -1,0 +1,24 @@
+Verdict: 5 findings (0 critical, 0 high, 3 medium, 2 low)
+
+| Severity | File:line | Finding | Failure scenario | Fix |
+|---|---|---|---|---|
+| medium | src/agentops/nodes/evidence.py:read_with_one_retry (except Exception) | A source that fails both attempts is indistinguishable from a source that returned nothing, in state and in the report (confirmed by reading; no test run) | Logs and metrics sources both raise ConnectionError on every call -> two rounds of failed Actions, evidence empty -> merge escalates with reason `no_evidence` -> on-call is told "nothing found", not "sources are down" | src/agentops/state.py: add `source_outage` to EscalationReason; src/agentops/nodes/merge.py reason_for_escalating_before_rca: return it when every read Action for the asked sources has ok=False |
+| medium | src/agentops/nodes/evidence.py:read_with_one_retry; nodes/router.py:rounds_asked | A source that fails twice in both allowed rounds is dropped while other evidence exists, and rca then runs on partial evidence with nothing marking the gap (confirmed by reading) | deploys source down for both rounds; logs return lines -> rca names a non-deploy cause with high score, `awaiting_approval`, no sign deploys were never checked -> remediation proposed while the likeliest rival cause was never ruled out | src/agentops/nodes/rca.py: pass the list of sources with only failed reads into the rca prompt, and in after_rca route to escalate (reason `source_outage`) when a source with an open hypothesis never succeeded |
+| medium | src/agentops/nodes/escalate.py:35-41 (assert_cited under MODEL_NODE_RETRY) | The escalate node is the last-resort terminal but has no fallback; three bad citations end the run with exit 2 and no hand-off (confirmed by reading cli.py:74 catch-all) | Model cites an evidence id not in state on all 3 attempts -> CitationError -> run fails -> the incident that most needed a human gets a stack-free error sentence and `status` never becomes `escalated` | src/agentops/nodes/escalate.py: after retries are exhausted (or on CitationError) return a deterministic summary built from hypothesis names and scores with evidence_ids=[] and still set status/escalation_reason |
+| low | src/agentops/nodes/escalate.py:escalation_reason (decide_next_step recomputed after rca) | Reason is re-derived, not recorded; rca re-scoring can flip it to `budget_exhausted` when rca itself was ambiguous (confirmed by reading) | rca runs on logs only, returns ambiguous scores that raise a deploys hypothesis to >=0.2, deploys unaffordable -> decide_next_step returns "escalate" -> reason `budget_exhausted` instead of `ambiguous` | src/agentops/nodes/merge.py and rca.py: write the reason into state at the deciding node (or use `state["root_cause"]`/rca having run to pick `ambiguous` first) |
+| low | src/agentops/nodes/__init__.py:timed_action / evidence.py:timed_read_action | Source failures keep only the exception type name, no message, no log; model-node retries record no Action at all although `Action.attempt` claims cost accounting sees every attempt (confirmed by reading) | Source raises TimeoutError("db replica lag") vs TimeoutError("auth denied") -> both recorded as `TimeoutError`; failed model attempts leave no trace in actions | evidence.py: put a truncated, neutralise_delimiters-passed `str(error)` (cap ~200 chars) in `detail`; nodes/__init__.py: record failed model attempts or correct the Action.attempt comment |
+
+Findings outside scope: none
+Not verified: tests and the graph were not run; LangGraph behaviour that conditional edges see post-merge state (loops already incremented) was read, not exercised.
+
+## Re-check (fixer commits 5aca3b0, 058d641, c791a21 and neighbours; read only, tests not run)
+
+| # | Status | Evidence |
+|---|---|---|
+| 1 source outage reason | deferred to increment 3 (D6) | merge.py still returns only `no_evidence` or `budget_exhausted` |
+| 2 partial-evidence routing | deferred to increment 3 (D6) | after_rca unchanged in this respect |
+| 3 escalate no fallback | closed (confirmed by reading escalate.py:35-77) | 3 attempts catching CitationError and ValidationError, then code-built `fallback_escalation` with evidence_ids empty; status and reason still set; summary capped at ESCALATION_SUMMARY_MAX_LENGTH (c791a21) |
+| 4 reason re-derived | closed (confirmed by reading) | merge.py:41-42 and rca.py:74 write `escalation_reason` at the deciding node; escalate.py:84 uses it first and only falls back when unset |
+| 5 failure detail / attempt accounting | still open, low (not touched by any fix) | evidence.py:124 still records `type(error).__name__` only; timed_action docstring still says model errors are unrecorded |
+
+New findings in changed code: none. Residual note, not new: escalate catches only CitationError and ValidationError, so a model transport error still ends the run without a hand-off, as before the fix (believed, not verified at runtime).
