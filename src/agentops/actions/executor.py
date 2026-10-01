@@ -138,7 +138,7 @@ def look_up_action(registry: Registry, remediation: Remediation) -> ActionEntry:
 # Step 2.
 def validate_parameters(registry: Registry, remediation: Remediation) -> None:
     try:
-        registry.validate_params(remediation.action, remediation.params)
+        registry.validate_params(remediation.action, remediation.params, target=remediation.target)
     except ParameterError as error:
         raise RefusedError(str(error)) from error
 

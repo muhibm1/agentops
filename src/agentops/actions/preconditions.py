@@ -77,7 +77,7 @@ def check_one(
         case MetricAbove() | MetricBelow():
             return metric_threshold(precondition, state, source)
         case DeploymentWithinMinutes():
-            return deployment_within_minutes(precondition, state, source)
+            return deployment_within_minutes(precondition, remediation, state, source)
         case PreviousVersionAvailable():
             return previous_version_available(precondition, remediation, state, source)
         case DependencyNotHealthy():
@@ -112,11 +112,16 @@ def metric_threshold(
 
 
 def deployment_within_minutes(
-    precondition: DeploymentWithinMinutes, state: IncidentState, source: EvidenceSource
+    precondition: DeploymentWithinMinutes,
+    remediation: Remediation,
+    state: IncidentState,
+    source: EvidenceSource,
 ) -> PreconditionResult:
     latest = latest_deployment(state, source)
     if latest is None:
         return failed(precondition.check, None, "No deployment in the last 24 hours.")
+    if latest.id != remediation.target:
+        return not_the_target(precondition.check, latest, remediation)
     age = state["opened_at"] - latest.deployed_at
     minutes_ago = int(age.total_seconds() // 60)
     passed = minutes_ago <= precondition.minutes
@@ -140,6 +145,8 @@ def previous_version_available(
     latest = latest_deployment(state, source)
     if latest is None or not latest.previous_version:
         return failed(precondition.check, None, "No previous version is recorded.")
+    if latest.id != remediation.target:
+        return not_the_target(precondition.check, latest, remediation)
     wanted = remediation.params.get("to_version")
     passed = wanted is None or wanted == latest.previous_version
     detail = (
@@ -192,6 +199,16 @@ def latest_deployment(state: IncidentState, source: EvidenceSource) -> Deploymen
     window = Window(start=state["opened_at"] - DEPLOYMENT_LOOKBACK, end=state["opened_at"])
     deployments = source.get_deployments(state["service"], window)
     return max(deployments, key=lambda item: item.deployed_at, default=None)
+
+
+def not_the_target(check: str, latest: Deployment, remediation: Remediation) -> PreconditionResult:
+    """The checks read the service's latest deployment, so they only vouch for an action that
+    targets that deployment."""
+    return failed(
+        check,
+        latest.id,
+        f"The latest deployment is {latest.id}, not the target {remediation.target}.",
+    )
 
 
 def failed(check: str, observed: Observed, detail: str) -> PreconditionResult:

@@ -108,12 +108,23 @@ class RollbackDeclaration(RunbookModel):
 class ActionEntry(RunbookModel):
     action: str = Field(pattern=ACTION_NAME)
     target_kind: Literal["database", "deployment", "dependency", "job"]
+    # The names an operator may aim this action at; checked with a full match, so `^postgres$`
+    # lets the action touch the postgres database and nothing else.
+    target_pattern: str
     params: dict[str, ParameterSpec]
     risk: Literal["low", "medium", "high"]
     preconditions: list[Precondition] = Field(min_length=1)
     dry_run: Literal["describe"]
     rollback: RollbackDeclaration
     idempotent: bool
+
+    @model_validator(mode="after")
+    def check_target_pattern_compiles(self) -> Self:
+        try:
+            re.compile(self.target_pattern)
+        except re.error as error:
+            raise ValueError(f"target_pattern does not compile ({error}).") from error
+        return self
 
 
 def load_runbook(path: Path) -> list[ActionEntry]:

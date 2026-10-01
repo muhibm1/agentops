@@ -127,7 +127,7 @@
       },
       "remediation": {
         "action": "rollback_deploy",
-        "target": "ingestion",
+        "target": "deploy-001",
         "params": { "to_version": "v5.1.4" },
         "reason": "Rolling back to v5.1.4 restores the string column the downstream readers expect; the rejected batches stay in the dead-letter queue for replay.",
         "evidence_ids": ["log-002", "deploy-001"],

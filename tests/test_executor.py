@@ -105,11 +105,11 @@ class RecordingRegistry(Registry):
             self.calls.append("registry")
         return super().get(name)
 
-    def validate_params(self, name: str, params: Any) -> None:
+    def validate_params(self, name: str, params: Any, target: str | None = None) -> None:
         self.calls.append("params")
         self.validating = True
         try:
-            super().validate_params(name, params)
+            super().validate_params(name, params, target)
         finally:
             self.validating = False
 
@@ -722,3 +722,22 @@ def test_no_recovered_record_is_written_when_the_audit_already_shows_the_apply(
     ]
     assert len(applied) == 1
     assert len(source.ledger()) == 1
+
+
+@pytest.mark.parametrize(
+    ("target", "kind"),
+    [("payments-prod-db", "refused"), ("deploy-999", "precondition_failed")],
+    ids=["outside the target pattern", "not the latest deployment"],
+)
+def test_a_rollback_aimed_at_another_object_applies_nothing(
+    tmp_path: Path, target: str, kind: str
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    foreign = scripted_remediation(scenario).model_copy(update={"target": target})
+    source = SimulatorSource(scenario)
+
+    outcome = run_executor(approved_state(scenario, remediation=foreign), source, tmp_path)
+
+    assert outcome.kind == kind
+    assert source.ledger() == []
+    assert [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"] == []
