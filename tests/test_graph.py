@@ -10,9 +10,8 @@ import pytest
 from agentops import fakes
 from agentops.fakes import ScriptedChatModel, scripted_model_for
 from agentops.graph import MODEL_NODE_RETRY, build_graph
-from agentops.nodes import neutralise_delimiters
+from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN, neutralise_delimiters
 from agentops.nodes.evidence import SOURCE_READ_TOOLS
-from agentops.nodes.rca import CLOSING_DELIMITER, OPENING_DELIMITER
 from agentops.sources.base import LogLine, Window
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
@@ -183,13 +182,16 @@ def test_budget_exhaustion_escalates_without_an_rca_call(
         }
     )
     state = incident_for(scenario)
-    state["actions"] = [Action(tool="get_logs", ok=False, latency_ms=1.0)] * 11
+    # Successful reads, so the stop is the budget and not a source outage (spec R1). The router
+    # reserves both attempts of a read before starting it (R3), so the last read is never spent.
+    state["actions"] = [Action(tool="get_logs", ok=True, latency_ms=1.0)] * 11
 
     final = build_graph(source, model).invoke(state)
 
     assert final["status"] == "escalated"
     assert final["escalation_reason"] == "budget_exhausted"
-    assert final["investigation_budget"] == 0
+    assert final["investigation_budget"] == 1
+    assert len(source_reads(final)) == 11
     assert final["root_cause"] is None
     assert final["remediation"] is None
     assert len(model.calls) == 2
@@ -316,12 +318,24 @@ def test_triage_citing_evidence_that_does_not_exist_yet_is_rejected(
     assert final["status"] == "awaiting_approval"
 
 
+def is_fenced(prompt: str) -> bool:
+    return OPENING_MARKER_PATTERN.search(prompt) is not None
+
+
+def count_markers(prompt: str) -> tuple[int, int]:
+    """How many opening and closing markers the prompt holds, whatever their nonce (D20)."""
+    return (
+        len(OPENING_MARKER_PATTERN.findall(prompt)),
+        len(CLOSING_MARKER_PATTERN.findall(prompt)),
+    )
+
+
 def evidence_blocks(prompts: list[str]) -> list[str]:
-    """The text between the opening and closing delimiter of every prompt that has one."""
+    """The text between the opening and closing marker of every prompt that has one."""
     return [
-        prompt.split(OPENING_DELIMITER)[1].split(CLOSING_DELIMITER)[0]
+        CLOSING_MARKER_PATTERN.split(OPENING_MARKER_PATTERN.split(prompt)[1])[0]
         for prompt in prompts
-        if OPENING_DELIMITER in prompt
+        if is_fenced(prompt)
     ]
 
 
@@ -341,13 +355,12 @@ def assert_prompts_hide_the_grading_key_and_fence_the_evidence(
     for hidden in [*HIDDEN_SECTION_NAMES, scenario.ground_truth.correct_action, scenario.id]:
         assert hidden not in all_prompts
     assert UNTRUSTED_DATA_PHRASE in all_prompts
-    fenced_prompts = [prompt for prompt in prompts if OPENING_DELIMITER in prompt]
+    fenced_prompts = [prompt for prompt in prompts if is_fenced(prompt)]
     assert len(fenced_prompts) >= 1
     for prompt in fenced_prompts:
-        assert prompt.count(OPENING_DELIMITER) == 1
-        assert prompt.count(CLOSING_DELIMITER) == 1
+        assert count_markers(prompt) == (1, 1)
     if final["escalation"] is not None:
-        assert OPENING_DELIMITER in prompts[-1]
+        assert is_fenced(prompts[-1])
     for item in final["evidence"]:
         for text in payload_strings(item.payload):
             assert text in evidence_blocks(prompts)[-1]
@@ -393,8 +406,7 @@ def test_service_and_symptoms_are_fenced_and_marked_untrusted(
     run_graph(hostile, SimulatorSource(hostile), model)
 
     rca_prompt = prompt_text(model.calls[-1])
-    assert rca_prompt.count(OPENING_DELIMITER) == 1
-    assert rca_prompt.count(CLOSING_DELIMITER) == 1
+    assert count_markers(rca_prompt) == (1, 1)
     assert ">>>" not in prompt_text(model.calls[0])
     assert "service name, the symptoms" in prompt_text(model.calls[0])
 

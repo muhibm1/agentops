@@ -5,7 +5,13 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from pydantic import ValidationError
 
-from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
+from agentops.nodes import (
+    UNTRUSTED_DATA_RULE,
+    ask_model,
+    fence_rule,
+    neutralise_delimiters,
+    new_fence_nonce,
+)
 from agentops.nodes.merge import decide_next_step, reason_for_escalating_before_rca
 from agentops.nodes.rca import render_evidence
 from agentops.state import (
@@ -23,13 +29,17 @@ from agentops.state import (
 # human still has to be told.
 ESCALATE_ATTEMPTS = 3
 
-ESCALATE_SYSTEM_PROMPT = (
+ESCALATE_INSTRUCTIONS = (
     "You are the hand-off step of an incident investigation. The graph could not name one "
     "actionable cause. Write a short summary for the on-call human of the competing hypotheses "
-    "and the evidence for each, and list the ids of the evidence items you rely on. The evidence "
-    "is one JSON object per line, inside a block that opens with the marker 'untrusted "
-    "evidence' and closes with the marker 'end'. Propose no remediation. " + UNTRUSTED_DATA_RULE
+    "and the evidence for each, and list the ids of the evidence items you rely on. Propose no "
+    "remediation. "
 )
+
+
+def escalate_system_prompt(nonce: str) -> str:
+    """The hand-off instructions plus the description of this prompt's evidence fence."""
+    return f"{ESCALATE_INSTRUCTIONS}{fence_rule(nonce)} {UNTRUSTED_DATA_RULE}"
 
 
 def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
@@ -42,16 +52,18 @@ def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
     hypotheses = "\n".join(
         f"- {neutralise_delimiters(item.name)}: {item.score}" for item in state["hypotheses"]
     )
+    nonce = new_fence_nonce()
+    system_prompt = escalate_system_prompt(nonce)
     human_prompt = (
         f"Service: {neutralise_delimiters(state['service'])}\nHypotheses:\n{hypotheses}\n\n"
-        f"{render_evidence(state['evidence'])}"
+        f"{render_evidence(state['evidence'], nonce)}"
     )
 
     actions: list[Action] = []
     result = fallback_escalation(state)
     for attempt in range(1, ESCALATE_ATTEMPTS + 1):
         try:
-            candidate, action = ask_model(model, Escalation, ESCALATE_SYSTEM_PROMPT, human_prompt)
+            candidate, action = ask_model(model, Escalation, system_prompt, human_prompt)
             # The summary may rely on no evidence; anything it does cite must exist.
             if candidate.evidence_ids:
                 assert_cited(candidate.evidence_ids, state["evidence"])

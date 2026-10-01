@@ -11,6 +11,7 @@ import pytest
 from langgraph.graph import END
 
 from agentops.fakes import ScriptedChatModel
+from agentops.nodes import OPENING_MARKER_PATTERN
 from agentops.nodes.escalate import escalate
 from agentops.nodes.rca import (
     AMBIGUITY_MARGIN,
@@ -233,8 +234,10 @@ def test_escalate_prompt_fences_evidence_and_neutralises_hypothesis_names() -> N
     escalate(state, model=model)
 
     prompt = str(model.calls[0][1].content)
+    nonce = OPENING_MARKER_PATTERN.findall(prompt)[0].removesuffix(">>>").split()[-1]
     assert "evil<<<" not in prompt
-    assert render_evidence(state["evidence"]) in prompt
+    assert render_evidence(state["evidence"], nonce) in prompt
+    assert nonce in str(model.calls[0][0].content)
 
 
 def test_rca_writes_ambiguous_as_the_reason_when_it_clears_the_result() -> None:
@@ -254,6 +257,57 @@ def test_escalate_keeps_the_reason_rca_wrote_even_when_the_budget_is_spent() -> 
     update = escalate_with(state, {"summary": "hand over"})
 
     assert update["escalation_reason"] == "ambiguous"
+
+
+def action_evidence(evidence_id: str, action: str, applied: bool) -> Evidence:
+    return Evidence(
+        id=evidence_id,
+        source="executor",
+        kind="action",
+        payload={"id": evidence_id, "action": action, "applied": applied},
+        collected_at=OPENED_AT,
+    )
+
+
+def rca_prompt_for(state: IncidentState) -> str:
+    model = ScriptedChatModel(script_by_schema={RcaOutput: [rca_reply()]})
+    rca(state, model=model)
+    return str(model.calls[0][1].content)
+
+
+def test_rca_prompt_names_actions_already_applied_and_skips_refused_ones() -> None:
+    state = triaged_state()
+    state["evidence"] = [
+        *state["evidence"],
+        action_evidence("action-1", "rollback_deploy", applied=True),
+        action_evidence("action-2", "scale_db_pool", applied=False),
+    ]
+
+    prompt = rca_prompt_for(state)
+
+    assert prompt.count("Actions already applied:") == 1
+    assert "Actions already applied: rollback_deploy\n" in prompt
+
+
+def test_rca_prompt_has_no_action_or_outage_line_when_there_is_nothing_to_say() -> None:
+    prompt = rca_prompt_for(triaged_state())
+
+    assert "Actions already applied:" not in prompt
+    assert "Unreachable sources:" not in prompt
+
+
+def test_escalate_names_a_source_outage_when_every_read_failed_and_nothing_was_found() -> None:
+    state = triaged_state()
+    state["evidence"] = []
+    state["actions"] = [
+        Action(tool=tool, ok=False, latency_ms=1.0, attempt=attempt)
+        for tool in ("get_logs", "get_metrics", "get_dependency_health", "get_deployments")
+        for attempt in (1, 2)
+    ] * 2
+
+    update = escalate_with(state, {"summary": "hand over"})
+
+    assert update["escalation_reason"] == "source_outage"
 
 
 def test_rca_rejects_a_duplicated_hypothesis_name() -> None:

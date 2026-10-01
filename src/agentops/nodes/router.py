@@ -5,7 +5,8 @@ A source scores one point for each open hypothesis (score at or above 0.2) it ca
 out, judged by keywords that start a `_`-separated word of the hypothesis name, or that word minus
 a leading mis, re or un. Sources are ordered by score, then logs, metrics, deploys.
 A source that already holds evidence or was asked in two rounds is dropped. The longest prefix
-whose nominal cost fits the remaining budget is kept.
+whose nominal cost, times the read attempts each source may make, fits the remaining budget is
+kept, so a round can never record more reads than the budget holds (ADR 0004).
 """
 
 from langgraph.types import Send
@@ -91,11 +92,12 @@ def sources_to_ask(state: IncidentState) -> list[SourceName]:
 
 
 def affordable(state: IncidentState, sources: list[SourceName]) -> list[SourceName]:
-    """The longest prefix of `sources` whose nominal cost fits the reads left in the budget."""
+    """The longest prefix of `sources` that fits the reads left in the budget, each reserving its
+    nominal cost for every attempt it may make, so failed reads and retries cannot overspend."""
     reads_left = INITIAL_INVESTIGATION_BUDGET - source_read_attempts(state)
     kept: list[SourceName] = []
     for source in sources:
-        reads_left -= NOMINAL_COST[source]
+        reads_left -= NOMINAL_COST[source] * READ_ATTEMPTS
         if reads_left < 0:
             break
         kept.append(source)
@@ -128,6 +130,19 @@ def sources_able_to_judge(hypothesis_name: str) -> list[SourceName]:
     if about_deploys:
         judges.append("deploys")
     return judges
+
+
+def deciding_sources(hypothesis_name: str) -> list[SourceName]:
+    """The sources that can settle a hypothesis: the specific ones its name points to (metrics,
+    deploys), or all three when it names no keyword. Logs are read for every hypothesis, so they
+    settle one only when nothing more specific can."""
+    tokens = hypothesis_name.lower().split("_")
+    specific: list[SourceName] = []
+    if names_keyword(tokens, METRIC_KEYWORDS):
+        specific.append("metrics")
+    if names_keyword(tokens, DEPLOY_KEYWORDS):
+        specific.append("deploys")
+    return specific or list(SOURCE_ORDER)
 
 
 def names_keyword(name_tokens: list[str], keywords: tuple[str, ...]) -> bool:

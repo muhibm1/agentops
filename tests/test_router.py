@@ -5,7 +5,12 @@ from datetime import UTC, datetime
 import pytest
 from langgraph.types import Send
 
-from agentops.nodes.router import route_to_sources, score_sources, sources_to_ask
+from agentops.nodes.router import (
+    deciding_sources,
+    route_to_sources,
+    score_sources,
+    sources_to_ask,
+)
 from agentops.state import (
     INITIAL_INVESTIGATION_BUDGET,
     Action,
@@ -110,6 +115,9 @@ def test_sources_are_ordered_by_score_then_by_the_fixed_order() -> None:
 
 
 def test_router_keeps_only_the_longest_prefix_that_fits_the_budget() -> None:
+    """Each source reserves its nominal cost for both read attempts (metrics 4, deploys 2), so a
+    round cannot overspend even if every read fails and retries (spec R3, ADR 0004)."""
+
     def route_with(reads_left: int) -> list[Send] | str:
         spent_reads = ("get_logs",) * (INITIAL_INVESTIGATION_BUDGET - reads_left)
         state = incident_with(
@@ -120,8 +128,17 @@ def test_router_keeps_only_the_longest_prefix_that_fits_the_budget() -> None:
         return route_to_sources(state)
 
     assert route_with(1) == "merge"
-    assert sent_nodes(route_with(2)) == ["metrics"]
-    assert sent_nodes(route_with(3)) == ["metrics", "deploys"]
+    assert route_with(3) == "merge"
+    assert sent_nodes(route_with(4)) == ["metrics"]
+    assert sent_nodes(route_with(5)) == ["metrics"]
+    assert sent_nodes(route_with(6)) == ["metrics", "deploys"]
+
+
+def test_deciding_sources_are_the_specific_ones_or_all_three() -> None:
+    assert deciding_sources("recent_deploy_regression") == ["deploys"]
+    assert deciding_sources("database_saturation") == ["metrics"]
+    assert deciding_sources("pool_exhaustion_after_redeploy") == ["metrics", "deploys"]
+    assert deciding_sources("something_odd") == ["logs", "metrics", "deploys"]
 
 
 @pytest.mark.parametrize(
