@@ -22,3 +22,5 @@
 2026-10-01T04:16:43.223Z | review | wh.js verify | checks green at db61178 (4 defined)
 2026-10-01T04:19:11.181Z | review | reviewers | re-check: all mediums closed; open lows: error-path escaping, dict key collision, retry not logged, docs sentence, docstring
 2026-10-01T04:20:41.184Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/1
+2026-10-01T04:21:16.934Z | review | wh-shipper | ship.md written, PR 1 open
+2026-10-01T04:21:16.998Z | review | conductor | G4 Ship presented
