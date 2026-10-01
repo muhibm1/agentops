@@ -28,3 +28,4 @@
 2026-10-01T10:28:20.506Z | review | wh-fixer | 3 commits e5bd16f 2713b6c 8465aa2 (repeat key, cli message cap, length caps)
 2026-10-01T10:29:23.287Z | review | wh.js verify | checks green at 8465aa2 (4 defined)
 2026-10-01T10:30:49.379Z | review | wh-bug-reviewer | re-check 2: regression closed, crash recovery intact; verify green at 8465aa2
+2026-10-01T10:34:27.270Z | review | wh-shipper | ship.md written, PR https://github.com/muhibm1/agentops/pull/5
