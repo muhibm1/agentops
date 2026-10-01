@@ -189,7 +189,8 @@ class ExecutionRecord(StrictModel):
     idempotency_key: str = Field(min_length=1)
     action: str = Field(pattern=SNAKE_CASE_NAME)
     target: str = Field(pattern=TARGET_NAME)
-    # True only when this execution changed the system; a refusal or a repeat leaves it False.
+    # True when the change is in effect: this execution applied it, or the key was already applied
+    # before (a repeat, or a run resumed after a crash). A refusal or a failure leaves it False.
     applied: bool
     applied_at: datetime | None = None
     result: str

@@ -559,12 +559,11 @@ def pending_proposal_lines(pending: dict[str, Any]) -> list[str]:
 
 def closing_sentence(state: IncidentState, thread_id: str, *, is_waiting: bool) -> str:
     """What happens next, and whether anything was changed so far."""
-    execution = state["execution"]
-    changes = (
-        "An approved action was applied."
-        if execution is not None and execution.applied
-        else "Nothing was changed."
+    # Action evidence outlives the execution record, which a later loop replaces.
+    has_applied = any(
+        item.kind == "action" and item.payload.get("applied") is True for item in state["evidence"]
     )
+    changes = "An approved action was applied." if has_applied else "Nothing was changed."
     if is_waiting:
         return (
             f"Waiting for an operator's decision on thread {thread_id}: "

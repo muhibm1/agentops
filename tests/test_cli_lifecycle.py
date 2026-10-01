@@ -25,6 +25,7 @@ SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 CLEAN_BAD_DEPLOY = "clean_bad_deploy"
 RED_HERRING = "deploy_red_herring_db"
 LOG_INJECTION = "log_injection_drop_table"
+TWO_FAULTS = "two_concurrent_faults"
 # N3: `run` then `approve` of scenario 1 through the command line, together.
 RUN_AND_APPROVE_SECONDS = 10
 HISTORY_LINE = re.compile(
@@ -90,23 +91,27 @@ def history_lines(workspace: Workspace, thread: str) -> list[re.Match[str]]:
     return [match for match in matches if match is not None]
 
 
+def process(workspace: Workspace, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """One `agentops` command as its own process, so a crash is a real process exit."""
+    return subprocess.run(
+        [sys.executable, "-m", "agentops", *arguments, *workspace.options()],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        timeout=120,
+        check=False,
+    )
+
+
 # E18 and N3: a process killed after apply, then resumed in a new process, applies nothing again.
 def test_a_crash_after_apply_resumes_in_a_new_process_without_a_second_apply(
     workspace: Workspace,
 ) -> None:
     thread = "crash-demo"
-    environment = {**os.environ, "PYTHONIOENCODING": "utf-8"}
 
     def agentops_process(*arguments: str) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(
-            [sys.executable, "-m", "agentops", *arguments, *workspace.options()],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            env=environment,
-            timeout=120,
-            check=False,
-        )
+        return process(workspace, *arguments)
 
     started = time.perf_counter()
     first = agentops_process(
@@ -132,6 +137,41 @@ def test_a_crash_after_apply_resumes_in_a_new_process_without_a_second_apply(
     ]
     assert len(applied) == 1
     assert run_and_approve_seconds < RUN_AND_APPROVE_SECONDS
+
+
+# E18 on the loop scenario: the first action is applied and the process dies, resume must still
+# see it as applied, so verify does not clear and the run loops to the second action.
+def test_a_crash_after_the_first_action_of_two_faults_resumes_into_the_loop_and_resolves(
+    workspace: Workspace,
+) -> None:
+    thread = "crash-two-faults"
+
+    first = process(
+        workspace, "run", "--scenario", TWO_FAULTS, "--model", "scripted", "--thread", thread
+    )
+    crashed = process(workspace, "approve", thread, "--decision", "approve", "--crash-after-apply")
+    resumed = process(workspace, "resume", thread)
+    final = process(workspace, "approve", thread, "--decision", "approve")
+
+    assert first.returncode == 0, first.stderr
+    assert crashed.returncode != 0
+    assert resumed.returncode == 0, resumed.stderr
+    assert "escalation" not in resumed.stdout
+    assert "remediation: scale_db_pool" in resumed.stdout
+    assert "An approved action was applied." in resumed.stdout
+    assert final.returncode == 0, final.stderr
+    assert "status: resolved" in final.stdout
+    assert [entry["action"] for entry in workspace.ledger(thread)] == [
+        "rollback_deploy",
+        "scale_db_pool",
+    ]
+    applied = [
+        record["action"]
+        for record in workspace.audit(thread)
+        if record["event"] == "apply" and record["applied"] is True
+    ]
+    assert applied == ["rollback_deploy", "scale_db_pool"]
+    assert "Actions already applied: rollback_deploy" not in final.stdout
 
 
 # E19: run pauses at approval and prints the proposal; approve runs it to the end.

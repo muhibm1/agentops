@@ -445,12 +445,16 @@ def test_a_key_already_in_the_source_ledger_returns_already_applied(tmp_path: Pa
 
     assert outcome.kind == "already_applied"
     assert outcome.execution is not None
-    assert outcome.execution.applied is False
     assert "apply" not in calls
     assert len(inner.ledger()) == 1
+    # The ledger holds the key, so the change is in effect: verify and rca must see it as applied.
+    assert outcome.execution.applied is True
+    [evidence] = outcome.evidence
+    assert evidence.payload["applied"] is True
+    # The audit file had no record of the apply, so one is written from the ledger.
     [record] = [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"]
-    assert record["applied"] is False
-    assert record["detail"] == "already_applied"
+    assert record["applied"] is True
+    assert record["detail"] == executor.RECOVERED_DETAIL
 
 
 # E39: a source that refuses the action gives apply_failed and escalates.
@@ -651,3 +655,70 @@ def test_the_execute_node_reads_the_thread_id_inside_a_compiled_graph(tmp_path: 
 
     assert final["execution"].result == "applied"
     assert {r["thread_id"] for r in audit_records(tmp_path, scenario.id)} == {"thread-one"}
+
+
+class FailingApplyAudit(AuditLog):
+    """An audit log whose `apply` write fails, as a full disk would after the source applied."""
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(directory)
+        self.is_failing = True
+
+    def append(self, incident_id: str, thread_id: str, record: Any) -> None:
+        if self.is_failing and record["event"] == "apply":
+            raise OSError("disk full")
+        super().append(incident_id, thread_id, record)
+
+
+def test_a_failed_apply_record_write_is_recovered_on_rerun_without_a_second_apply(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    source = SimulatorSource(scenario)
+    audit = FailingApplyAudit(tmp_path)
+
+    with pytest.raises(OSError):
+        executor.execute(state, source, default_registry(), audit, thread_id=state["incident_id"])
+    assert len(source.ledger()) == 1
+    audit.is_failing = False
+    calls: list[str] = []
+
+    outcome = executor.execute(
+        state,
+        RecordingSource(source, calls),
+        default_registry(),
+        audit,
+        thread_id=state["incident_id"],
+    )
+
+    assert outcome.kind == "already_applied"
+    assert "apply" not in calls
+    assert len(source.ledger()) == 1
+    assert outcome.execution is not None
+    assert outcome.execution.applied is True
+    applied = [
+        r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply" and r["applied"]
+    ]
+    assert [r["detail"] for r in applied] == [executor.RECOVERED_DETAIL]
+
+
+def test_no_recovered_record_is_written_when_the_audit_already_shows_the_apply(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    source = SimulatorSource(scenario)
+    first = run_executor(state, source, tmp_path)
+    assert first.kind == "applied"
+
+    second = run_executor(state, source, tmp_path)
+
+    assert second.kind == "already_applied"
+    assert second.execution is not None
+    assert second.execution.applied is True
+    applied = [
+        r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply" and r["applied"]
+    ]
+    assert len(applied) == 1
+    assert len(source.ledger()) == 1
