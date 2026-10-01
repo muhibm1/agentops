@@ -5,23 +5,56 @@ failure, proposes a remediation backed by cited evidence, stops for a human appr
 executes only allowlisted actions, each one exactly once. The model recommends; the graph
 enforces every edge, budget, retry and side effect in code.
 
-Status: increment 2, the investigation half. The graph runs triage, parallel evidence collection
-(logs, metrics, deploys), a merge step with an investigation budget, root-cause analysis and an
-escalation path, over eight simulated scenarios with a scripted model, so no API key is needed:
-`clean_bad_deploy`, `deploy_red_herring_db`, `dependency_timeout_noisy_neighbour`,
+Status: increment 3, act, pause, persist and resume. The graph runs triage, parallel evidence
+collection (logs, metrics, deploys), a merge step with an investigation budget, root-cause
+analysis, a human approval, execution of an allowlisted action, verification and a postmortem,
+with an escalation path, over eight simulated scenarios with a scripted model, so no API key is
+needed: `clean_bad_deploy`, `deploy_red_herring_db`, `dependency_timeout_noisy_neighbour`,
 `late_partition_zero_rows`, `schema_drift_ingestion`, `two_concurrent_faults`,
-`ambiguous_two_causes` and `log_injection_drop_table`. A run ends in one of two outcomes:
-`awaiting_approval` (a root cause and a remediation, citing evidence) or `escalated` (a hand-off
-summary and the reason: `budget_exhausted`, `ambiguous` or `no_evidence`). Both exit 0.
-Approval, execution, the live model and the evaluation harness arrive in later increments.
+`ambiguous_two_causes` and `log_injection_drop_table`. A run first stops at
+`awaiting_approval` (a root cause and a remediation, citing evidence) or ends `escalated` (a
+hand-off summary and the reason, such as `budget_exhausted`, `ambiguous`, `no_evidence` or
+`action_not_allowed`). After an approval the action is applied once, the symptoms are checked
+again, and the thread ends `resolved` with a postmortem or goes back to investigate. The live
+model and the evaluation harness arrive in later increments.
 
-To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md), then run
-`agentops run --scenario clean_bad_deploy --model scripted`. The command prints the triage
-hypotheses, the loop count and remaining investigation budget, the evidence it collected, and
-either the root cause with its remediation or the escalation reason and summary. Approval and
-execution are not part of this increment, so the command changes nothing. Scenario files are
-read from `--scenarios-dir`, which defaults to `scenarios` and is resolved relative to the
-current directory, so run the command from the repository root or pass the directory.
+To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md). The five commands, run from
+the repository root:
+
+| Command | What it does |
+|---|---|
+| `agentops run --scenario clean_bad_deploy --model scripted` | Investigates until the approval pause or an escalation and prints the thread id |
+| `agentops approve <thread> --decision approve` | Records your decision (`approve`, `reject --reason ...` or `edit --remediation-file ...`) and continues |
+| `agentops resume <thread>` | Continues a thread that stopped before its end; a thread waiting for a decision is only shown |
+| `agentops history <thread>` | One line per checkpoint, newest first |
+| `agentops fork <thread> --at <checkpoint> --set <hypothesis>=<score>` | Starts a new thread from a past checkpoint with changed hypothesis scores |
+
+`python -m agentops` runs the same commands. Every command except `history` prints the thread
+id, status, loops, remaining budget, hypotheses and evidence count, then the pending proposal,
+the escalation, or the outcome of the action, and where the audit log is.
+Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
+problem; 2 when the run fails or the state file cannot be used.
+
+Every thread is checkpointed to the SQLite file `agentops.sqlite` (`--state-db`) under a thread
+id equal to the incident id. Every proposal, decision, precondition, dry run, apply and verify is
+appended to `audit/<incident_id>.jsonl`, and the simulated system's record of applied actions is
+`audit/<incident_id>.ledger.jsonl` (both under `--audit-dir`). These runtime files are
+git-ignored. Scenario files are read from `--scenarios-dir`, which defaults to `scenarios`;
+every path is resolved relative to the current directory.
+
+The crash demo shows that an action is applied exactly once even when the process dies right
+after applying it. Three separate processes:
+
+```
+agentops run --scenario clean_bad_deploy --model scripted --thread crash-demo
+agentops approve crash-demo --decision approve --crash-after-apply
+agentops resume crash-demo
+```
+
+The second command ends the process right after the action is applied and recorded, so it exits
+non-zero. The third resumes from the last checkpoint, finds the action in the ledger, applies
+nothing again and ends `resolved`. The ledger and the audit log each hold one applied record.
+`--crash-after-apply` is a hidden demo switch; it skips no check and cannot skip the approval.
 
 The design, its decisions and the plan for each increment are in
 [docs/superpowers/specs/2026-09-29-agentops-design.md](docs/superpowers/specs/2026-09-29-agentops-design.md).

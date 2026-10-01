@@ -61,8 +61,16 @@ A scenario is one JSON file in `scenarios/`, named after its id (for example
 - `signals`: the only part the agent sees, as `logs`, `metrics`, `deployments`, `dependencies`
   and `config`. Every signal carries an `id` that is unique within the scenario.
 - `ground_truth` (`root_cause` and `correct_action`), `required_evidence` (signal ids the
-  investigation must collect), `wrong_actions`, `expected_outcome` and `post_action_world`
-  (what the signals become after each action is applied). The agent never sees these.
+  investigation must collect), `wrong_actions`, `expected_outcome` (`remediate`, `escalate` or
+  `loop`) and `post_action_world` (what the signals become after each action is applied). The
+  agent never sees these.
+- `post_action_world` is keyed by action name. Each world adds metric points (extending the
+  series with the same id) and log lines once that action is in the simulator's ledger. When a
+  fault needs two actions, add a combined world keyed by the distinct action names sorted and
+  joined by `+`, for example `rollback_deploy+scale_db_pool` in `two_concurrent_faults`; it is
+  served once every named action is applied. An unsorted or repeated key is rejected. The
+  action names come from `runbooks/default.yaml`; an action not in the runbook can never be
+  applied.
 - `scripted_outputs`: the `triage` and `rca` answers the scripted chat model returns for this
   scenario, so the scenario runs in tests without a live model. Each answer must be valid
   against its output schema and cite only signal ids that exist in the scenario. A scenario
@@ -70,7 +78,15 @@ A scenario is one JSON file in `scenarios/`, named after its id (for example
   because the graph asks the model for the hand-off summary. The reason is never scripted:
   code writes it as `budget_exhausted` (the read budget ran out), `ambiguous` (the two best
   hypotheses are within the margin, or rca named no cause) or `no_evidence` (no source returned
-  anything).
+  anything). Later steps add others, for example `action_not_allowed` (rca proposed an action
+  outside the runbook), `precondition_failed` or `symptoms_persist`.
+- A `remediate` or `loop` scenario also needs a `postmortem` answer (`summary`, `timeline`,
+  `root_cause`, `evidence_ids` and `follow_ups`), because the graph asks the model for it once
+  the symptoms clear; its `evidence_ids` must be signal ids in the scenario. A `loop` scenario
+  (the first action does not clear the symptoms) also needs `rca_after_action`: the rca answer
+  the scripted model gives once an action is applied, naming the next action. In
+  `two_concurrent_faults` it proposes `scale_db_pool` after `rollback_deploy` leaves the pool
+  saturated.
 
 Keep every name, host and author synthetic: use roles such as `ci-bot` and hosts such as
 `checkout-api-7f3`, never a real person, email address or hostname. Then add the scenario to
