@@ -9,6 +9,7 @@ from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
 from agentops.nodes.merge import decide_next_step, reason_for_escalating_before_rca
 from agentops.nodes.rca import render_evidence
 from agentops.state import (
+    ESCALATION_SUMMARY_MAX_LENGTH,
     Action,
     CitationError,
     Escalation,
@@ -69,12 +70,11 @@ def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
 def fallback_escalation(state: IncidentState) -> Escalation:
     """A summary of the hypotheses and their scores, written by code with no model text."""
     ranked = ", ".join(f"{item.name} ({item.score})" for item in state["hypotheses"])
-    return Escalation(
-        summary=(
-            "Automatic hand-off: the model summary could not be validated. "
-            f"Hypotheses and scores: {ranked or 'none recorded'}."
-        )
+    summary = (
+        "Automatic hand-off: the model summary could not be validated. "
+        f"Hypotheses and scores: {ranked or 'none recorded'}."
     )
+    return Escalation(summary=summary[:ESCALATION_SUMMARY_MAX_LENGTH])
 
 
 def escalation_reason(state: IncidentState) -> EscalationReason:

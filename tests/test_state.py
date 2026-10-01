@@ -8,6 +8,8 @@ from pydantic import BaseModel, ValidationError
 
 from agentops.state import (
     CONTROL_FIELDS,
+    ESCALATION_SUMMARY_MAX_LENGTH,
+    HYPOTHESIS_NAME_MAX_LENGTH,
     MODEL_OUTPUT_SCHEMAS,
     RCA,
     Action,
@@ -247,3 +249,12 @@ def test_every_model_output_schema_rejects_a_smuggled_control_field(
 ) -> None:
     with pytest.raises(ValidationError):
         schema.model_validate({**payload, control_field: "resolved"})
+
+
+def test_hypothesis_name_and_escalation_summary_have_a_length_cap() -> None:
+    assert Hypothesis(name="a" * HYPOTHESIS_NAME_MAX_LENGTH, score=0.5)
+    with pytest.raises(ValidationError):
+        Hypothesis(name="a" * (HYPOTHESIS_NAME_MAX_LENGTH + 1), score=0.5)
+    assert Escalation(summary="s" * ESCALATION_SUMMARY_MAX_LENGTH)
+    with pytest.raises(ValidationError):
+        Escalation(summary="s" * (ESCALATION_SUMMARY_MAX_LENGTH + 1))
