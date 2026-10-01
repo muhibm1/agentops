@@ -1,5 +1,6 @@
 """The rca node: re-scores the triage hypotheses and, when one cause stands out, names it with one
-remediation. The graph, not the model, decides whether the result is clear enough to act on."""
+remediation. The graph, not the model, decides whether the result is clear enough to act on: an
+ambiguous result, or an open hypothesis only an unreachable source could settle, escalates."""
 
 import json
 from collections.abc import Sequence
@@ -8,9 +9,18 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END
 
-from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
+from agentops.nodes import (
+    UNTRUSTED_DATA_RULE,
+    ask_model,
+    fence_markers,
+    fence_rule,
+    neutralise_delimiters,
+    new_fence_nonce,
+)
+from agentops.nodes.router import OPEN_HYPOTHESIS_MIN_SCORE, deciding_sources
 from agentops.state import (
     CitationError,
+    EscalationReason,
     Evidence,
     Hypothesis,
     IncidentState,
@@ -18,23 +28,23 @@ from agentops.state import (
     assert_cited,
 )
 
-OPENING_DELIMITER = "<<<untrusted evidence>>>"
-CLOSING_DELIMITER = "<<<end>>>"
 # The two best hypotheses must differ by at least this much, or the cause is ambiguous
 # (increment-2 ADR 0002).
 AMBIGUITY_MARGIN = 0.15
 
-# The delimiters are described, not quoted, so the prompt holds exactly one of each.
-RCA_SYSTEM_PROMPT = (
-    "You are the root-cause step of an incident investigation. The evidence is one JSON object "
-    "per line, inside a block that opens with the marker 'untrusted evidence' and closes with "
-    "the marker 'end'. Re-score every hypothesis you were given between 0 and 1 in light of the "
-    "evidence, keeping each name exactly as it is and citing the evidence ids that support or "
-    "contradict it. If one cause stands out, name it as a snake_case label that equals the "
-    "highest-scored hypothesis and propose one remediation; both must cite the ids of the "
-    "evidence items that support them, and only those ids. If no cause stands out, return both "
-    "as null. " + UNTRUSTED_DATA_RULE
+RCA_INSTRUCTIONS = (
+    "You are the root-cause step of an incident investigation. Re-score every hypothesis you "
+    "were given between 0 and 1 in light of the evidence, keeping each name exactly as it is and "
+    "citing the evidence ids that support or contradict it. If one cause stands out, name it as "
+    "a snake_case label that equals the highest-scored hypothesis and propose one remediation; "
+    "both must cite the ids of the evidence items that support them, and only those ids. If no "
+    "cause stands out, return both as null. "
 )
+
+
+def rca_system_prompt(nonce: str) -> str:
+    """The rca instructions plus the description of this prompt's evidence fence."""
+    return f"{RCA_INSTRUCTIONS}{fence_rule(nonce)} {UNTRUSTED_DATA_RULE}"
 
 
 class RcaConsistencyError(CitationError):
@@ -49,21 +59,21 @@ def rca(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
 
     Raises `CitationError` if any cited id is not in state, and `RcaConsistencyError` if the
     names differ from triage or the label is not the top-scored name. When the result is
-    ambiguous or has no cause, `root_cause` and `remediation` are written as None.
+    ambiguous, has no cause, or leaves open a hypothesis only an unreachable source could settle,
+    `root_cause` and `remediation` are written as None and the reason is written for escalate.
     """
-    symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
-    triage_names = ", ".join(neutralise_delimiters(item.name) for item in state["hypotheses"])
-    human_prompt = (
-        f"Service: {neutralise_delimiters(state['service'])}\nSymptoms:\n{symptoms}\n"
-        f"Hypotheses to re-score: {triage_names}\n\n{render_evidence(state['evidence'])}"
-    )
+    nonce = new_fence_nonce()
+    human_prompt = rca_human_prompt(state, nonce)
 
-    result, action = ask_model(model, RcaOutput, RCA_SYSTEM_PROMPT, human_prompt)
+    result, action = ask_model(model, RcaOutput, rca_system_prompt(nonce), human_prompt)
 
     check_citations(result, state["evidence"])
     check_consistent_with_triage(result, state)
     update: dict[str, Any] = {"hypotheses": result.hypotheses, "actions": [action]}
-    if result.root_cause is None or is_ambiguous(result):
+    stop_reason = reason_to_stop_after_rca(
+        result.hypotheses, result.root_cause is not None, state["unreachable_sources"]
+    )
+    if stop_reason is not None:
         return {
             **update,
             "root_cause": None,
@@ -71,7 +81,7 @@ def rca(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
             "status": "investigating",
             # Written here so escalate does not have to guess later from a budget that may also be
             # spent.
-            "escalation_reason": "ambiguous",
+            "escalation_reason": stop_reason,
         }
     return {
         **update,
@@ -137,18 +147,72 @@ def has_ambiguous_scores(hypotheses: Sequence[Hypothesis]) -> bool:
     return round(best - runner_up, 9) < AMBIGUITY_MARGIN
 
 
+def awaits_an_unreachable_source(
+    hypotheses: Sequence[Hypothesis], unreachable_sources: Sequence[str]
+) -> bool:
+    """True when a hypothesis is still open and every source that could settle it is
+    unreachable, so the evidence cannot rule it out (spec R2, ADR 0004)."""
+    return any(
+        item.score >= OPEN_HYPOTHESIS_MIN_SCORE
+        and all(source in unreachable_sources for source in deciding_sources(item.name))
+        for item in hypotheses
+    )
+
+
+def reason_to_stop_after_rca(
+    hypotheses: Sequence[Hypothesis], has_root_cause: bool, unreachable_sources: Sequence[str]
+) -> EscalationReason | None:
+    """Why rca's result must go to a human instead of approval, or None when it may proceed.
+    A source outage is named first, because it tells the human what to fix before re-running."""
+    if awaits_an_unreachable_source(hypotheses, unreachable_sources):
+        return "source_outage"
+    if not has_root_cause or has_ambiguous_scores(hypotheses):
+        return "ambiguous"
+    return None
+
+
 def after_rca(state: IncidentState) -> str:
-    """The edge after rca: `escalate` when there is no root cause or the scores are ambiguous,
-    else the end of the graph with an approval-ready remediation."""
-    if state["root_cause"] is None or has_ambiguous_scores(state["hypotheses"]):
-        return "escalate"
-    return END
+    """The edge after rca: `escalate` when there is no root cause, the scores are ambiguous or an
+    open hypothesis waits on an unreachable source, else the end of the graph with an
+    approval-ready remediation."""
+    stop_reason = reason_to_stop_after_rca(
+        state["hypotheses"], state["root_cause"] is not None, state["unreachable_sources"]
+    )
+    return END if stop_reason is None else "escalate"
 
 
-def render_evidence(evidence: list[Evidence]) -> str:
-    """The evidence block: one JSON line per item between the untrusted-data delimiters."""
+def rca_human_prompt(state: IncidentState, nonce: str) -> str:
+    """The service, symptoms, hypotheses, what is known about sources and actions, then the
+    fenced evidence. The two context lines appear only when they have something to say."""
+    symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
+    triage_names = ", ".join(neutralise_delimiters(item.name) for item in state["hypotheses"])
+    lines = [
+        f"Service: {neutralise_delimiters(state['service'])}",
+        f"Symptoms:\n{symptoms}",
+        f"Hypotheses to re-score: {triage_names}",
+    ]
+    if state["unreachable_sources"]:
+        lines.append(f"Unreachable sources: {', '.join(state['unreachable_sources'])}")
+    applied = applied_action_names(state["evidence"])
+    if applied:
+        lines.append(f"Actions already applied: {', '.join(applied)}")
+    return "\n".join(lines) + "\n\n" + render_evidence(state["evidence"], nonce)
+
+
+def applied_action_names(evidence: Sequence[Evidence]) -> list[str]:
+    """The action names of every evidence item of kind `action` that records a real apply."""
+    return [
+        str(neutralise_delimiters(str(item.payload.get("action", item.id))))
+        for item in evidence
+        if item.kind == "action" and item.payload.get("applied") is True
+    ]
+
+
+def render_evidence(evidence: Sequence[Evidence], nonce: str) -> str:
+    """The evidence block: one JSON line per item between the markers fenced with `nonce`."""
+    opening, closing = fence_markers(nonce)
     lines = [
         json.dumps({"id": item.id, "kind": item.kind, "payload": item.payload}, ensure_ascii=False)
         for item in evidence
     ]
-    return "\n".join([OPENING_DELIMITER, *lines, CLOSING_DELIMITER])
+    return "\n".join([opening, *lines, closing])
