@@ -7,7 +7,6 @@ is at level ERROR, and both the metric and the log read succeeded. No model take
 decision.
 """
 
-from datetime import timedelta
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -18,10 +17,9 @@ from agentops.actions.audit import AuditLog
 from agentops.nodes import run_thread_id
 from agentops.nodes.evidence import METRIC_CATALOGUE, as_evidence, read_with_one_retry
 from agentops.nodes.router import route_to_sources
-from agentops.sources.base import EvidenceSource, LogLine, Series, Window
+from agentops.sources.base import VERIFY_WINDOW, EvidenceSource, LogLine, Series, Window
 from agentops.state import Action, Evidence, IncidentState
 
-VERIFY_WINDOW = timedelta(minutes=30)
 # Healthy ranges for every metric in METRIC_CATALOGUE (src/agentops/nodes/evidence.py). A new
 # catalogue metric needs a range here in the same change.
 HEALTHY_MAXIMUM: dict[str, float] = {

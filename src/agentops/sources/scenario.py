@@ -14,6 +14,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from agentops.sources.base import (
     SIGNAL_ID_PATTERN,
+    VERIFY_WINDOW,
     ConfigValue,
     DependencyStatus,
     Deployment,
@@ -153,7 +154,21 @@ def post_action_world_problems(scenario: Scenario) -> list[str]:
             for line in world.logs
             if line.id in declared
         ]
+        problems += late_signal_problems(scenario, action, world)
     return problems
+
+
+def late_signal_problems(scenario: Scenario, action: str, world: PostActionWorld) -> list[str]:
+    """Every post-action point or line later than verify's window, which verify would never read."""
+    last_readable = scenario.incident_time + VERIFY_WINDOW
+    moments = [
+        (f"metric {series.id!r}", point.at) for series in world.metrics for point in series.points
+    ] + [(f"log {line.id!r}", line.timestamp) for line in world.logs]
+    return [
+        f"post_action_world[{action!r}] {what} is after the verify window ({VERIFY_WINDOW})"
+        for what, moment in moments
+        if moment > last_readable
+    ]
 
 
 def world_key_problems(key: str) -> list[str]:

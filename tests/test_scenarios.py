@@ -309,3 +309,39 @@ def test_post_action_world_key_that_is_not_sorted_distinct_action_names_is_rejec
         load_scenario(path)
 
     assert f"post_action_world key {bad_key!r}" in str(raised.value)
+
+
+def moved_world_signal(raw: dict[str, Any], kind: str, timestamp: str) -> None:
+    """Set the time of the first metric point or log line of the first post-action world."""
+    world = next(iter(raw["post_action_world"].values()))
+    if kind == "metric":
+        world["metrics"][0]["points"][0]["at"] = timestamp
+    else:
+        world["logs"][0]["timestamp"] = timestamp
+
+
+@pytest.mark.parametrize("kind", ["metric", "log"])
+def test_a_post_action_signal_after_the_verify_window_is_rejected(
+    tmp_path: Path, kind: str
+) -> None:
+    raw = raw_scenario("clean_bad_deploy")
+    moved_world_signal(raw, kind, "2026-03-10T11:01:00Z")
+    path = write_variant(tmp_path, raw, "clean_bad_deploy.json")
+
+    with pytest.raises(ValidationError) as raised:
+        load_scenario(path)
+
+    assert "after the verify window" in str(raised.value)
+
+
+@pytest.mark.parametrize("kind", ["metric", "log"])
+def test_a_post_action_signal_at_the_end_of_the_verify_window_is_accepted(
+    tmp_path: Path, kind: str
+) -> None:
+    raw = raw_scenario("clean_bad_deploy")
+    moved_world_signal(raw, kind, "2026-03-10T11:00:00Z")
+    path = write_variant(tmp_path, raw, "clean_bad_deploy.json")
+
+    scenario = load_scenario(path)
+
+    assert scenario.id == "clean_bad_deploy"
