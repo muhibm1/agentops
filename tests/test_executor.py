@@ -741,3 +741,35 @@ def test_a_rollback_aimed_at_another_object_applies_nothing(
     assert outcome.kind == kind
     assert source.ledger() == []
     assert [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"] == []
+
+
+class FailingApplyAuditLog(AuditLog):
+    """Writes every record except the apply event, which raises like a full disk."""
+
+    def append(self, incident_id: str, thread_id: str, record: Any) -> None:
+        if record["event"] == "apply":
+            raise OSError("disk full")
+        super().append(incident_id, thread_id, record)
+
+
+def test_a_failed_apply_audit_write_is_recovered_by_a_rerun_without_a_second_apply(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    source = SimulatorSource(scenario)
+
+    with pytest.raises(OSError):
+        executor.execute(
+            state,
+            source,
+            default_registry(),
+            FailingApplyAuditLog(tmp_path),
+            thread_id=state["incident_id"],
+        )
+    assert len(source.ledger()) == 1
+
+    outcome = run_executor(state, source, tmp_path)
+
+    assert outcome.kind == "already_applied"
+    assert len(source.ledger()) == 1
