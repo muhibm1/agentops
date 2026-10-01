@@ -1,0 +1,139 @@
+{
+  "id": "schema_drift_ingestion",
+  "service": "ingestion",
+  "symptoms": [
+    "ingestion batches rejected since 08:12",
+    "downstream tables have received no new rows since 08:12"
+  ],
+  "incident_time": "2026-03-18T09:00:00Z",
+  "signals": {
+    "logs": [
+      {
+        "id": "log-001",
+        "timestamp": "2026-03-18T08:05:03Z",
+        "level": "INFO",
+        "message": "ingestion-worker-1 started version v5.2.0",
+        "service": "ingestion"
+      },
+      {
+        "id": "log-002",
+        "timestamp": "2026-03-18T08:12:41Z",
+        "level": "ERROR",
+        "message": "schema mismatch: column customer_ref expected string, got struct in batch 7731; batch rejected",
+        "service": "ingestion"
+      },
+      {
+        "id": "log-003",
+        "timestamp": "2026-03-18T08:20:12Z",
+        "level": "ERROR",
+        "message": "schema mismatch: column customer_ref expected string, got struct in batch 7740; batch rejected",
+        "service": "ingestion"
+      },
+      {
+        "id": "log-004",
+        "timestamp": "2026-03-18T08:33:55Z",
+        "level": "ERROR",
+        "message": "schema mismatch: column customer_ref expected string, got struct in batch 7752; batch rejected",
+        "service": "ingestion"
+      },
+      {
+        "id": "log-005",
+        "timestamp": "2026-03-18T08:47:09Z",
+        "level": "ERROR",
+        "message": "schema mismatch: column customer_ref expected string, got struct in batch 7765; batch rejected",
+        "service": "ingestion"
+      },
+      {
+        "id": "log-006",
+        "timestamp": "2026-03-18T08:55:30Z",
+        "level": "WARN",
+        "message": "dead-letter queue holds 214 rejected batches",
+        "service": "ingestion"
+      }
+    ],
+    "metrics": [],
+    "deployments": [
+      {
+        "id": "deploy-001",
+        "version": "v5.2.0",
+        "previous_version": "v5.1.4",
+        "deployed_at": "2026-03-18T08:04:00Z",
+        "author": "ci-bot",
+        "diff_summary": "Migrates the customer_ref column from a string to a nested struct in the ingestion schema. Downstream readers are not updated in this change."
+      }
+    ],
+    "dependencies": [],
+    "config": {
+      "schema_version": "2026-03-v2",
+      "dead_letter_queue_enabled": true
+    }
+  },
+  "ground_truth": {
+    "root_cause": "schema_drift_in_ingestion",
+    "correct_action": "rollback_deploy"
+  },
+  "required_evidence": ["log-002", "deploy-001"],
+  "wrong_actions": ["restart_service", "scale_db_pool"],
+  "expected_outcome": "remediate",
+  "post_action_world": {
+    "rollback_deploy": {
+      "logs": [
+        {
+          "id": "log-007",
+          "timestamp": "2026-03-18T09:10:14Z",
+          "level": "INFO",
+          "message": "ingestion-worker-1 accepted batch 7790; schema check passed",
+          "service": "ingestion"
+        }
+      ]
+    }
+  },
+  "scripted_outputs": {
+    "triage": {
+      "hypotheses": [
+        {
+          "name": "schema_drift_in_ingestion",
+          "score": 0.5,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "upstream_volume_drop",
+          "score": 0.3,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        }
+      ]
+    },
+    "rca": {
+      "hypotheses": [
+        {
+          "name": "schema_drift_in_ingestion",
+          "score": 0.85,
+          "supporting_evidence": ["log-002", "deploy-001"],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "upstream_volume_drop",
+          "score": 0.1,
+          "supporting_evidence": [],
+          "contradicting_evidence": ["log-006"]
+        }
+      ],
+      "root_cause": {
+        "label": "schema_drift_in_ingestion",
+        "explanation": "Version v5.2.0 (deploy-001) changed customer_ref from a string to a struct, and from 08:12 every batch is rejected with a schema mismatch (log-002). Batches are arriving and queueing in the dead-letter queue (log-006), so upstream volume has not dropped. No metric series exist for this service, so the diagnosis rests on logs and the deploy record.",
+        "evidence_ids": ["log-002", "deploy-001"]
+      },
+      "remediation": {
+        "action": "rollback_deploy",
+        "target": "ingestion",
+        "params": { "to_version": "v5.1.4" },
+        "reason": "Rolling back to v5.1.4 restores the string column the downstream readers expect; the rejected batches stay in the dead-letter queue for replay.",
+        "evidence_ids": ["log-002", "deploy-001"],
+        "risk": "medium",
+        "rollback": "Redeploy v5.2.0 once the downstream readers handle the struct column."
+      }
+    }
+  }
+}
