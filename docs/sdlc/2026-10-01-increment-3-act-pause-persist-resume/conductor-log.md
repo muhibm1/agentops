@@ -36,3 +36,4 @@
 2026-10-01T10:39:18.539Z | deploy | conductor | G5 Deploy presented
 2026-10-01T10:39:52.000Z | deploy | conductor | resumed at deploy after G5 approved (9267d72)
 2026-10-01T10:39:52.063Z | deploy | conductor | G5 approved; PR #5 already merged (aa65cbf); no deploy step, moving to done
+2026-10-01T10:39:59.662Z | done | wh-retro-learner | dispatched in background
