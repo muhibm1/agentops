@@ -292,24 +292,37 @@ def already_applied(
 ) -> ExecutionOutcome:
     """Apply nothing; record that this key was applied before (`recorded` says where).
 
-    The execution is marked `applied` because the change is in effect: verify and rca read that
-    flag, and a run resumed after a crash must judge the earlier apply like any other.
+    The execution is marked `applied` only when no action evidence yet records this key as
+    applied: that is the run resumed after a crash, whose earlier apply verify must still judge.
+    A plain repeat of a key applied earlier in the run changed nothing this time, so it stays
+    `applied=False` and verify escalates with symptoms_persist instead of looping.
     """
     detail = f"Key {key} was already applied ({recorded}); nothing changed."
+    changed_now = not applied_in_evidence(context.state, key)
     previous = context.state["execution"]
     execution = ExecutionRecord(
         idempotency_key=key,
         action=remediation.action,
         target=remediation.target,
-        applied=True,
+        applied=changed_now,
         applied_at=previous.applied_at if previous and previous.idempotency_key == key else None,
         result=ALREADY_APPLIED,
         dry_run_output="",
     )
     evidence = action_evidence(
-        context.state, remediation, key, ALREADY_APPLIED, applied=True, detail=detail
+        context.state, remediation, key, ALREADY_APPLIED, applied=changed_now, detail=detail
     )
     return ExecutionOutcome(ALREADY_APPLIED, detail, execution, [evidence])
+
+
+def applied_in_evidence(state: IncidentState, key: str) -> bool:
+    """True when action evidence already records `key` as applied."""
+    return any(
+        item.kind == "action"
+        and item.payload.get("idempotency_key") == key
+        and item.payload.get("applied") is True
+        for item in state["evidence"]
+    )
 
 
 def precondition_failed(

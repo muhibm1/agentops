@@ -24,6 +24,7 @@ from agentops.actions.registry import Registry, default_registry, idempotency_ke
 from agentops.nodes.execute import after_execute
 from agentops.nodes.execute import execute as execute_node
 from agentops.nodes.router import route_to_sources
+from agentops.nodes.verify import next_step_fields
 from agentops.sources.base import (
     ActionRequest,
     ActionResult,
@@ -772,4 +773,31 @@ def test_a_failed_apply_audit_write_is_recovered_by_a_rerun_without_a_second_app
     outcome = run_executor(state, source, tmp_path)
 
     assert outcome.kind == "already_applied"
+    assert len(source.ledger()) == 1
+
+
+def test_a_repeat_of_a_key_applied_earlier_in_the_run_changes_nothing_and_escalates(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    source = SimulatorSource(scenario)
+    state = approved_state(scenario)
+    state["investigation_budget"] = 8
+    first = run_executor(state, source, tmp_path)
+    assert first.kind == "applied"
+    state = merged(
+        state,
+        {"execution": first.execution, "evidence": first.evidence, "actions": first.actions},
+    )
+    assert next_step_fields(state, cleared=False)["status"] == "investigating"
+
+    second = run_executor(state, source, tmp_path)
+
+    assert second.kind == "already_applied"
+    assert second.execution is not None
+    assert second.execution.applied is False
+    [evidence] = second.evidence
+    assert evidence.payload["applied"] is False
+    state = merged(state, {"execution": second.execution, "evidence": second.evidence})
+    assert next_step_fields(state, cleared=False) == {"escalation_reason": "symptoms_persist"}
     assert len(source.ledger()) == 1
