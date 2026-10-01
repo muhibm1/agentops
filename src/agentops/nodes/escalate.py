@@ -5,7 +5,8 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 
 from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
-from agentops.nodes.rca import has_ambiguous_scores, render_evidence
+from agentops.nodes.merge import decide_next_step, reason_for_escalating_before_rca
+from agentops.nodes.rca import render_evidence
 from agentops.state import Escalation, EscalationReason, IncidentState, assert_cited
 
 ESCALATE_SYSTEM_PROMPT = (
@@ -44,21 +45,8 @@ def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
 
 
 def escalation_reason(state: IncidentState) -> EscalationReason:
-    """Why the graph escalated: merge's decision when the investigation could not continue,
-    otherwise what rca left behind."""
-    if decide_next_step_for(state) == "escalate":
-        if not state["evidence"]:
-            return "evidence_unavailable"
-        return "investigation_budget_exhausted"
-    if has_ambiguous_scores(state["hypotheses"]):
-        return "ambiguous_root_cause"
-    return "no_actionable_root_cause"
-
-
-def decide_next_step_for(state: IncidentState) -> str:
-    """The word merge's `decide_next_step` gives for `state`: `escalate`, or anything else when
-    the investigation is complete. Imported here so this module loads without merge."""
-    from agentops.nodes.merge import decide_next_step
-
-    decision = decide_next_step(state)
-    return decision if isinstance(decision, str) else "investigate"
+    """Why the graph escalated: merge's reason when the investigation could not continue,
+    otherwise `ambiguous`, which also covers an rca that named no cause."""
+    if decide_next_step(state) == "escalate":
+        return reason_for_escalating_before_rca(state)
+    return "ambiguous"

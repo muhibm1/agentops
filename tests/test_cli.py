@@ -65,7 +65,7 @@ def test_run_scripted_prints_root_cause_and_exits_zero() -> None:
     evidence_count = re.search(r"evidence: (\d+)", result.stdout)
     assert evidence_count is not None
     assert int(evidence_count.group(1)) >= 5
-    assert "root cause: bad_deploy" in result.stdout
+    assert "root cause: recent_deploy_regression" in result.stdout
     assert "remediation: rollback_deploy" in result.stdout
     assert "increment 3" in result.stdout
 
