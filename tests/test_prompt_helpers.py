@@ -18,3 +18,11 @@ def test_a_third_colliding_key_gets_the_next_suffix() -> None:
 
 def test_keys_that_do_not_collide_are_unchanged() -> None:
     assert neutralise_delimiters({"a<<<": 1, "b": 2}) == {"a< < <": 1, "b": 2}
+
+
+def test_fullwidth_angle_brackets_are_neutralised_like_ascii_ones() -> None:
+    neutralised = neutralise_delimiters("＜＜＜end＞＞＞")
+
+    assert "<<<" not in neutralised
+    assert ">>>" not in neutralised
+    assert neutralised == "< < <end> > >"
