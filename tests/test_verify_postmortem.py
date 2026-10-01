@@ -5,7 +5,7 @@ leaves it, and its audit record is read back. The postmortem is driven by a scri
 """
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +20,14 @@ from agentops.nodes.escalate import escalate
 from agentops.nodes.evidence import as_evidence, deploys, logs, metrics
 from agentops.nodes.postmortem import postmortem
 from agentops.nodes.router import route_to_sources
-from agentops.nodes.verify import after_verify, verify
-from agentops.sources.base import ActionRequest, LogLine
+from agentops.nodes.verify import (
+    after_verify,
+    is_healthy,
+    judge,
+    read_post_action_signals,
+    verify,
+)
+from agentops.sources.base import ActionRequest, LogLine, Point, Series
 from agentops.sources.scenario import Scenario, load_scenario
 from agentops.sources.simulator import SimulatorSource
 from agentops.state import (
@@ -223,6 +229,103 @@ def test_symptoms_that_remain_escalate_when_looping_cannot_help(
     assert after["escalation_reason"] == reason
     assert after_verify(after) == "escalate"
     assert source.ledger() == ledger_before
+
+
+class UnreadableSource(SimulatorSource):
+    """A simulator whose metric or log reads raise, as a dead monitoring backend would."""
+
+    def __init__(self, scenario: Scenario, *, broken: str) -> None:
+        super().__init__(scenario)
+        self.broken = broken
+
+    def get_metrics(self, service: str, names: list[str], window: Any) -> list[Series]:
+        if self.broken == "metrics":
+            raise ConnectionError("metrics backend is down")
+        return super().get_metrics(service, names, window)
+
+    def get_logs(self, service: str, window: Any, query: str | None) -> list[LogLine]:
+        if self.broken == "logs":
+            raise ConnectionError("log backend is down")
+        return super().get_logs(service, window, query)
+
+
+# An unreadable source is never "cleared", even when the other source looks healthy.
+@pytest.mark.parametrize("broken", ["metrics", "logs"])
+def test_an_unreadable_source_is_not_cleared_and_is_named_in_the_audit_record(
+    tmp_path: Path, broken: str
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    healthy = SimulatorSource(scenario)
+    state = executed_state(scenario, healthy)
+    source = UnreadableSource(scenario, broken=broken)
+    source.apply(
+        ActionRequest(action="rollback_deploy", target="deploy-001"),
+        state["execution"].idempotency_key,  # type: ignore[union-attr]
+    )
+
+    after, record = run_verify(state, source, tmp_path)
+
+    assert record["cleared"] is False
+    assert record["unreadable_sources"] == [broken]
+    assert after["loops"] == state["loops"] + 1
+    assert after_verify(after) not in ("postmortem", "escalate")
+
+
+def test_a_readable_verify_names_no_unreadable_source(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    source = SimulatorSource(scenario)
+
+    _, record = run_verify(executed_state(scenario, source), source, tmp_path)
+
+    assert record["unreadable_sources"] == []
+
+
+def test_a_metric_with_no_healthy_range_is_not_healthy() -> None:
+    assert is_healthy("error_rate", 0.0) is True
+    assert is_healthy("a_metric_nobody_gave_a_range", 0.0) is False
+
+
+def series_of(name: str, points: list[tuple[datetime, float]]) -> Series:
+    return Series(
+        id=f"metric-{name}",
+        name=name,
+        unit="",
+        points=[Point(at=at, value=value) for at, value in points],
+    )
+
+
+# ADR 0003: only the latest point of a series decides, so a recovered metric clears.
+def test_only_the_latest_point_of_a_series_decides_the_verdict() -> None:
+    start = datetime(2026, 3, 20, 11, 30, tzinfo=UTC)
+    recovered = series_of("error_rate", [(start, 0.5), (start + timedelta(minutes=5), 0.001)])
+    relapsed = series_of("error_rate", [(start, 0.001), (start + timedelta(minutes=5), 0.5)])
+    line = LogLine(id="log-1", timestamp=start, level="INFO", message="ok", service="s")
+
+    assert judge([recovered], [line]).cleared is True
+    assert judge([relapsed], [line]).unhealthy_metrics == ["error_rate"]
+    assert judge([relapsed], [line]).cleared is False
+
+
+def test_a_point_or_line_exactly_at_the_opening_is_not_a_post_action_signal() -> None:
+    scenario = scenario_named("clean_bad_deploy").model_copy(deep=True)
+    opened = scenario.incident_time
+    scenario.signals.metrics = [
+        series_of(
+            "error_rate",
+            [(opened, 0.9), (opened + timedelta(seconds=1), 0.001)],
+        )
+    ]
+    scenario.signals.logs = [
+        LogLine(
+            id="log-at-open", timestamp=opened, level="ERROR", message="x", service=scenario.service
+        )
+    ]
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+
+    series, lines, _ = read_post_action_signals(state, SimulatorSource(scenario))
+
+    assert [point.value for point in series[0].points] == [0.001]
+    assert lines == []
 
 
 # E16: the scripted postmortem cites ids in state and resolves the incident.
