@@ -25,6 +25,8 @@ errors) and fails when the count is below `MIN_TESTS`, set in the workflow's `en
 To raise it, change `MIN_TESTS` in `.github/workflows/ci.yml` in the same pull request that adds
 the tests. Lower it only on purpose, saying why in the commit body.
 
+`MIN_TESTS` is 80 as of increment 2 (the suite had 76 at the end of increment 1).
+
 ## Re-resolving an action pin
 
 When a tag is moved or a pin needs checking, resolve the tag to its commit SHA with the GitHub
