@@ -56,6 +56,8 @@ from agentops.state import (
 USAGE_ERROR = 1
 RUN_FAILED = 2
 RECURSION_LIMIT = 60
+# A failure message is shown cut to this many characters: it may quote a long model string.
+ERROR_TEXT_MAX_LENGTH = 200
 SCRIPTED_MODEL = "scripted"
 LIVE_MODEL = "anthropic"
 STATE_DB = Path("agentops.sqlite")
@@ -284,7 +286,8 @@ class ThreadRun:
         try:
             self.graph.invoke(value, self.config(**switches), durability="sync")
         except Exception as error:  # the command's outer boundary: any failure becomes exit 2
-            fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {error}")
+            text = str(error)[:ERROR_TEXT_MAX_LENGTH]
+            fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {text}")
 
     def refusal(self) -> str | None:
         """Why the node refused the last answer and asked again, or None."""
