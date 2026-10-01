@@ -1,0 +1,4 @@
+$ .venv/Scripts/python.exe -m pyright
+# exit 0 after 2.8s via C:\Program Files\Git\bin\bash.exe
+
+0 errors, 0 warnings, 0 informations
