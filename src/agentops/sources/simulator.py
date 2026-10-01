@@ -56,6 +56,8 @@ class SimulatorSource:
             for action, world in scenario.post_action_world.items()
         }
         self._ledger: list[AppliedAction] = []
+        # Keys of the worlds already merged, so one world is never merged twice.
+        self._merged_worlds: set[str] = set()
         self._ledger_path = ledger_path
         if ledger_path is not None:
             check_ledger_file_name(ledger_path)
@@ -120,8 +122,8 @@ class SimulatorSource:
                 idempotency_key=idempotency_key,
                 detail=f"Key {idempotency_key} was already applied; nothing changed.",
             )
-        world = self._world_after(action.action)
-        if world is None:
+        world_key = self._world_key_after(action.action)
+        if world_key is None:
             return ActionResult(
                 ok=False,
                 applied=False,
@@ -136,7 +138,7 @@ class SimulatorSource:
         )
         if self._ledger_path is not None:
             append_ledger_line(self._ledger_path, entry)
-        self._record(entry, world)
+        self._record(entry, world_key)
         return ActionResult(
             ok=True,
             applied=True,
@@ -147,16 +149,20 @@ class SimulatorSource:
     def ledger(self) -> list[AppliedAction]:
         return [entry.model_copy(deep=True) for entry in self._ledger]
 
-    def _world_after(self, action_name: str) -> PostActionWorld | None:
+    def _world_key_after(self, action_name: str) -> str | None:
+        """The key of the world to serve once `action_name` is applied, or None when the
+        scenario declares none: the combined world of every applied action when it has one."""
         applied_names = {entry.action for entry in self._ledger} | {action_name}
         if len(applied_names) > 1:
-            combined = self._worlds.get(combined_world_key(applied_names))
-            if combined is not None:
+            combined = combined_world_key(applied_names)
+            if combined in self._worlds:
                 return combined
-        return self._worlds.get(action_name)
+        return action_name if action_name in self._worlds else None
 
-    def _record(self, entry: AppliedAction, world: PostActionWorld) -> None:
-        self._merge_world(world)
+    def _record(self, entry: AppliedAction, world_key: str) -> None:
+        if world_key not in self._merged_worlds:
+            self._merge_world(self._worlds[world_key])
+            self._merged_worlds.add(world_key)
         self._ledger.append(entry)
 
     def _replay(self, ledger_path: Path) -> None:
@@ -165,13 +171,13 @@ class SimulatorSource:
         lines = ledger_path.read_text(encoding="utf-8").splitlines()
         for line_number, line in enumerate(lines, start=1):
             entry = parse_ledger_line(ledger_path, line_number, line)
-            world = self._world_after(entry.action)
-            if world is None:
+            world_key = self._world_key_after(entry.action)
+            if world_key is None:
                 raise LedgerError(
                     f"Ledger {ledger_path} line {line_number} names the action "
                     f"{entry.action!r}, which this scenario cannot model."
                 )
-            self._record(entry, world)
+            self._record(entry, world_key)
 
     def _merge_world(self, world: PostActionWorld) -> None:
         series_by_id = {series.id: series for series in self._signals.metrics}
