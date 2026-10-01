@@ -15,24 +15,30 @@ idempotently. Python 3.11, MIT. The approved design is
 - Typecheck: `python -m pyright`
 - Test: `python -m pytest -q` (no API key needed; tests use a fake chat model)
 - Dependency audit: `python -m pip_audit -r requirements.txt`
-- Demo: `agentops run --scenario clean_bad_deploy --model scripted` (no API key; prints the
-  hypotheses, loops, remaining budget, evidence count, then root cause and remediation or the
-  escalation reason and summary). `--model anthropic` exits 1: the live model is not wired yet.
-  `langgraph dev` needs `langgraph.json`, not yet in the repository.
+- Demo: `agentops run --scenario clean_bad_deploy --model scripted` (no API key; stops at the
+  approval pause and prints the thread id), then `agentops approve <thread> --decision approve`
+  (applies the action once, verifies, writes the postmortem). `resume`, `history` and `fork`
+  take the same thread id; `python -m agentops` is the same command line. Crash demo:
+  `run ... --thread crash-demo`, `approve crash-demo --decision approve --crash-after-apply`
+  (hidden switch, ends the process right after the apply), `resume crash-demo` (no second
+  apply). Runtime files: `agentops.sqlite` and its sidecars, `audit/*.jsonl`, all git-ignored.
+  `--model anthropic` exits 1: the live model is not wired yet. `langgraph dev` needs
+  `langgraph.json`, not yet in the repository.
 
 ## Architecture in five lines
 
 1. `src/agentops/graph.py` builds a `StateGraph` over one typed `IncidentState` (`state.py`):
    triage, a fan-out router, three parallel evidence nodes, merge (owns the investigation budget
-   and the loop count), rca, escalate; approval, execute, verify and postmortem arrive in
-   increment 3. A run ends at `awaiting_approval` or `escalated`.
+   and the loop count), rca, approval, execute, verify, postmortem and escalate, checkpointed to
+   SQLite. A thread pauses at `awaiting_approval` and ends `resolved` or `escalated`.
 2. The model runs only in triage, rca, postmortem and escalate. Every edge, budget, retry and side
    effect is code. Model outputs are validated Pydantic models that never contain control fields.
 3. Evidence comes through the `EvidenceSource` protocol (`sources/`); v1 uses `SimulatorSource`
    over `scenarios/*.json`. Every evidence payload is untrusted data.
-4. `approval` calls `interrupt()`. `execute` goes through `actions/`: registry from
-   `runbooks/default.yaml`, preconditions, idempotency key, ledger check, dry run, append-only
-   audit log.
+4. `approval` calls `interrupt()` and re-validates an edited remediation. `execute` goes through
+   `actions/`: registry from `runbooks/default.yaml`, parameter validation, preconditions,
+   idempotency key, ledger check, dry run, apply, and the append-only audit log
+   `audit/<incident_id>.jsonl`.
 5. `evals/` compares a ReAct baseline (`baseline.py`) against the graph on dev and held-out splits
    in LangSmith. CI runs no live model and reads no secrets.
 
