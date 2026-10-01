@@ -27,8 +27,10 @@ from agentops.sources.base import EvidenceSource
 from agentops.state import CitationError, IncidentState
 
 # LangGraph's default predicate does not retry ValueError (so not ValidationError) nor
-# RuntimeError (confirmed in langgraph/_internal/_retry.py, langgraph 1.2.12). See ADR 0002.
-# Source reads have no graph-level retry: each evidence node retries its own read (ADR 0001).
+# RuntimeError (confirmed in langgraph/_internal/_retry.py, langgraph 1.2.12).
+# See increment-1 ADR 0002.
+# Source reads have no graph-level retry: each evidence node retries its own read
+# (increment-2 ADR 0001).
 MODEL_NODE_RETRY = RetryPolicy(max_attempts=3, retry_on=(CitationError, ValidationError))
 
 EVIDENCE_NODES = ("logs", "metrics", "deploys")

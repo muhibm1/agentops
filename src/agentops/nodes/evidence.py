@@ -2,7 +2,7 @@
 
 They run in one super-step and append through the `evidence` and `actions` reducers. A read that
 fails is retried once inside the node and both attempts are recorded; a source that fails twice
-yields no evidence and never fails the run (ADR 0001).
+yields no evidence and never fails the run (increment-2 ADR 0001).
 
 Every payload string has the prompt delimiters `<<<` and `>>>` broken up before it enters
 state, so a log line cannot open or close the untrusted-evidence block the rca prompt builds.

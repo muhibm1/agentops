@@ -17,8 +17,9 @@ from agentops.state import (
     assert_cited,
 )
 
-# Same count as the graph's retry policy for the other model nodes. Escalate retries inside the
-# node because it is the last step: when the attempts run out, a human still has to be told.
+# Same count as the graph's retry policy for the other model nodes (increment-1 ADR 0002).
+# Escalate retries inside the node because it is the last step: when the attempts run out, a
+# human still has to be told.
 ESCALATE_ATTEMPTS = 3
 
 ESCALATE_SYSTEM_PROMPT = (

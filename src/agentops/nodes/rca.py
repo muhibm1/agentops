@@ -20,7 +20,8 @@ from agentops.state import (
 
 OPENING_DELIMITER = "<<<untrusted evidence>>>"
 CLOSING_DELIMITER = "<<<end>>>"
-# The two best hypotheses must differ by at least this much, or the cause is ambiguous (ADR 0002).
+# The two best hypotheses must differ by at least this much, or the cause is ambiguous
+# (increment-2 ADR 0002).
 AMBIGUITY_MARGIN = 0.15
 
 # The delimiters are described, not quoted, so the prompt holds exactly one of each.

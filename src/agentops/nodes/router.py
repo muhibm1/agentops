@@ -1,4 +1,5 @@
-"""The router: which evidence sources to ask next, decided by code from the state alone (ADR 0003).
+"""The router: which evidence sources to ask next, decided by code from the state alone
+(increment-2 ADR 0003).
 
 A source scores one point for each open hypothesis (score at or above 0.2) it can confirm or rule
 out, judged by keywords that start a `_`-separated word of the hypothesis name. Sources are

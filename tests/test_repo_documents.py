@@ -40,6 +40,8 @@ def test_licence_contributing_readme_ci_doc_and_profile_match_the_built_repo() -
     assert "ruff check ." in contributing
     assert "pyright" in contributing
     assert "pytest -q" in contributing
+    for reason in ("budget_exhausted", "ambiguous", "no_evidence"):
+        assert reason in contributing
     assert readme.startswith("# AgentOps")
     for scenario_id in sorted(path.stem for path in (REPO_ROOT / "scenarios").glob("*.json")):
         assert scenario_id in readme
