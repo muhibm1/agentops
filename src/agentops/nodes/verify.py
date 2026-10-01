@@ -2,8 +2,9 @@
 whether the symptoms are cleared (ADR 0003).
 
 Cleared means at least one signal arrived after the incident opened, every catalogue metric
-observed since then has its latest value inside the healthy range below, and no log line since
-then is at level ERROR. No model takes part in the decision.
+observed since then has its latest value inside the healthy range below, no log line since then
+is at level ERROR, and both the metric and the log read succeeded. No model takes part in the
+decision.
 """
 
 from datetime import timedelta
@@ -46,6 +47,8 @@ class VerifyResult(BaseModel):
     cleared: bool
     unhealthy_metrics: list[str]
     error_lines: list[str]
+    # Sources ("metrics", "logs") whose post-action read failed on every attempt.
+    unreadable_sources: list[str]
 
 
 def verify(
@@ -62,7 +65,7 @@ def verify(
     thread_id = run_thread_id(config, "verify")
     round_number = verify_rounds(state) + 1
     series, lines, actions = read_post_action_signals(state, source)
-    result = judge(series, lines)
+    result = judge(series, lines, unreadable_sources(actions))
     execution = state["execution"]
     audit.append(
         state["incident_id"],
@@ -88,18 +91,33 @@ def after_verify(state: IncidentState) -> list[Send] | str:
     return route_to_sources(state)
 
 
-def judge(series: list[Series], lines: list[LogLine]) -> VerifyResult:
-    """ADR 0003's rule over signals already limited to after the incident opened."""
+def judge(
+    series: list[Series], lines: list[LogLine], unreadable: list[str] | None = None
+) -> VerifyResult:
+    """ADR 0003's rule over signals already limited to after the incident opened. A source that
+    could not be read is never "cleared": silence from a dead backend is not health."""
+    unreadable = unreadable or []
     unhealthy = sorted(
         item.name for item in series if not is_healthy(item.name, latest_value(item))
     )
     error_lines = [line.id for line in lines if line.level.upper() == ERROR_LEVEL]
     has_signal = any(item.points for item in series) or bool(lines)
     return VerifyResult(
-        cleared=has_signal and not unhealthy and not error_lines,
+        cleared=has_signal and not unhealthy and not error_lines and not unreadable,
         unhealthy_metrics=unhealthy,
         error_lines=error_lines,
+        unreadable_sources=unreadable,
     )
+
+
+def unreadable_sources(actions: list[Action]) -> list[str]:
+    """Which of metrics and logs have read attempts in `actions`, none of which succeeded."""
+    unreadable = []
+    for name, tool in (("logs", LOGS_TOOL), ("metrics", METRICS_TOOL)):
+        attempts = [action for action in actions if action.tool == tool]
+        if not any(action.ok for action in attempts):
+            unreadable.append(name)
+    return unreadable
 
 
 def is_healthy(metric: str, value: float) -> bool:
@@ -107,7 +125,8 @@ def is_healthy(metric: str, value: float) -> bool:
         return value <= HEALTHY_MAXIMUM[metric]
     if metric in HEALTHY_MINIMUM:
         return value >= HEALTHY_MINIMUM[metric]
-    return True
+    # A metric with no declared range cannot be judged, and "cannot judge" is not "healthy".
+    return False
 
 
 def latest_value(series: Series) -> float:
