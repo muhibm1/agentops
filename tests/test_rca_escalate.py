@@ -291,3 +291,7 @@ def test_three_bad_citations_still_hand_off_with_a_summary_built_by_code() -> No
     assert "bad_deploy" in summary and "0.5" in summary
     assert "database_saturation" in summary and "0.4" in summary
     assert update["escalation"].evidence_ids == []
+    rejected = [action for action in update["actions"] if not action.ok]
+    assert len(rejected) == 3
+    assert all(action.tool == "model" for action in rejected)
+    assert all(action.detail == "CitationError" for action in rejected)

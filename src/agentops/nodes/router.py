@@ -2,9 +2,10 @@
 (increment-2 ADR 0003).
 
 A source scores one point for each open hypothesis (score at or above 0.2) it can confirm or rule
-out, judged by keywords that start a `_`-separated word of the hypothesis name. Sources are
-ordered by score, then logs, metrics, deploys. A source that already holds evidence or was asked
-in two rounds is dropped. The longest prefix whose nominal cost fits the remaining budget is kept.
+out, judged by keywords that start a `_`-separated word of the hypothesis name, or that word minus
+a leading mis, re or un. Sources are ordered by score, then logs, metrics, deploys.
+A source that already holds evidence or was asked in two rounds is dropped. The longest prefix
+whose nominal cost fits the remaining budget is kept.
 """
 
 from langgraph.types import Send
@@ -19,6 +20,7 @@ from agentops.state import INITIAL_INVESTIGATION_BUDGET, Hypothesis, IncidentSta
 
 OPEN_HYPOTHESIS_MIN_SCORE = 0.2
 MAX_ROUNDS_PER_SOURCE = 2
+WORD_PREFIXES = ("mis", "re", "un")
 SOURCE_ORDER: tuple[SourceName, ...] = ("logs", "metrics", "deploys")
 NOMINAL_COST: dict[SourceName, int] = {"logs": 1, "metrics": 2, "deploys": 1}
 METRIC_KEYWORDS = (
@@ -129,6 +131,14 @@ def sources_able_to_judge(hypothesis_name: str) -> list[SourceName]:
 
 
 def names_keyword(name_tokens: list[str], keywords: tuple[str, ...]) -> bool:
-    """True when a `_`-separated token of the name starts with a keyword, so 'deployment' matches
-    'deploy' but 'conversion' does not match 'version' and 'thrown' does not match 'row'."""
-    return any(token.startswith(keyword) for token in name_tokens for keyword in keywords)
+    """True when a `_`-separated token of the name, or the token with one leading `mis`, `re` or
+    `un` removed, starts with a keyword. 'deployment', 'redeploy' and 'misconfigured' match;
+    'conversion' does not match 'version' and 'thrown' does not match 'row'."""
+    words = [word for token in name_tokens for word in with_prefix_removed(token)]
+    return any(word.startswith(keyword) for word in words for keyword in keywords)
+
+
+def with_prefix_removed(token: str) -> list[str]:
+    return [token] + [
+        token.removeprefix(prefix) for prefix in WORD_PREFIXES if token.startswith(prefix)
+    ]

@@ -62,7 +62,7 @@ escalate -> END
 New or rewritten modules, one responsibility each:
 
 - `nodes/router.py`: `score_sources(hypotheses)`, `sources_to_ask(state)`, `route_to_sources(state)`.
-  Keyword table (lower-case substring match on the hypothesis name): `metrics` for saturation,
+  Keyword table (lower-case word-prefix match on each `_`-separated word of the hypothesis name; a word with one leading mis, re or un removed is also tried): `metrics` for saturation,
   pool, latency, cpu, memory, capacity, throughput, timeout, dependency, upstream, downstream,
   neighbour, neighbor, lag, volume, row, partition; `deploys` for deploy, release, version,
   rollout, regression, config, migration, schema. `logs` counts every open hypothesis. A name
