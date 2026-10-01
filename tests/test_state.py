@@ -12,6 +12,7 @@ from agentops.state import (
     ESCALATION_SUMMARY_MAX_LENGTH,
     HYPOTHESIS_NAME_MAX_LENGTH,
     MODEL_OUTPUT_SCHEMAS,
+    MODEL_TEXT_MAX_LENGTH,
     RCA,
     Action,
     Approval,
@@ -274,6 +275,24 @@ def test_hypothesis_name_and_escalation_summary_have_a_length_cap() -> None:
     assert Escalation(summary="s" * ESCALATION_SUMMARY_MAX_LENGTH)
     with pytest.raises(ValidationError):
         Escalation(summary="s" * (ESCALATION_SUMMARY_MAX_LENGTH + 1))
+
+
+def test_rca_explanation_has_a_length_cap() -> None:
+    def rca(explanation: str) -> RCA:
+        return RCA(label="bad_deploy", explanation=explanation, evidence_ids=["log-1"])
+
+    assert rca("e" * MODEL_TEXT_MAX_LENGTH)
+    with pytest.raises(ValidationError):
+        rca("e" * (MODEL_TEXT_MAX_LENGTH + 1))
+
+
+def test_postmortem_summary_has_a_length_cap() -> None:
+    def postmortem(summary: str) -> Postmortem:
+        return Postmortem(summary=summary, root_cause="A bad deploy.", evidence_ids=["log-1"])
+
+    assert postmortem("s" * MODEL_TEXT_MAX_LENGTH)
+    with pytest.raises(ValidationError):
+        postmortem("s" * (MODEL_TEXT_MAX_LENGTH + 1))
 
 
 def test_triage_rejects_a_repeated_hypothesis_name() -> None:
