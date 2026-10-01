@@ -1,0 +1,198 @@
+"""The incident state, the Pydantic models it holds, and the citation rule the nodes enforce.
+
+The state is split by who may write it: model nodes write belief fields through validated
+model-output schemas, and only graph code writes the control fields named in CONTROL_FIELDS.
+"""
+
+import operator
+import uuid
+from collections.abc import Sequence
+from datetime import datetime
+from typing import Annotated, Any, Literal, TypedDict
+
+from pydantic import BaseModel, ConfigDict, Field
+
+SNAKE_CASE_NAME = r"^[a-z0-9_]+$"
+INITIAL_INVESTIGATION_BUDGET = 12
+
+IncidentStatus = Literal[
+    "triage",
+    "investigating",
+    "awaiting_approval",
+    "remediating",
+    "verifying",
+    "resolved",
+    "escalated",
+    "failed",
+]
+EvidenceKind = Literal["log", "metric", "deployment", "dependency", "config"]
+OperatorRole = Literal["operator", "on-call", "reviewer"]
+
+
+class StrictModel(BaseModel):
+    """Rejects unknown keys, so a model output cannot smuggle in a field the schema lacks."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Hypothesis(StrictModel):
+    name: str = Field(min_length=1)
+    score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    supporting_evidence: list[str] = Field(default_factory=list)
+    contradicting_evidence: list[str] = Field(default_factory=list)
+
+
+class Triage(StrictModel):
+    """Model output of the triage node."""
+
+    hypotheses: list[Hypothesis] = Field(min_length=1)
+
+
+class RCA(StrictModel):
+    label: str = Field(pattern=SNAKE_CASE_NAME)
+    explanation: str = Field(min_length=1)
+    evidence_ids: list[str] = Field(min_length=1)
+
+
+class Remediation(StrictModel):
+    action: str = Field(pattern=SNAKE_CASE_NAME)
+    target: str = Field(min_length=1)
+    params: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    reason: str = Field(min_length=1)
+    evidence_ids: list[str] = Field(min_length=1)
+    risk: Literal["low", "medium", "high"]
+    rollback: str = Field(min_length=1)
+
+
+class RcaOutput(StrictModel):
+    """Model output of the rca node."""
+
+    root_cause: RCA
+    remediation: Remediation
+
+
+class Postmortem(StrictModel):
+    """Model output of the postmortem node (increment 3 onward)."""
+
+    summary: str = Field(min_length=1)
+    timeline: list[str] = Field(default_factory=list)
+    root_cause: str = Field(min_length=1)
+    evidence_ids: list[str] = Field(min_length=1)
+    follow_ups: list[str] = Field(default_factory=list)
+
+
+class Evidence(StrictModel):
+    id: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    kind: EvidenceKind
+    payload: dict[str, Any]
+    collected_at: datetime
+
+
+class Action(StrictModel):
+    """One model or tool call, recorded for cost and latency accounting."""
+
+    tool: str = Field(min_length=1)
+    ok: bool
+    latency_ms: float = Field(ge=0.0)
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    detail: str | None = None
+
+
+class Approval(StrictModel):
+    decision: Literal["approve", "reject", "edit"]
+    # A role, never a person's name, username or email (compliance control 1, brief D10).
+    operator: OperatorRole
+    edited_remediation: Remediation | None = None
+    decided_at: datetime
+
+
+class ExecutionRecord(StrictModel):
+    idempotency_key: str = Field(min_length=1)
+    applied_at: datetime | None = None
+    result: str
+    dry_run_output: str
+
+
+class IncidentState(TypedDict):
+    # identity and input
+    incident_id: str
+    scenario_id: str | None
+    service: str
+    symptoms: list[str]
+    opened_at: datetime
+
+    # belief: written by model nodes, always as validated model output
+    hypotheses: list[Hypothesis]
+    root_cause: RCA | None
+    remediation: Remediation | None
+    postmortem: Postmortem | None
+
+    # evidence: append-only through reducers, so parallel nodes never clobber each other
+    evidence: Annotated[list[Evidence], operator.add]
+    actions: Annotated[list[Action], operator.add]
+
+    # control: written only by graph code, never by a model call
+    status: IncidentStatus
+    investigation_budget: int
+    loops: int
+    approval: Approval | None
+    execution: ExecutionRecord | None
+
+
+CONTROL_FIELDS = frozenset({"status", "investigation_budget", "loops", "approval", "execution"})
+MODEL_OUTPUT_SCHEMAS: tuple[type[BaseModel], ...] = (Triage, RcaOutput, Postmortem)
+
+
+class CitationError(Exception):
+    """A model output cited no evidence, or an id absent from the state's evidence.
+
+    Deliberately not a ValueError, so the graph's retry policy names it explicitly (ADR 0002).
+    """
+
+
+def new_incident(
+    service: str,
+    symptoms: list[str],
+    *,
+    opened_at: datetime,
+    incident_id: str | None = None,
+    scenario_id: str | None = None,
+) -> IncidentState:
+    """A fresh state in triage with the full investigation budget.
+
+    `opened_at` must be timezone-aware: evidence windows are computed from it.
+    """
+    if opened_at.tzinfo is None:
+        raise ValueError("opened_at must be timezone-aware, for example 2026-03-10T10:30:00Z.")
+    return IncidentState(
+        incident_id=incident_id or uuid.uuid4().hex,
+        scenario_id=scenario_id,
+        service=service,
+        symptoms=list(symptoms),
+        opened_at=opened_at,
+        hypotheses=[],
+        root_cause=None,
+        remediation=None,
+        postmortem=None,
+        evidence=[],
+        actions=[],
+        status="triage",
+        investigation_budget=INITIAL_INVESTIGATION_BUDGET,
+        loops=0,
+        approval=None,
+        execution=None,
+    )
+
+
+def assert_cited(ids: Sequence[str], evidence: Sequence[Evidence]) -> None:
+    """Raise CitationError unless `ids` is non-empty and every id names an item in `evidence`."""
+    if not ids:
+        raise CitationError("The output cites no evidence; at least one evidence id is required.")
+    known_ids = {item.id for item in evidence}
+    unknown_ids = [cited for cited in ids if cited not in known_ids]
+    if unknown_ids:
+        raise CitationError(
+            f"The output cites evidence ids not present in state: {', '.join(unknown_ids)}."
+        )
