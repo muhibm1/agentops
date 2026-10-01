@@ -1,23 +1,35 @@
-"""The `agentops` command line: `--version`, and `run`, which investigates one scenario.
+"""The `agentops` command line: investigate a simulated incident, decide on its proposal, and
+inspect or fork the thread.
 
-`run` checkpoints the thread to `agentops.sqlite` in the working directory, under a thread id
-equal to the incident id, and writes the audit log and the simulator ledger under `audit/`. It
-stops at the approval pause or at an escalation.
+`run` investigates until the approval pause or an escalation; `approve` records an operator's
+decision and continues; `resume` continues a thread that stopped, for example after a crash;
+`history` prints one line per checkpoint; `fork` starts a new thread from a past checkpoint with
+changed hypothesis scores. Threads are checkpointed to a SQLite file (`--state-db`, default
+`agentops.sqlite`) under a thread id equal to the incident id; the audit log and the simulator
+ledger are written under `--audit-dir` (default `audit/`).
 
-Exit codes for `run`: 0 when the graph pauses for approval or ends escalated, 1 for a usage problem
-(unknown scenario, missing directory, invalid scenario file, model not available), 2 when the run
-itself fails after the graph's retries. Both failures print one sentence to stderr naming the cause.
+Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
+problem (unknown scenario or thread, malformed thread id, thread not waiting, bad decision,
+unknown hypothesis, model not available); 2 when the run fails or the state file cannot be used.
+Every failure prints one sentence to stderr naming the cause, and every string a model or a
+scenario wrote is escaped before it is printed.
 """
 
+import json
+import math
 import re
 import sqlite3
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any, NoReturn, get_args
 
 import typer
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command, StateSnapshot
 from pydantic import ValidationError
 
 from agentops import __version__
@@ -25,10 +37,18 @@ from agentops.actions.audit import AuditLog
 from agentops.actions.registry import default_registry
 from agentops.fakes import scripted_model_for
 from agentops.graph import build_graph, checkpoint_serializer
+from agentops.nodes.verify import verify_rounds
 from agentops.sources.base import SIGNAL_ID_PATTERN
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
 from agentops.sources.simulator import SimulatorSource, ledger_path_for
-from agentops.state import INITIAL_INVESTIGATION_BUDGET, IncidentState, new_incident
+from agentops.state import (
+    INITIAL_INVESTIGATION_BUDGET,
+    ApprovalChoice,
+    Hypothesis,
+    IncidentState,
+    OperatorRole,
+    new_incident,
+)
 
 USAGE_ERROR = 1
 RUN_FAILED = 2
@@ -37,6 +57,22 @@ SCRIPTED_MODEL = "scripted"
 LIVE_MODEL = "anthropic"
 STATE_DB = Path("agentops.sqlite")
 AUDIT_DIR = Path("audit")
+SCENARIOS_DIR = Path("scenarios")
+DECISIONS: tuple[str, ...] = get_args(ApprovalChoice)
+OPERATOR_ROLES: tuple[str, ...] = get_args(OperatorRole)
+HISTORY_TOP_HYPOTHESES = 2
+
+ModelOption = Annotated[
+    str, typer.Option("--model", help=f"{SCRIPTED_MODEL} (no API key) or {LIVE_MODEL}.")
+]
+StateDbOption = Annotated[Path, typer.Option("--state-db", help="The SQLite checkpoint file.")]
+AuditDirOption = Annotated[
+    Path, typer.Option("--audit-dir", help="Directory for the audit log and simulator ledger.")
+]
+ScenariosDirOption = Annotated[
+    Path, typer.Option("--scenarios-dir", help="Directory holding the scenario files.")
+]
+ThreadArgument = Annotated[str, typer.Argument(help="The thread id `run` printed.")]
 
 app = typer.Typer(help="Investigate a simulated production incident with cited evidence.")
 
@@ -67,50 +103,244 @@ def run(
     scenario: Annotated[
         str, typer.Option("--scenario", help="Scenario id: a file stem in the scenarios directory.")
     ],
-    model: Annotated[
-        str, typer.Option("--model", help=f"{SCRIPTED_MODEL} (no API key) or {LIVE_MODEL}.")
-    ],
-    scenarios_dir: Annotated[
-        Path, typer.Option("--scenarios-dir", help="Directory holding the scenario files.")
-    ] = Path("scenarios"),
+    model: ModelOption,
+    thread: Annotated[
+        str | None,
+        typer.Option("--thread", help="Thread id for the new incident; generated when absent."),
+    ] = None,
+    scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
+    state_db: StateDbOption = STATE_DB,
+    audit_dir: AuditDirOption = AUDIT_DIR,
 ) -> None:
     """Investigate one scenario until the approval pause or an escalation."""
     check_model_is_available(model)
+    if thread is not None:
+        check_thread_id(thread)
     loaded = load_named_scenario(scenario, scenarios_dir)
     incident = new_incident(
-        loaded.service, loaded.symptoms, opened_at=loaded.incident_time, scenario_id=loaded.id
+        loaded.service,
+        loaded.symptoms,
+        opened_at=loaded.incident_time,
+        incident_id=thread,
+        scenario_id=loaded.id,
     )
-    try:
-        final_state, pending = run_to_pause(loaded, incident)
-    except Exception as error:  # the command's outer boundary: any failure becomes exit 2
-        fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {error}")
-    typer.echo(report(final_state, pending))
+    with open_checkpoints(state_db) as saver:
+        thread_run = ThreadRun.start(loaded, incident["incident_id"], saver, audit_dir)
+        if thread_run.exists():
+            fail(USAGE_ERROR, f"Thread {thread_run.thread_id!r} already exists; choose another.")
+        thread_run.invoke(incident)
+        thread_run.print_outcome()
 
 
-def run_to_pause(
-    scenario: Scenario, incident: IncidentState
-) -> tuple[IncidentState, dict[str, Any] | None]:
-    """Run the thread named by the incident id until it pauses or ends, writing each checkpoint
-    to `STATE_DB` before the next step starts. Returns the state and the pending approval
-    payload, or None when the run did not pause."""
-    thread_id = incident["incident_id"]
-    source = SimulatorSource(scenario, ledger_path=ledger_path_for(AUDIT_DIR, thread_id))
-    config: RunnableConfig = {
-        "configurable": {"thread_id": thread_id},
-        "recursion_limit": RECURSION_LIMIT,
-    }
-    with closing(sqlite3.connect(STATE_DB, check_same_thread=False)) as connection:
-        graph = build_graph(
-            source,
-            scripted_model_for(scenario),
-            default_registry(),
-            AuditLog(AUDIT_DIR),
-            SqliteSaver(connection, serde=checkpoint_serializer()),
+@app.command()
+def approve(
+    thread: ThreadArgument,
+    decision: Annotated[str, typer.Option("--decision", help="approve, reject or edit.")],
+    reason: Annotated[
+        str | None,
+        typer.Option(
+            "--reason",
+            help="Why, required for reject. Describe the evidence, not people.",
+        ),
+    ] = None,
+    remediation_file: Annotated[
+        Path | None,
+        typer.Option("--remediation-file", help="JSON file holding the edited remediation."),
+    ] = None,
+    operator: Annotated[
+        str, typer.Option("--operator", help="Your role: operator, on-call or reviewer.")
+    ] = "operator",
+    crash_after_apply: Annotated[
+        bool,
+        typer.Option(
+            "--crash-after-apply",
+            hidden=True,
+            help="Demo only: end the process right after the action is applied and recorded.",
+        ),
+    ] = False,
+    model: ModelOption = SCRIPTED_MODEL,
+    scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
+    state_db: StateDbOption = STATE_DB,
+    audit_dir: AuditDirOption = AUDIT_DIR,
+) -> None:
+    """Record an operator's decision on the pending proposal and continue the thread."""
+    check_model_is_available(model)
+    answer = operator_answer(decision, reason, remediation_file, operator)
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+        if not thread_run.snapshot().interrupts:
+            fail(USAGE_ERROR, f"Thread {thread!r} is not waiting for approval.")
+        # The crash switch reaches the executor only through this run's configurable (ADR 0002).
+        switches = {"crash_after_apply": True} if crash_after_apply else {}
+        thread_run.invoke(Command(resume=answer), **switches)
+        thread_run.print_outcome()
+
+
+@app.command()
+def resume(
+    thread: ThreadArgument,
+    model: ModelOption = SCRIPTED_MODEL,
+    scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
+    state_db: StateDbOption = STATE_DB,
+    audit_dir: AuditDirOption = AUDIT_DIR,
+) -> None:
+    """Continue a thread that stopped before its end; a thread waiting for a decision is shown."""
+    check_model_is_available(model)
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+        snapshot = thread_run.snapshot()
+        if snapshot.next and not snapshot.interrupts:
+            thread_run.invoke(None)
+        thread_run.print_outcome()
+
+
+@app.command()
+def history(
+    thread: ThreadArgument,
+    scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
+    state_db: StateDbOption = STATE_DB,
+    audit_dir: AuditDirOption = AUDIT_DIR,
+) -> None:
+    """Print one line per checkpoint of the thread, newest first."""
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+        for snapshot in thread_run.graph.get_state_history(thread_run.config()):
+            typer.echo(history_line(snapshot))
+
+
+@app.command()
+def fork(
+    thread: ThreadArgument,
+    at: Annotated[str, typer.Option("--at", help="A checkpoint id printed by `history`.")],
+    scores: Annotated[
+        list[str], typer.Option("--set", help="hypothesis=score, from 0 to 1; repeatable.")
+    ],
+    model: ModelOption = SCRIPTED_MODEL,
+    scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
+    state_db: StateDbOption = STATE_DB,
+    audit_dir: AuditDirOption = AUDIT_DIR,
+) -> None:
+    """Start a new thread from a past checkpoint with changed scores, and continue it."""
+    check_model_is_available(model)
+    requested = parse_scores(scores)
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+        snapshot = checkpoint_named(thread_run, at)
+        hypotheses = rescored(snapshot.values.get("hypotheses", []), requested, at)
+        fork_run = thread_run.next_fork()
+        # Written as if triage had produced it, so the router decides what to read next.
+        fork_run.graph.update_state(
+            fork_run.config(), {**snapshot.values, "hypotheses": hypotheses}, as_node="triage"
         )
-        result = graph.invoke(incident, config, durability="sync")
-        final_state = IncidentState(**graph.get_state(config).values)
-    interrupts = result.get("__interrupt__") or []
-    return final_state, interrupts[0].value if interrupts else None
+        fork_run.invoke(None)
+        typer.echo(f"forked from thread {thread} at checkpoint {at}")
+        fork_run.print_outcome()
+
+
+@dataclass(frozen=True)
+class ThreadRun:
+    """One thread of the graph over an open checkpoint file."""
+
+    graph: CompiledStateGraph
+    saver: SqliteSaver
+    thread_id: str
+    audit_dir: Path
+
+    @classmethod
+    def start(
+        cls, scenario: Scenario, incident_id: str, saver: SqliteSaver, audit_dir: Path
+    ) -> "ThreadRun":
+        """The graph for `scenario`, its simulator remembering applied actions in the ledger
+        file of `incident_id`. Exits 2 when that ledger cannot be read."""
+        try:
+            source = SimulatorSource(scenario, ledger_path=ledger_path_for(audit_dir, incident_id))
+        except ValueError as error:
+            fail(RUN_FAILED, f"The ledger could not be used: {error}")
+        graph = build_graph(
+            source, scripted_model_for(scenario), default_registry(), AuditLog(audit_dir), saver
+        )
+        return cls(graph=graph, saver=saver, thread_id=incident_id, audit_dir=audit_dir)
+
+    def config(self, **switches: bool) -> RunnableConfig:
+        return {
+            "configurable": {"thread_id": self.thread_id, **switches},
+            "recursion_limit": RECURSION_LIMIT,
+        }
+
+    def exists(self) -> bool:
+        return self.saver.get_tuple(self.config()) is not None
+
+    def snapshot(self) -> StateSnapshot:
+        return self.graph.get_state(self.config())
+
+    def invoke(self, value: Any, **switches: bool) -> None:
+        """Run until the graph pauses or ends, saving each checkpoint before the next step."""
+        try:
+            self.graph.invoke(value, self.config(**switches), durability="sync")
+        except Exception as error:  # the command's outer boundary: any failure becomes exit 2
+            fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {error}")
+
+    def next_fork(self) -> "ThreadRun":
+        """This thread's graph under the first unused id `<thread>-fork-<n>`."""
+        number = 1
+        while replace(self, thread_id=f"{self.thread_id}-fork-{number}").exists():
+            number += 1
+        return replace(self, thread_id=f"{self.thread_id}-fork-{number}")
+
+    def print_outcome(self) -> None:
+        snapshot = self.snapshot()
+        pending = snapshot.interrupts[0].value if snapshot.interrupts else None
+        typer.echo(
+            report(
+                IncidentState(**snapshot.values),
+                thread_id=self.thread_id,
+                audit_dir=self.audit_dir,
+                pending=pending,
+            )
+        )
+
+
+@contextmanager
+def open_checkpoints(state_db: Path) -> Iterator[SqliteSaver]:
+    """The checkpointer over `state_db`. Exits 2 naming the path when it cannot be used."""
+    try:
+        connection = sqlite3.connect(state_db, check_same_thread=False)
+    except sqlite3.Error as error:
+        fail(RUN_FAILED, f"The state file {state_db} cannot be used: {type(error).__name__}.")
+    with closing(connection):
+        saver = SqliteSaver(connection, serde=checkpoint_serializer())
+        try:
+            saver.setup()
+        except sqlite3.Error as error:
+            fail(RUN_FAILED, f"The state file {state_db} cannot be used: {type(error).__name__}.")
+        yield saver
+
+
+@contextmanager
+def opened_thread(
+    thread_id: str, state_db: Path, audit_dir: Path, scenarios_dir: Path
+) -> Iterator[ThreadRun]:
+    """An existing thread, rebuilt from the scenario and incident id in its latest checkpoint.
+
+    The thread id is checked before any file is opened, and a missing state file means an
+    unknown thread: neither creates a file.
+    """
+    check_thread_id(thread_id)
+    if not state_db.exists():
+        fail(USAGE_ERROR, f"Unknown thread {thread_id!r}: {state_db} holds no checkpoints.")
+    with open_checkpoints(state_db) as saver:
+        latest = saver.get_tuple({"configurable": {"thread_id": thread_id}})
+        if latest is None:
+            fail(USAGE_ERROR, f"Unknown thread {thread_id!r}: no checkpoint in {state_db}.")
+        values = latest.checkpoint["channel_values"]
+        scenario = load_named_scenario(values["scenario_id"], scenarios_dir)
+        thread_run = ThreadRun.start(scenario, values["incident_id"], saver, audit_dir)
+        yield replace(thread_run, thread_id=thread_id)
+
+
+def check_thread_id(thread_id: str) -> None:
+    """Exit 1 unless the thread id has the signal id shape, so it can never name a path."""
+    if re.fullmatch(SIGNAL_ID_PATTERN, thread_id) is None:
+        fail(
+            USAGE_ERROR,
+            f"The thread id {thread_id!r} is not valid; use lower-case letters, digits, - and _.",
+        )
 
 
 def check_model_is_available(model: str) -> None:
@@ -146,6 +376,78 @@ def load_named_scenario(scenario_id: str, scenarios_dir: Path) -> Scenario:
         fail(USAGE_ERROR, f"The scenario file {path} is invalid at {field}: {first['msg']}.")
 
 
+def operator_answer(
+    decision: str, reason: str | None, remediation_file: Path | None, operator: str
+) -> dict[str, Any]:
+    """The resume value for the approval node. The node validates it again in full."""
+    if decision not in DECISIONS:
+        fail(USAGE_ERROR, f"Unknown decision {decision!r}; choose {', '.join(DECISIONS)}.")
+    if operator not in OPERATOR_ROLES:
+        fail(
+            USAGE_ERROR, f"Unknown operator role {operator!r}; choose {', '.join(OPERATOR_ROLES)}."
+        )
+    answer: dict[str, Any] = {"decision": decision, "operator": operator}
+    if reason is not None:
+        answer["reason"] = reason
+    if remediation_file is not None:
+        answer["remediation"] = read_remediation_file(remediation_file)
+    return answer
+
+
+def read_remediation_file(path: Path) -> Any:
+    try:
+        return json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(
+            USAGE_ERROR,
+            f"The remediation file {path} is not readable JSON: {type(error).__name__}.",
+        )
+
+
+def parse_scores(assignments: list[str]) -> dict[str, float]:
+    """`name=score` pairs as a mapping. Exits 1 on a pair without `=` or a score outside 0 to 1."""
+    scores: dict[str, float] = {}
+    for assignment in assignments:
+        name, separator, text = assignment.rpartition("=")
+        try:
+            score = float(text)
+        except ValueError:
+            score = math.nan
+        if not separator or not name or not 0.0 <= score <= 1.0:
+            fail(USAGE_ERROR, f"--set {assignment!r} must be hypothesis=score, from 0 to 1.")
+        scores[name] = score
+    return scores
+
+
+def checkpoint_named(thread_run: ThreadRun, checkpoint_id: str) -> StateSnapshot:
+    for snapshot in thread_run.graph.get_state_history(thread_run.config()):
+        if checkpoint_id_of(snapshot) == checkpoint_id:
+            return snapshot
+    fail(USAGE_ERROR, f"Unknown checkpoint {checkpoint_id!r} in thread {thread_run.thread_id}.")
+
+
+def checkpoint_id_of(snapshot: StateSnapshot) -> str:
+    return str(snapshot.config.get("configurable", {}).get("checkpoint_id", ""))
+
+
+def rescored(
+    hypotheses: list[Hypothesis], requested: dict[str, float], checkpoint_id: str
+) -> list[Hypothesis]:
+    """The hypotheses with the requested scores. Exits 1 naming any name not among them."""
+    known = {item.name for item in hypotheses}
+    unknown = sorted(set(requested) - known)
+    if unknown:
+        fail(
+            USAGE_ERROR,
+            f"Unknown hypothesis {', '.join(unknown)} at checkpoint {checkpoint_id}; known: "
+            f"{', '.join(sorted(known)) or 'none'}.",
+        )
+    return [
+        item.model_copy(update={"score": requested[item.name]}) if item.name in requested else item
+        for item in hypotheses
+    ]
+
+
 def escape_for_terminal(text: str) -> str:
     """Show control characters (newline, ESC and the like) as visible escapes.
 
@@ -158,21 +460,43 @@ def escape_for_terminal(text: str) -> str:
     )
 
 
-def report(state: IncidentState, pending: dict[str, Any] | None = None) -> str:
-    """The run's outcome in plain lines, the pending proposal when the run is paused for
-    approval, and where the audit log is. Every model string is escaped for the terminal."""
-    lines = investigation_lines(state)
+def history_line(snapshot: StateSnapshot) -> str:
+    """Checkpoint id, time, next nodes, status, loops, top hypotheses and evidence count."""
+    values = snapshot.values
+    ranked = sorted(values.get("hypotheses", []), key=lambda item: item.score, reverse=True)
+    top = ", ".join(
+        f"{escape_for_terminal(item.name)} ({item.score:.2f})"
+        for item in ranked[:HISTORY_TOP_HYPOTHESES]
+    )
+    return (
+        f"{checkpoint_id_of(snapshot)} {snapshot.created_at} "
+        f"next: {','.join(snapshot.next) or 'end'} status: {values.get('status', 'none')} "
+        f"loops: {values.get('loops', 0)} top: {top or 'none'} "
+        f"evidence: {len(values.get('evidence', []))}"
+    )
+
+
+def report(
+    state: IncidentState,
+    *,
+    thread_id: str,
+    audit_dir: Path,
+    pending: dict[str, Any] | None = None,
+) -> str:
+    """The thread's outcome in plain lines, the pending proposal when it waits for a decision,
+    and where the audit log is. Every model string is escaped for the terminal."""
+    lines = [f"incident: {state['incident_id']}", f"thread: {thread_id}"]
+    lines += investigation_lines(state)
+    lines += action_lines(state)
     if pending is not None:
         lines += pending_proposal_lines(pending)
-    lines.append(f"audit: {AUDIT_DIR / (state['incident_id'] + '.jsonl')}")
-    lines.append(closing_sentence(state))
+    lines.append(f"audit: {audit_dir / (state['incident_id'] + '.jsonl')}")
+    lines.append(closing_sentence(state, thread_id, is_waiting=pending is not None))
     return "\n".join(lines)
 
 
 def investigation_lines(state: IncidentState) -> list[str]:
     lines = [
-        f"incident: {state['incident_id']}",
-        f"thread: {state['incident_id']}",
         f"status: {state['status']}",
         f"loops: {state['loops']}",
         f"budget remaining: {state['investigation_budget']} of {INITIAL_INVESTIGATION_BUDGET}",
@@ -201,15 +525,39 @@ def investigation_lines(state: IncidentState) -> list[str]:
     return lines
 
 
+def action_lines(state: IncidentState) -> list[str]:
+    """The approval, the execution, the verify rounds and the postmortem, when they exist."""
+    lines: list[str] = []
+    approval = state["approval"]
+    if approval is not None:
+        lines.append(f"approval: {approval.decision} by {approval.operator}")
+    execution = state["execution"]
+    if execution is not None:
+        lines.append(
+            f"execution: {escape_for_terminal(execution.result)} {execution.action} on "
+            f"{execution.target}, key {execution.idempotency_key}"
+        )
+    rounds = verify_rounds(state)
+    if rounds:
+        lines.append(f"verify rounds: {rounds}")
+    if state["postmortem"] is not None:
+        lines.append(f"postmortem: {escape_for_terminal(state['postmortem'].summary)}")
+    return lines
+
+
 def pending_proposal_lines(pending: dict[str, Any]) -> list[str]:
-    """The dry run and fingerprint of the proposal waiting for an operator's decision."""
-    return [
+    """The dry run and fingerprint of the proposal waiting for a decision, and the error of the
+    last refused answer when there is one."""
+    lines = [
         f"pending approval: {escape_for_terminal(str(pending.get('dry_run', '')))}",
         f"  idempotency key: {escape_for_terminal(str(pending.get('idempotency_key', '')))}",
     ]
+    if "error" in pending:
+        lines.append(f"  last answer refused: {escape_for_terminal(str(pending['error']))}")
+    return lines
 
 
-def closing_sentence(state: IncidentState) -> str:
+def closing_sentence(state: IncidentState, thread_id: str, *, is_waiting: bool) -> str:
     """What happens next, and whether anything was changed so far."""
     execution = state["execution"]
     changes = (
@@ -217,8 +565,11 @@ def closing_sentence(state: IncidentState) -> str:
         if execution is not None and execution.applied
         else "Nothing was changed."
     )
-    if state["status"] == "awaiting_approval":
-        return f"Waiting for an operator's decision on thread {state['incident_id']}. {changes}"
+    if is_waiting:
+        return (
+            f"Waiting for an operator's decision on thread {thread_id}: "
+            f"agentops approve {thread_id} --decision approve|reject|edit. {changes}"
+        )
     if state["status"] == "escalated":
         return f"Handed to a human. {changes}"
     return f"The run ended with status {state['status']}. {changes}"
