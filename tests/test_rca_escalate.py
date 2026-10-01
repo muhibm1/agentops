@@ -179,7 +179,12 @@ def with_actions(state: IncidentState, tools: tuple[str, ...]) -> IncidentState:
     return state
 
 
-ALL_SOURCES_ASKED_TWICE = ("get_logs", "get_metrics", "get_dependency_health", "get_deployments") * 2
+ALL_SOURCES_ASKED_TWICE = (
+    "get_logs",
+    "get_metrics",
+    "get_dependency_health",
+    "get_deployments",
+) * 2
 
 
 def test_escalation_citations_are_checked_like_any_other() -> None:
