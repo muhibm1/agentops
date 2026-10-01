@@ -40,7 +40,20 @@ def test_licence_contributing_readme_ci_doc_and_profile_match_the_built_repo() -
     assert "ruff check ." in contributing
     assert "pyright" in contributing
     assert "pytest -q" in contributing
+    for reason in ("budget_exhausted", "ambiguous", "no_evidence"):
+        assert reason in contributing
     assert readme.startswith("# AgentOps")
+    for scenario_id in sorted(path.stem for path in (REPO_ROOT / "scenarios").glob("*.json")):
+        assert scenario_id in readme
+    assert "awaiting_approval" in readme
+    assert "escalated" in readme
+    claude_document = read_document("CLAUDE.md")
+    assert "arrives in increment 2" not in claude_document
+    assert "not wired yet" in claude_document
+    assert "the owner performs it and no agent deploys or merges" in profile["notes"]
+    assert "scripted_model_for" in read_document("docs/sdlc/codebase-map.md")
+    assert "MIN_TESTS" in ci_doc
+    assert "80" in ci_doc
     assert "## Accepted advisories" in ci_doc
     assert "--check" in profile["commands"]["format"]
     assert any("src/agentops/fakes.py" in note for note in profile["conventions"]["style_notes"])

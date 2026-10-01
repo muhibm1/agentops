@@ -1,8 +1,8 @@
 """The `agentops` command line: `--version`, and `run`, which investigates one scenario.
 
-Exit codes for `run`: 0 when the graph reaches a root cause, 1 for a usage problem (unknown
-scenario, missing directory, invalid scenario file, model not available), 2 when the run itself
-fails after the graph's retries. Both failures print one sentence to stderr naming the cause.
+Exit codes for `run`: 0 when the graph ends at approval-ready or escalated, 1 for a usage problem
+(unknown scenario, missing directory, invalid scenario file, model not available), 2 when the run
+itself fails after the graph's retries. Both failures print one sentence to stderr naming the cause.
 """
 
 import re
@@ -13,15 +13,16 @@ import typer
 from pydantic import ValidationError
 
 from agentops import __version__
-from agentops.fakes import ScriptedChatModel
-from agentops.graph import MODEL_NODE_RETRY, build_graph
+from agentops.fakes import scripted_model_for
+from agentops.graph import build_graph
 from agentops.sources.base import SIGNAL_ID_PATTERN
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import IncidentState, RcaOutput, Triage, new_incident
+from agentops.state import INITIAL_INVESTIGATION_BUDGET, IncidentState, new_incident
 
 USAGE_ERROR = 1
 RUN_FAILED = 2
+RECURSION_LIMIT = 60
 SCRIPTED_MODEL = "scripted"
 LIVE_MODEL = "anthropic"
 
@@ -64,12 +65,12 @@ def run(
     """Investigate one scenario through triage, evidence and root-cause analysis."""
     check_model_is_available(model)
     loaded = load_named_scenario(scenario, scenarios_dir)
-    graph = build_graph(SimulatorSource(loaded), scripted_model_with_retries(loaded))
+    graph = build_graph(SimulatorSource(loaded), scripted_model_for(loaded))
     incident = new_incident(
         loaded.service, loaded.symptoms, opened_at=loaded.incident_time, scenario_id=loaded.id
     )
     try:
-        final_state = graph.invoke(incident)
+        final_state = graph.invoke(incident, config={"recursion_limit": RECURSION_LIMIT})
     except Exception as error:  # the command's outer boundary: any failure becomes exit 2
         fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {error}")
     typer.echo(report(IncidentState(**final_state)))
@@ -79,7 +80,7 @@ def check_model_is_available(model: str) -> None:
     if model == SCRIPTED_MODEL:
         return
     if model == LIVE_MODEL:
-        fail(USAGE_ERROR, "The live Anthropic model arrives in increment 2; use --model scripted.")
+        fail(USAGE_ERROR, "The live Anthropic model is not wired yet; use --model scripted.")
     fail(USAGE_ERROR, f"Unknown model {model!r}; choose {SCRIPTED_MODEL} or {LIVE_MODEL}.")
 
 
@@ -108,22 +109,6 @@ def load_named_scenario(scenario_id: str, scenarios_dir: Path) -> Scenario:
         fail(USAGE_ERROR, f"The scenario file {path} is invalid at {field}: {first['msg']}.")
 
 
-def scripted_model_with_retries(scenario: Scenario) -> ScriptedChatModel:
-    """Each node's scripted answer once per attempt the graph allows, queued per schema.
-
-    A rejected answer is retried, and the retry must meet the same answer again so the run
-    fails with the real cause (for example `CitationError`) rather than an exhausted script.
-    """
-    outputs = scenario.scripted_outputs
-    attempts = MODEL_NODE_RETRY.max_attempts
-    return ScriptedChatModel(
-        script_by_schema={
-            Triage: [outputs.triage] * attempts,
-            RcaOutput: [outputs.rca] * attempts,
-        }
-    )
-
-
 def escape_for_terminal(text: str) -> str:
     """Show control characters (newline, ESC and the like) as visible escapes.
 
@@ -137,7 +122,13 @@ def escape_for_terminal(text: str) -> str:
 
 
 def report(state: IncidentState) -> str:
-    lines = [f"incident: {state['incident_id']}", f"status: {state['status']}", "hypotheses:"]
+    lines = [
+        f"incident: {state['incident_id']}",
+        f"status: {state['status']}",
+        f"loops: {state['loops']}",
+        f"budget remaining: {state['investigation_budget']} of {INITIAL_INVESTIGATION_BUDGET}",
+        "hypotheses:",
+    ]
     lines += [
         f"  - {escape_for_terminal(item.name)} (score {item.score:.2f})"
         for item in state["hypotheses"]
@@ -148,6 +139,10 @@ def report(state: IncidentState) -> str:
     if state["root_cause"] is not None:
         lines.append(f"root cause: {escape_for_terminal(state['root_cause'].label)}")
         lines.append(f"  {escape_for_terminal(state['root_cause'].explanation)}")
+    if state["escalation_reason"] is not None:
+        lines.append(f"escalation: {state['escalation_reason']}")
+    if state["escalation"] is not None:
+        lines.append(f"  {escape_for_terminal(state['escalation'].summary)}")
     if state["remediation"] is not None:
         remediation = state["remediation"]
         lines.append(
@@ -159,5 +154,5 @@ def report(state: IncidentState) -> str:
 
 
 def fail(exit_code: int, sentence: str) -> NoReturn:
-    typer.echo(sentence, err=True)
+    typer.echo(escape_for_terminal(sentence), err=True)
     raise typer.Exit(code=exit_code)

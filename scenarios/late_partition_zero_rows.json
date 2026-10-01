@@ -1,0 +1,155 @@
+{
+  "id": "late_partition_zero_rows",
+  "service": "reporting",
+  "symptoms": [
+    "daily revenue dashboard shows zero rows for the 2026-03-18 partition",
+    "the reporting job reported success"
+  ],
+  "incident_time": "2026-03-19T07:30:00Z",
+  "signals": {
+    "logs": [
+      {
+        "id": "log-001",
+        "timestamp": "2026-03-19T06:31:02Z",
+        "level": "INFO",
+        "message": "daily_revenue_rollup started for partition 2026-03-18",
+        "service": "reporting"
+      },
+      {
+        "id": "log-002",
+        "timestamp": "2026-03-19T06:42:17Z",
+        "level": "INFO",
+        "message": "daily_revenue_rollup succeeded for partition 2026-03-18",
+        "service": "reporting"
+      },
+      {
+        "id": "log-003",
+        "timestamp": "2026-03-19T06:45:00Z",
+        "level": "INFO",
+        "message": "publish step completed; dashboard table refreshed",
+        "service": "reporting"
+      },
+      {
+        "id": "log-004",
+        "timestamp": "2026-03-19T07:05:31Z",
+        "level": "INFO",
+        "message": "reporting-worker-1 served 90 dashboard queries in the last minute",
+        "service": "reporting"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "metric-rows_written",
+        "name": "rows_written",
+        "unit": "rows",
+        "points": [
+          { "at": "2026-03-19T06:40:00Z", "value": 0 },
+          { "at": "2026-03-19T07:00:00Z", "value": 0 },
+          { "at": "2026-03-19T07:20:00Z", "value": 0 }
+        ]
+      },
+      {
+        "id": "metric-ingestion_lag_seconds",
+        "name": "ingestion_lag_seconds",
+        "unit": "s",
+        "points": [
+          { "at": "2026-03-19T06:40:00Z", "value": 21600 },
+          { "at": "2026-03-19T07:00:00Z", "value": 22800 },
+          { "at": "2026-03-19T07:20:00Z", "value": 24000 }
+        ]
+      }
+    ],
+    "deployments": [],
+    "dependencies": [
+      {
+        "id": "dep-warehouse",
+        "name": "warehouse",
+        "status": "healthy",
+        "detail": "Queries answer in under 200 ms; no errors in the last 30 minutes."
+      }
+    ],
+    "config": {
+      "partition_column": "event_date",
+      "wait_for_upstream_partition": false
+    }
+  },
+  "ground_truth": {
+    "root_cause": "late_upstream_partition",
+    "correct_action": "rerun_partition"
+  },
+  "required_evidence": ["metric-rows_written", "metric-ingestion_lag_seconds"],
+  "wrong_actions": ["rollback_deploy", "restart_service"],
+  "expected_outcome": "remediate",
+  "post_action_world": {
+    "rerun_partition": {
+      "metrics": [
+        {
+          "id": "metric-rows_written",
+          "name": "rows_written",
+          "unit": "rows",
+          "points": [
+            { "at": "2026-03-19T07:40:00Z", "value": 1180000 },
+            { "at": "2026-03-19T07:50:00Z", "value": 1180000 }
+          ]
+        },
+        {
+          "id": "metric-ingestion_lag_seconds",
+          "name": "ingestion_lag_seconds",
+          "unit": "s",
+          "points": [
+            { "at": "2026-03-19T07:40:00Z", "value": 120 },
+            { "at": "2026-03-19T07:50:00Z", "value": 60 }
+          ]
+        }
+      ]
+    }
+  },
+  "scripted_outputs": {
+    "triage": {
+      "hypotheses": [
+        {
+          "name": "late_upstream_partition",
+          "score": 0.4,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "ingestion_job_failure",
+          "score": 0.35,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        }
+      ]
+    },
+    "rca": {
+      "hypotheses": [
+        {
+          "name": "late_upstream_partition",
+          "score": 0.85,
+          "supporting_evidence": ["metric-rows_written", "metric-ingestion_lag_seconds"],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "ingestion_job_failure",
+          "score": 0.1,
+          "supporting_evidence": [],
+          "contradicting_evidence": ["log-002"]
+        }
+      ],
+      "root_cause": {
+        "label": "late_upstream_partition",
+        "explanation": "The rollup ran at 06:31 and reported success (log-002), but the upstream partition had not landed: rows written stayed at 0 (metric-rows_written) while ingestion lag grew past six hours (metric-ingestion_lag_seconds). The job did not fail; it ran on an empty partition.",
+        "evidence_ids": ["metric-rows_written", "metric-ingestion_lag_seconds", "log-002"]
+      },
+      "remediation": {
+        "action": "rerun_partition",
+        "target": "daily_revenue_rollup",
+        "params": { "partition": "2026-03-18" },
+        "reason": "Re-running the 2026-03-18 partition now that its upstream data is expected to have landed fills the empty dashboard table.",
+        "evidence_ids": ["metric-rows_written", "metric-ingestion_lag_seconds"],
+        "risk": "low",
+        "rollback": "Delete the re-run output for the 2026-03-18 partition to restore the previous empty table."
+      }
+    }
+  }
+}

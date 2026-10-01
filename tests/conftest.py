@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 
 from agentops.fakes import ScriptedChatModel, scripted_model_for
-from agentops.sources.scenario import Scenario, load_scenario
+from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
 from agentops.sources.simulator import SimulatorSource
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
-SCENARIO_IDS = ["clean_bad_deploy", "deploy_red_herring_db"]
+SCENARIO_IDS = list_scenario_ids(SCENARIOS_DIR)
 TRACING_VARIABLES = [
     "LANGSMITH_TRACING",
     "LANGCHAIN_TRACING_V2",
@@ -40,4 +40,4 @@ def source(scenario: Scenario) -> SimulatorSource:
 
 @pytest.fixture
 def scripted_model(scenario: Scenario) -> ScriptedChatModel:
-    return scripted_model_for(scenario)
+    return scripted_model_for(scenario, attempts=3)

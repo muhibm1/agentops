@@ -1,0 +1,234 @@
+{
+  "id": "two_concurrent_faults",
+  "service": "orders",
+  "symptoms": [
+    "orders p99 latency 5x baseline since 11:04",
+    "orders error rate 8% since 11:04"
+  ],
+  "incident_time": "2026-03-20T11:30:00Z",
+  "signals": {
+    "logs": [
+      {
+        "id": "log-001",
+        "timestamp": "2026-03-20T10:45:00Z",
+        "level": "INFO",
+        "message": "orders-api-4d2 served 540 requests in the last minute",
+        "service": "orders"
+      },
+      {
+        "id": "log-002",
+        "timestamp": "2026-03-20T11:02:50Z",
+        "level": "INFO",
+        "message": "orders-api-4d2 started version v7.8.0",
+        "service": "orders"
+      },
+      {
+        "id": "log-003",
+        "timestamp": "2026-03-20T11:04:20Z",
+        "level": "ERROR",
+        "message": "NullPointerException in apply_discount_rules (order_id=ord-90112)",
+        "service": "orders"
+      },
+      {
+        "id": "log-004",
+        "timestamp": "2026-03-20T11:06:41Z",
+        "level": "ERROR",
+        "message": "connection pool exhausted (48/48); request waited 3000 ms for a connection",
+        "service": "orders"
+      },
+      {
+        "id": "log-005",
+        "timestamp": "2026-03-20T11:12:09Z",
+        "level": "ERROR",
+        "message": "NullPointerException in apply_discount_rules (order_id=ord-90155)",
+        "service": "orders"
+      },
+      {
+        "id": "log-006",
+        "timestamp": "2026-03-20T11:20:33Z",
+        "level": "ERROR",
+        "message": "connection pool exhausted (48/48); request waited 3000 ms for a connection",
+        "service": "orders"
+      }
+    ],
+    "metrics": [
+      {
+        "id": "metric-db_pool_utilisation",
+        "name": "db_pool_utilisation",
+        "unit": "ratio",
+        "points": [
+          { "at": "2026-03-20T10:40:00Z", "value": 0.52 },
+          { "at": "2026-03-20T11:00:00Z", "value": 0.55 },
+          { "at": "2026-03-20T11:05:00Z", "value": 0.98 },
+          { "at": "2026-03-20T11:15:00Z", "value": 0.98 },
+          { "at": "2026-03-20T11:30:00Z", "value": 0.98 }
+        ]
+      },
+      {
+        "id": "metric-error_rate",
+        "name": "error_rate",
+        "unit": "ratio",
+        "points": [
+          { "at": "2026-03-20T10:40:00Z", "value": 0.004 },
+          { "at": "2026-03-20T11:00:00Z", "value": 0.004 },
+          { "at": "2026-03-20T11:05:00Z", "value": 0.07 },
+          { "at": "2026-03-20T11:15:00Z", "value": 0.08 },
+          { "at": "2026-03-20T11:30:00Z", "value": 0.08 }
+        ]
+      },
+      {
+        "id": "metric-p99_latency_ms",
+        "name": "p99_latency_ms",
+        "unit": "ms",
+        "points": [
+          { "at": "2026-03-20T10:40:00Z", "value": 280 },
+          { "at": "2026-03-20T11:00:00Z", "value": 290 },
+          { "at": "2026-03-20T11:05:00Z", "value": 1400 },
+          { "at": "2026-03-20T11:15:00Z", "value": 1450 },
+          { "at": "2026-03-20T11:30:00Z", "value": 1450 }
+        ]
+      }
+    ],
+    "deployments": [
+      {
+        "id": "deploy-001",
+        "version": "v7.8.0",
+        "previous_version": "v7.7.3",
+        "deployed_at": "2026-03-20T11:02:00Z",
+        "author": "ci-bot",
+        "diff_summary": "Rewrites apply_discount_rules to look up discounts per line item. Adds a query per line item and does not handle an order with no discount record."
+      }
+    ],
+    "dependencies": [
+      {
+        "id": "dep-postgres",
+        "name": "postgres",
+        "status": "degraded",
+        "detail": "48 of 48 pooled connections in use since 11:05; queries queueing."
+      }
+    ],
+    "config": {
+      "db_pool_size": 48,
+      "request_timeout_ms": 3000
+    }
+  },
+  "ground_truth": {
+    "root_cause": "recent_deploy_regression",
+    "correct_action": "rollback_deploy"
+  },
+  "required_evidence": ["deploy-001", "metric-db_pool_utilisation", "log-003"],
+  "wrong_actions": ["restart_service"],
+  "expected_outcome": "loop",
+  "post_action_world": {
+    "rollback_deploy": {
+      "metrics": [
+        {
+          "id": "metric-db_pool_utilisation",
+          "name": "db_pool_utilisation",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-20T11:40:00Z", "value": 0.97 },
+            { "at": "2026-03-20T11:45:00Z", "value": 0.97 }
+          ]
+        },
+        {
+          "id": "metric-error_rate",
+          "name": "error_rate",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-20T11:40:00Z", "value": 0.05 },
+            { "at": "2026-03-20T11:45:00Z", "value": 0.05 }
+          ]
+        },
+        {
+          "id": "metric-p99_latency_ms",
+          "name": "p99_latency_ms",
+          "unit": "ms",
+          "points": [
+            { "at": "2026-03-20T11:40:00Z", "value": 310 },
+            { "at": "2026-03-20T11:45:00Z", "value": 295 }
+          ]
+        }
+      ]
+    },
+    "scale_db_pool": {
+      "metrics": [
+        {
+          "id": "metric-db_pool_utilisation",
+          "name": "db_pool_utilisation",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-20T11:40:00Z", "value": 0.6 },
+            { "at": "2026-03-20T11:45:00Z", "value": 0.55 }
+          ]
+        },
+        {
+          "id": "metric-error_rate",
+          "name": "error_rate",
+          "unit": "ratio",
+          "points": [
+            { "at": "2026-03-20T11:40:00Z", "value": 0.03 },
+            { "at": "2026-03-20T11:45:00Z", "value": 0.03 }
+          ]
+        },
+        {
+          "id": "metric-p99_latency_ms",
+          "name": "p99_latency_ms",
+          "unit": "ms",
+          "points": [
+            { "at": "2026-03-20T11:40:00Z", "value": 900 },
+            { "at": "2026-03-20T11:45:00Z", "value": 880 }
+          ]
+        }
+      ]
+    }
+  },
+  "scripted_outputs": {
+    "triage": {
+      "hypotheses": [
+        {
+          "name": "recent_deploy_regression",
+          "score": 0.5,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "database_saturation",
+          "score": 0.45,
+          "supporting_evidence": [],
+          "contradicting_evidence": []
+        }
+      ]
+    },
+    "rca": {
+      "hypotheses": [
+        {
+          "name": "recent_deploy_regression",
+          "score": 0.7,
+          "supporting_evidence": ["deploy-001", "log-003"],
+          "contradicting_evidence": []
+        },
+        {
+          "name": "database_saturation",
+          "score": 0.3,
+          "supporting_evidence": ["metric-db_pool_utilisation"],
+          "contradicting_evidence": []
+        }
+      ],
+      "root_cause": {
+        "label": "recent_deploy_regression",
+        "explanation": "Two faults overlap. Version v7.8.0 (deploy-001) fails on orders with no discount record (log-003) and adds a query per line item. Pool utilisation reached 0.98 within three minutes (metric-db_pool_utilisation) and may be partly a result of those extra queries. Rolling back is the first action; the pool must be checked again afterwards.",
+        "evidence_ids": ["deploy-001", "log-003", "metric-db_pool_utilisation"]
+      },
+      "remediation": {
+        "action": "rollback_deploy",
+        "target": "orders",
+        "params": { "to_version": "v7.7.3" },
+        "reason": "The rollback removes the failing discount code and the extra queries. Whether the pool is still saturated afterwards is for the verification step to show.",
+        "evidence_ids": ["deploy-001", "log-003"],
+        "risk": "medium",
+        "rollback": "Redeploy v7.8.0."
+      }
+    }
+  }
+}

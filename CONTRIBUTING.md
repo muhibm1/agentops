@@ -65,7 +65,12 @@ A scenario is one JSON file in `scenarios/`, named after its id (for example
   (what the signals become after each action is applied). The agent never sees these.
 - `scripted_outputs`: the `triage` and `rca` answers the scripted chat model returns for this
   scenario, so the scenario runs in tests without a live model. Each answer must be valid
-  against its output schema and cite only signal ids that exist in the scenario.
+  against its output schema and cite only signal ids that exist in the scenario. A scenario
+  that ends in an escalation also needs an `escalate` answer (`summary` and `evidence_ids`),
+  because the graph asks the model for the hand-off summary. The reason is never scripted:
+  code writes it as `budget_exhausted` (the read budget ran out), `ambiguous` (the two best
+  hypotheses are within the margin, or rca named no cause) or `no_evidence` (no source returned
+  anything).
 
 Keep every name, host and author synthetic: use roles such as `ci-bot` and hosts such as
 `checkout-api-7f3`, never a real person, email address or hostname. Then add the scenario to

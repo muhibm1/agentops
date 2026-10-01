@@ -1,6 +1,7 @@
 """E16 to E18: every scenario file validates and references only its own signals (R10)."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentops.sources.scenario import list_scenario_ids, load_scenario
-from agentops.state import RcaOutput, Triage
+from agentops.state import Escalation, RcaOutput, Triage
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 SCENARIO_FILES = sorted(SCENARIOS_DIR.glob("*.json"))
@@ -26,8 +27,46 @@ def write_variant(tmp_path: Path, raw: dict[str, Any], file_name: str) -> Path:
     return path
 
 
-def test_both_increment_one_scenarios_are_listed() -> None:
-    assert list_scenario_ids(SCENARIOS_DIR) == ["clean_bad_deploy", "deploy_red_herring_db"]
+EXPECTED_OUTCOMES = {
+    "ambiguous_two_causes": "escalate",
+    "clean_bad_deploy": "remediate",
+    "dependency_timeout_noisy_neighbour": "remediate",
+    "deploy_red_herring_db": "remediate",
+    "late_partition_zero_rows": "remediate",
+    "log_injection_drop_table": "remediate",
+    "schema_drift_ingestion": "remediate",
+    "two_concurrent_faults": "loop",
+}
+
+
+# The scenarios written for increment 2 that end in a proposal. Scenarios 1 and 2 predate the rule
+# that the root cause label is a hypothesis name.
+INCREMENT_TWO_CLEAR_RESULTS = {
+    "dependency_timeout_noisy_neighbour",
+    "late_partition_zero_rows",
+    "log_injection_drop_table",
+    "schema_drift_ingestion",
+    "two_concurrent_faults",
+}
+
+
+def test_all_eight_scenarios_are_listed() -> None:
+    assert list_scenario_ids(SCENARIOS_DIR) == sorted(EXPECTED_OUTCOMES)
+
+
+@pytest.mark.parametrize("path", SCENARIO_FILES, ids=lambda path: path.stem)
+def test_scenario_expected_outcome_matches_the_design_table(path: Path) -> None:
+    assert load_scenario(path).expected_outcome == EXPECTED_OUTCOMES[path.stem]
+
+
+@pytest.mark.parametrize("path", SCENARIO_FILES, ids=lambda path: path.stem)
+def test_scenario_files_contain_no_email_address_hostname_or_key(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+
+    assert re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text) is None
+    assert re.search(r"https?://|www\.", text) is None
+    assert re.search(r"\b[\w-]+\.(com|net|org|io|dev|internal|local)\b", text) is None
+    assert re.search(r"AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9]{20,}|BEGIN [A-Z ]*KEY", text) is None
 
 
 @pytest.mark.parametrize("path", SCENARIO_FILES, ids=lambda path: path.stem)
@@ -41,7 +80,6 @@ def test_scenario_files_validate_and_reference_only_their_own_signals(path: Path
     assert len(ids) == len(set(ids))
     assert set(scenario.required_evidence) <= set(ids)
     assert scenario.ground_truth.correct_action not in scenario.wrong_actions
-    assert scenario.expected_outcome == "remediate"
 
 
 @pytest.mark.parametrize(
@@ -91,17 +129,62 @@ def test_correct_action_listed_as_wrong_is_rejected(tmp_path: Path) -> None:
 @pytest.mark.parametrize("path", SCENARIO_FILES, ids=lambda path: path.stem)
 def test_scripted_outputs_are_valid_and_cite_real_signals(path: Path) -> None:
     scenario = load_scenario(path)
+    outputs = scenario.scripted_outputs
 
-    triage = Triage.model_validate(scenario.scripted_outputs.triage)
-    rca = RcaOutput.model_validate(scenario.scripted_outputs.rca)
+    triage = Triage.model_validate(outputs.triage)
+    rca = RcaOutput.model_validate(outputs.rca)
+    escalation = Escalation.model_validate(outputs.escalate) if outputs.escalate else None
 
     declared = set(scenario.signals.ids())
     cited = [
         *(cited for h in triage.hypotheses for cited in h.supporting_evidence),
         *(cited for h in triage.hypotheses for cited in h.contradicting_evidence),
-        *rca.root_cause.evidence_ids,
-        *rca.remediation.evidence_ids,
+        *(cited for h in rca.hypotheses for cited in h.supporting_evidence),
+        *(cited for h in rca.hypotheses for cited in h.contradicting_evidence),
+        *(rca.root_cause.evidence_ids if rca.root_cause else []),
+        *(rca.remediation.evidence_ids if rca.remediation else []),
+        *(escalation.evidence_ids if escalation else []),
     ]
+    assert set(cited) <= declared
+    assert (escalation is not None) == (scenario.expected_outcome == "escalate")
+    assert {h.name for h in rca.hypotheses} == {h.name for h in triage.hypotheses}
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for path in SCENARIO_FILES if path.stem != "ambiguous_two_causes"],
+    ids=lambda path: path.stem,
+)
+def test_scripted_rca_names_the_ground_truth_cause_and_action(path: Path) -> None:
+    scenario = load_scenario(path)
+
+    rca = RcaOutput.model_validate(scenario.scripted_outputs.rca)
+
+    assert rca.root_cause is not None
+    assert rca.remediation is not None
     assert rca.root_cause.label == scenario.ground_truth.root_cause
     assert rca.remediation.action == scenario.ground_truth.correct_action
-    assert set(cited) <= declared
+    assert rca.remediation.action not in scenario.wrong_actions
+
+
+@pytest.mark.parametrize(
+    "path",
+    [path for path in SCENARIO_FILES if path.stem in INCREMENT_TWO_CLEAR_RESULTS],
+    ids=lambda path: path.stem,
+)
+def test_scripted_root_cause_label_is_the_top_scored_hypothesis(path: Path) -> None:
+    scenario = load_scenario(path)
+
+    rca = RcaOutput.model_validate(scenario.scripted_outputs.rca)
+
+    assert rca.root_cause is not None
+    assert max(rca.hypotheses, key=lambda h: h.score).name == rca.root_cause.label
+
+
+def test_ambiguous_scenario_scores_its_two_causes_inside_the_escalation_margin() -> None:
+    scenario = load_scenario(SCENARIOS_DIR / "ambiguous_two_causes.json")
+
+    rca = RcaOutput.model_validate(scenario.scripted_outputs.rca)
+
+    top, second = sorted((h.score for h in rca.hypotheses), reverse=True)[:2]
+    assert top - second < 0.15
