@@ -128,3 +128,7 @@ Approve to record G4 (you then merge the PR to main yourself; no agent merges or
 /workhorse:approve G4
 /workhorse:approve G4 --reject "notes"
 ```
+
+## Deploy record
+
+Owner merged PR #3 to main (merge commit 44f68f1107c4b038aca825255a97c0af7ffb0bb2, 2026-10-01T06:54:21Z, confirmed via GitHub). No environment in the profile has a deploy command, so nothing was deployed (confirmed from the run brief).
