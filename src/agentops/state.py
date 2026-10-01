@@ -20,6 +20,7 @@ INITIAL_INVESTIGATION_BUDGET = 12
 # Caps on model free text that is printed and re-sent in later prompts.
 HYPOTHESIS_NAME_MAX_LENGTH = 80
 ESCALATION_SUMMARY_MAX_LENGTH = 1000
+MODEL_TEXT_MAX_LENGTH = 2000
 # An operator's reject reason reaches the audit file, the checkpoint and the next rca prompt.
 APPROVAL_REASON_MAX_LENGTH = 1000
 
@@ -81,7 +82,7 @@ class Triage(StrictModel):
 
 class RCA(StrictModel):
     label: str = Field(pattern=SNAKE_CASE_NAME)
-    explanation: str = Field(min_length=1)
+    explanation: str = Field(min_length=1, max_length=MODEL_TEXT_MAX_LENGTH)
     evidence_ids: list[str] = Field(min_length=1)
 
 
@@ -120,7 +121,7 @@ class Escalation(StrictModel):
 class Postmortem(StrictModel):
     """Model output of the postmortem node (increment 3 onward)."""
 
-    summary: str = Field(min_length=1)
+    summary: str = Field(min_length=1, max_length=MODEL_TEXT_MAX_LENGTH)
     timeline: list[str] = Field(default_factory=list)
     root_cause: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
