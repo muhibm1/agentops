@@ -49,15 +49,25 @@ def escalate(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
 
     actions: list[Action] = []
     result = fallback_escalation(state)
-    for _ in range(ESCALATE_ATTEMPTS):
+    for attempt in range(1, ESCALATE_ATTEMPTS + 1):
         try:
             candidate, action = ask_model(model, Escalation, ESCALATE_SYSTEM_PROMPT, human_prompt)
             # The summary may rely on no evidence; anything it does cite must exist.
             if candidate.evidence_ids:
                 assert_cited(candidate.evidence_ids, state["evidence"])
-        except (CitationError, ValidationError):
+        except (CitationError, ValidationError) as error:
+            # Only the class name: the message can quote model output or evidence text.
+            rejected = Action(
+                tool="model",
+                ok=False,
+                latency_ms=0.0,
+                detail=type(error).__name__,
+                attempt=attempt,
+            )
+            actions.append(rejected)
             continue
-        result, actions = candidate, [action]
+        result = candidate
+        actions.append(action.model_copy(update={"attempt": attempt}))
         break
     return {
         "escalation": result,

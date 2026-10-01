@@ -54,6 +54,14 @@ class Triage(StrictModel):
 
     hypotheses: list[Hypothesis] = Field(min_length=1)
 
+    @model_validator(mode="after")
+    def check_hypothesis_names_are_distinct(self) -> Self:
+        names = [item.name for item in self.hypotheses]
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise ValueError(f"Hypothesis names must be distinct. Repeated: {repeated}.")
+        return self
+
 
 class RCA(StrictModel):
     label: str = Field(pattern=SNAKE_CASE_NAME)

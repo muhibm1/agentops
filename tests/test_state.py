@@ -258,3 +258,21 @@ def test_hypothesis_name_and_escalation_summary_have_a_length_cap() -> None:
     assert Escalation(summary="s" * ESCALATION_SUMMARY_MAX_LENGTH)
     with pytest.raises(ValidationError):
         Escalation(summary="s" * (ESCALATION_SUMMARY_MAX_LENGTH + 1))
+
+
+def test_triage_rejects_a_repeated_hypothesis_name() -> None:
+    with pytest.raises(ValidationError, match="bad_deploy"):
+        Triage(
+            hypotheses=[
+                Hypothesis(name="bad_deploy", score=0.6),
+                Hypothesis(name="bad_deploy", score=0.5),
+            ]
+        )
+
+
+def test_triage_accepts_distinct_hypothesis_names() -> None:
+    triage = Triage(
+        hypotheses=[Hypothesis(name="bad_deploy", score=0.6), Hypothesis(name="pool", score=0.5)]
+    )
+
+    assert len(triage.hypotheses) == 2

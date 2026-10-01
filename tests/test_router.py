@@ -134,6 +134,22 @@ def test_a_keyword_inside_a_longer_word_does_not_match(name: str) -> None:
     assert scores == {"logs": 1, "metrics": 1, "deploys": 1}
 
 
+@pytest.mark.parametrize(
+    "name", ["misconfigured_connection_pool", "pool_exhaustion_after_redeploy"]
+)
+def test_a_keyword_after_a_mis_re_or_un_prefix_still_matches(name: str) -> None:
+    """'misconfigured' is about config and 'redeploy' about deploys, so deploys must be asked."""
+    scores = score_sources([Hypothesis(name=name, score=0.5)])
+
+    assert scores == {"logs": 1, "metrics": 1, "deploys": 1}
+
+
+def test_a_prefixed_keyword_routes_to_the_source_that_judges_it() -> None:
+    scores = score_sources([Hypothesis(name="misconfigured_cache", score=0.5)])
+
+    assert scores == {"logs": 1, "metrics": 0, "deploys": 1}
+
+
 def test_a_keyword_matches_a_name_token_that_starts_with_it() -> None:
     scores = score_sources(
         [
