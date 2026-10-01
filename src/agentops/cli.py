@@ -18,7 +18,7 @@ from agentops.graph import MODEL_NODE_RETRY, build_graph
 from agentops.sources.base import SIGNAL_ID_PATTERN
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import IncidentState, new_incident
+from agentops.state import IncidentState, RcaOutput, Triage, new_incident
 
 USAGE_ERROR = 1
 RUN_FAILED = 2
@@ -100,6 +100,8 @@ def load_named_scenario(scenario_id: str, scenarios_dir: Path) -> Scenario:
     path = scenarios_dir / f"{scenario_id}.json"
     try:
         return load_scenario(path)
+    except (UnicodeDecodeError, OSError) as error:
+        fail(USAGE_ERROR, f"The scenario file {path} could not be read: {type(error).__name__}.")
     except ValidationError as error:
         first = error.errors()[0]
         field = ".".join(str(part) for part in first["loc"]) or "the file as a whole"
@@ -107,28 +109,50 @@ def load_named_scenario(scenario_id: str, scenarios_dir: Path) -> Scenario:
 
 
 def scripted_model_with_retries(scenario: Scenario) -> ScriptedChatModel:
-    """Triage's answer once, then the rca answer once per attempt the graph allows.
+    """Each node's scripted answer once per attempt the graph allows, queued per schema.
 
-    A rejected rca answer is retried, and the retry must meet the same answer again so the run
+    A rejected answer is retried, and the retry must meet the same answer again so the run
     fails with the real cause (for example `CitationError`) rather than an exhausted script.
     """
     outputs = scenario.scripted_outputs
+    attempts = MODEL_NODE_RETRY.max_attempts
     return ScriptedChatModel(
-        script=[outputs.triage, *[outputs.rca] * MODEL_NODE_RETRY.max_attempts]
+        script_by_schema={
+            Triage: [outputs.triage] * attempts,
+            RcaOutput: [outputs.rca] * attempts,
+        }
+    )
+
+
+def escape_for_terminal(text: str) -> str:
+    """Show control characters (newline, ESC and the like) as visible escapes.
+
+    Applied to every string a model wrote before it is printed, so model output cannot start a
+    fake line or send terminal control sequences.
+    """
+    return "".join(
+        char if char.isprintable() else char.encode("unicode_escape").decode("ascii")
+        for char in text
     )
 
 
 def report(state: IncidentState) -> str:
     lines = [f"incident: {state['incident_id']}", f"status: {state['status']}", "hypotheses:"]
-    lines += [f"  - {item.name} (score {item.score:.2f})" for item in state["hypotheses"]]
+    lines += [
+        f"  - {escape_for_terminal(item.name)} (score {item.score:.2f})"
+        for item in state["hypotheses"]
+    ]
     lines.append(f"evidence: {len(state['evidence'])} items")
+    failed_actions = sum(1 for action in state["actions"] if not action.ok)
+    lines.append(f"actions: {len(state['actions'])} ({failed_actions} failed)")
     if state["root_cause"] is not None:
-        lines.append(f"root cause: {state['root_cause'].label}")
-        lines.append(f"  {state['root_cause'].explanation}")
+        lines.append(f"root cause: {escape_for_terminal(state['root_cause'].label)}")
+        lines.append(f"  {escape_for_terminal(state['root_cause'].explanation)}")
     if state["remediation"] is not None:
         remediation = state["remediation"]
         lines.append(
-            f"remediation: {remediation.action} on {remediation.target} (risk {remediation.risk})"
+            f"remediation: {escape_for_terminal(remediation.action)} on "
+            f"{escape_for_terminal(remediation.target)} (risk {remediation.risk})"
         )
     lines.append("Approval and execution arrive in increment 3; nothing was changed.")
     return "\n".join(lines)

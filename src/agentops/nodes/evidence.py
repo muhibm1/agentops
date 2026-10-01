@@ -9,9 +9,9 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from agentops.nodes import timed_action
+from agentops.nodes import neutralise_delimiters, timed_action
 from agentops.sources.base import EvidenceSource, Window
-from agentops.state import Evidence, EvidenceKind, IncidentState
+from agentops.state import Evidence, EvidenceKind, IncidentState, NoEvidenceError
 
 EVIDENCE_WINDOW = timedelta(minutes=60)
 METRIC_NAMES = ["error_rate", "p99_latency_ms", "db_pool_utilisation"]
@@ -35,6 +35,11 @@ def collect_evidence(state: IncidentState, *, source: EvidenceSource) -> dict[st
         *(as_evidence(series, "get_metrics", "metric") for series in metrics),
         *(as_evidence(item, "get_deployments", "deployment") for item in deployments),
     ]
+    if not evidence:
+        raise NoEvidenceError(
+            f"No logs, metrics or deployments were found for {service!r} in the hour before "
+            f"{state['opened_at'].isoformat()}; there is nothing to investigate."
+        )
     return {"evidence": evidence, "actions": [logs_action, metrics_action, deployments_action]}
 
 
@@ -48,14 +53,3 @@ def as_evidence(item: BaseModel, source_method: str, kind: EvidenceKind) -> Evid
         payload=payload,
         collected_at=datetime.now(UTC),
     )
-
-
-def neutralise_delimiters(value: Any) -> Any:
-    """Return `value` with every `<<<` and `>>>` in its strings spaced out, at any depth."""
-    if isinstance(value, str):
-        return value.replace("<<<", "< < <").replace(">>>", "> > >")
-    if isinstance(value, dict):
-        return {key: neutralise_delimiters(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [neutralise_delimiters(item) for item in value]
-    return value

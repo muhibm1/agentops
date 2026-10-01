@@ -32,13 +32,21 @@ class ScriptedChatModel(BaseChatModel):
 
     # Validation is skipped so Pydantic cannot coerce a dict entry into a bare BaseModel; the
     # entries are only ever turned into JSON text below.
-    script: SkipValidation[list[ScriptEntry]]
+    script: SkipValidation[list[ScriptEntry]] = Field(default_factory=list)
+    # Entries answered only to a request for that schema, one queue per schema, so a node that
+    # is retried meets its own answer again whatever the other nodes consumed.
+    script_by_schema: SkipValidation[dict[type, list[ScriptEntry]]] = Field(default_factory=dict)
     calls: list[list[BaseMessage]] = Field(default_factory=list)
     _pending_outputs: list[str] = PrivateAttr(default_factory=list)
+    _pending_by_schema: dict[type, list[str]] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
         self._pending_outputs = [entry_as_json_text(entry) for entry in self.script]
+        self._pending_by_schema = {
+            schema: [entry_as_json_text(entry) for entry in entries]
+            for schema, entries in self.script_by_schema.items()
+        }
 
     @property
     def _llm_type(self) -> str:
@@ -79,10 +87,24 @@ class ScriptedChatModel(BaseChatModel):
         output_schema = schema
 
         def call_model_and_validate(prompt: LanguageModelInput) -> BaseModel:
+            if output_schema in self._pending_by_schema:
+                return output_schema.model_validate_json(
+                    self._next_for_schema(output_schema, prompt)
+                )
             reply = self.invoke(prompt)
             return output_schema.model_validate_json(reply_text(reply))
 
         return RunnableLambda(call_model_and_validate)
+
+    def _next_for_schema(self, schema: type, prompt: LanguageModelInput) -> str:
+        self.calls.append(self._convert_input(prompt).to_messages())
+        queue = self._pending_by_schema[schema]
+        if not queue:
+            raise ScriptExhausted(
+                f"The scripted model has no entries left for {schema.__name__} "
+                f"after {len(self.calls)} calls."
+            )
+        return queue.pop(0)
 
 
 def scripted_model_for(scenario: Scenario) -> ScriptedChatModel:

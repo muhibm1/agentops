@@ -13,6 +13,8 @@ from typing import Annotated, Any, Literal, TypedDict
 from pydantic import BaseModel, ConfigDict, Field
 
 SNAKE_CASE_NAME = r"^[a-z0-9_]+$"
+# A remediation target names a service, deployment or config key; it is never free text.
+TARGET_NAME = r"^[a-z0-9_.-]+$"
 INITIAL_INVESTIGATION_BUDGET = 12
 
 IncidentStatus = Literal[
@@ -56,7 +58,7 @@ class RCA(StrictModel):
 
 class Remediation(StrictModel):
     action: str = Field(pattern=SNAKE_CASE_NAME)
-    target: str = Field(min_length=1)
+    target: str = Field(pattern=TARGET_NAME)
     params: dict[str, str | int | float | bool] = Field(default_factory=dict)
     reason: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
@@ -143,6 +145,14 @@ class IncidentState(TypedDict):
 
 CONTROL_FIELDS = frozenset({"status", "investigation_budget", "loops", "approval", "execution"})
 MODEL_OUTPUT_SCHEMAS: tuple[type[BaseModel], ...] = (Triage, RcaOutput, Postmortem)
+
+
+class NoEvidenceError(Exception):
+    """The evidence node collected nothing, so no later step has anything to cite.
+
+    Deliberately outside both retry policies: asking the same source again for the same window
+    would return the same empty answer.
+    """
 
 
 class CitationError(Exception):

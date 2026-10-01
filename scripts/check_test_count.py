@@ -15,8 +15,17 @@ def main(argv: list[str]) -> int:
         print("usage: check_test_count.py <junit.xml> <floor>", file=sys.stderr)
         return 1
 
-    junit_path, floor = argv[1], int(argv[2])
-    passed = count_passed_tests(junit_path)
+    junit_path = argv[1]
+    try:
+        floor = int(argv[2])
+        passed = count_passed_tests(junit_path)
+    except (ValueError, OSError, ElementTree.ParseError) as error:
+        print(
+            f"Cannot check the floor: {type(error).__name__} reading {junit_path} "
+            f"with floor {argv[2]!r}; the floor must be an integer and the file valid junit XML.",
+            file=sys.stderr,
+        )
+        return 1
     print(f"{passed} tests passed; the floor is {floor}.")
     if passed < floor:
         print(f"Below the floor: {passed} passed is fewer than {floor}.", file=sys.stderr)

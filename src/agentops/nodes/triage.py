@@ -4,7 +4,7 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 
-from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model
+from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
 from agentops.state import IncidentState, Triage, assert_cited
 
 TRIAGE_SYSTEM_PROMPT = (
@@ -17,8 +17,8 @@ TRIAGE_SYSTEM_PROMPT = (
 
 def triage(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
     """Ask the model for hypotheses; raise `CitationError` if one cites evidence not in state."""
-    symptoms = "\n".join(f"- {symptom}" for symptom in state["symptoms"])
-    human_prompt = f"Service: {state['service']}\nSymptoms:\n{symptoms}"
+    symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
+    human_prompt = f"Service: {neutralise_delimiters(state['service'])}\nSymptoms:\n{symptoms}"
 
     result, action = ask_model(model, Triage, TRIAGE_SYSTEM_PROMPT, human_prompt)
 

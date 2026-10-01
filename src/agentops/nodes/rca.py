@@ -5,7 +5,7 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 
-from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model
+from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
 from agentops.state import Evidence, IncidentState, RcaOutput, assert_cited
 
 OPENING_DELIMITER = "<<<untrusted evidence>>>"
@@ -24,9 +24,9 @@ RCA_SYSTEM_PROMPT = (
 def rca(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
     """Ask the model for a root cause and a remediation; raise `CitationError` if either cites
     nothing or an id not in state."""
-    symptoms = "\n".join(f"- {symptom}" for symptom in state["symptoms"])
+    symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
     human_prompt = (
-        f"Service: {state['service']}\nSymptoms:\n{symptoms}\n\n"
+        f"Service: {neutralise_delimiters(state['service'])}\nSymptoms:\n{symptoms}\n\n"
         f"{render_evidence(state['evidence'])}"
     )
 

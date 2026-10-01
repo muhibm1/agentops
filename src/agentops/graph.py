@@ -16,13 +16,20 @@ from agentops.nodes.evidence import collect_evidence
 from agentops.nodes.rca import rca
 from agentops.nodes.triage import triage
 from agentops.sources.base import EvidenceSource
-from agentops.state import CitationError, IncidentState
+from agentops.state import CitationError, IncidentState, NoEvidenceError
 
 # LangGraph's default predicate does not retry ValueError (so not ValidationError) nor
 # RuntimeError (confirmed in langgraph/_internal/_retry.py, langgraph 1.2.12). See ADR 0002.
 MODEL_NODE_RETRY = RetryPolicy(max_attempts=3, retry_on=(CitationError, ValidationError))
-# Source reads change nothing, so any failure is worth exactly one more attempt.
-SOURCE_NODE_RETRY = RetryPolicy(max_attempts=2, retry_on=Exception)
+
+
+def is_worth_retrying_source_read(error: Exception) -> bool:
+    """Source reads change nothing, so any failure is worth one more attempt, except an empty
+    result: asking again for the same window would return the same nothing."""
+    return not isinstance(error, NoEvidenceError)
+
+
+SOURCE_NODE_RETRY = RetryPolicy(max_attempts=2, retry_on=is_worth_retrying_source_read)
 
 
 def build_graph(

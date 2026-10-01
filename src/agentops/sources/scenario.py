@@ -90,7 +90,7 @@ class Scenario(ScenarioPart):
 
 def load_scenario(path: Path) -> Scenario:
     """Read and validate one scenario file. Raises `pydantic.ValidationError` naming the field."""
-    return Scenario.model_validate_json(path.read_text(encoding="utf-8"))
+    return Scenario.model_validate_json(path.read_text(encoding="utf-8-sig"))
 
 
 def list_scenario_ids(directory: Path) -> list[str]:
