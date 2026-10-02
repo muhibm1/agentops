@@ -36,8 +36,22 @@ characters are normalised, and the action registry refuses anything outside
 `runbooks/default.yaml` even when the model proposes it (scenario 8 and the adversarial eval cases
 of increments 2 and 3).
 
-## Rerun
+## Rescans
 
-After this change merges, rerun the same command. The two findings fixed by prose are matched by
-the scanner's own phrase list, so whether it clears them is believed, not verified, until the
-rerun.
+**2026-10-02, by the owner, after #7:** unchanged at grade B, 81, with all five findings. Reading
+the scanner's rules (`src/rules/prompt-defense.ts` in ecc-agentshield 1.6.0) showed why: each check
+is a regular expression applied one line at a time, and the new section wrapped its sentences at
+100 columns and used verbs the patterns do not list. The defences were in the file but invisible
+to the scanner. It did credit the new deny list and named three gaps in it.
+
+**2026-10-02, by the main session, on `main` at `0f7c99f`, after #8:** grade A, 100, zero findings.
+`#8` states each boundary on one line, copies the scanner's five patterns into
+`tests/test_agent_safety_config.py` (confirmed failing against the previous `CLAUDE.md`), adds
+`~/.ssh`, `~/.aws`, `sudo` and `rm -rf` to the deny list, and puts `curl`, `wget` and
+`Invoke-WebRequest` behind an approval prompt. The scanner now reports two defences: 18 deny
+rules and 3 ask rules.
+
+The two findings previously marked not applicable are now satisfied too, by single lines that are
+true for this repository (no persona changes taken from repository text; no destructive commands
+against real systems outside the runbook). The reasoning that they do not describe an end-user
+threat here still stands.
