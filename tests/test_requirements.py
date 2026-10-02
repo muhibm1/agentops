@@ -62,3 +62,12 @@ def test_runtime_requirements_pin_langchain() -> None:
     lines = requirement_lines("requirements.txt")
 
     assert "langchain==1.4.3  # MIT" in lines
+
+
+# E42 (R18): the dev server CLI is a development tool only, pinned with its licence.
+def test_dev_requirements_pin_the_langgraph_cli() -> None:
+    dev_lines = requirement_lines("requirements-dev.txt")
+    runtime_lines = requirement_lines("requirements.txt")
+
+    assert "langgraph-cli[inmem]==0.4.32  # MIT" in dev_lines
+    assert not any(line.startswith("langgraph-cli") for line in runtime_lines)

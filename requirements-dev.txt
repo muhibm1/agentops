@@ -3,5 +3,7 @@ pytest==9.1.1  # MIT
 ruff==0.16.9  # MIT
 pyright==1.1.414  # MIT
 pip-audit==2.10.1  # Apache-2.0
+# `langgraph dev`, the local server LangGraph Studio talks to; never run by tests or CI.
+langgraph-cli[inmem]==0.4.32  # MIT
 # Installs this package in editable mode so tests import the working tree.
 -e .

@@ -1,0 +1,6 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agentops": "./src/agentops/dev_server.py:make_graph"
+  }
+}
