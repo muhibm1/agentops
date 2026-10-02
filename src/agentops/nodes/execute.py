@@ -39,7 +39,7 @@ def execute(
     """
     configurable = config.get("configurable") or {}
     thread_id = run_thread_id(config, "execute")
-    problem = executor.unrecorded_approval_problem(state, audit)
+    problem = executor.unrecorded_approval_problem(state, audit, thread_id)
     outcome = (
         executor.refused(state, problem)
         if problem is not None

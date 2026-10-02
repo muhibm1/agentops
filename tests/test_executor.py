@@ -1082,7 +1082,7 @@ def test_an_audit_record_that_does_not_match_the_approval_does_not_back_it(
     audit = AuditLog(tmp_path)
     audit.append(state["incident_id"], state["incident_id"], written)
 
-    assert executor.unrecorded_approval_problem(state, audit) is not None
+    assert executor.unrecorded_approval_problem(state, audit, state["incident_id"]) is not None
 
 
 def test_a_torn_approval_record_then_a_second_approval_applies_once(tmp_path: Path) -> None:
@@ -1111,7 +1111,7 @@ def test_a_torn_approval_with_no_second_approval_is_still_refused(tmp_path: Path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text('{"event": "approval", "valid": tr', encoding="utf-8")
 
-    problem = executor.unrecorded_approval_problem(state, AuditLog(tmp_path))
+    problem = executor.unrecorded_approval_problem(state, AuditLog(tmp_path), state["incident_id"])
 
     assert problem is not None
 

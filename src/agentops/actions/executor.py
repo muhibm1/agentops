@@ -109,7 +109,9 @@ def execute(
         return refused(state, str(refusal))
 
 
-def unrecorded_approval_problem(state: IncidentState, audit: AuditLog) -> str | None:
+def unrecorded_approval_problem(
+    state: IncidentState, audit: AuditLog, thread_id: str
+) -> str | None:
     """Why the state's approval is not backed by the audit log, or None when it is (or when the
     state has no approval, which `execute` refuses by itself).
 
@@ -117,7 +119,9 @@ def unrecorded_approval_problem(state: IncidentState, audit: AuditLog) -> str | 
     state endpoint, a tampered checkpoint) could set it. The approval node appends an accepted
     `approval` record to the audit file before it sets the field, so the file is the proof that an
     operator was asked and said yes. The record must match the approval in decision and
-    idempotency key; the key already binds the action, target and parameters."""
+    idempotency key (the key already binds the action, target and parameters) and must have been
+    written by `thread_id`, the thread now executing: a state copied into another thread, or a
+    fork, needs its own approval at its own interrupt."""
     approval = state["approval"]
     if approval is None:
         return None
@@ -127,6 +131,7 @@ def unrecorded_approval_problem(state: IncidentState, audit: AuditLog) -> str | 
             and record.get("valid") is True
             and record.get("decision") == approval.decision
             and record.get("idempotency_key") == approval.idempotency_key
+            and record.get("thread_id") == thread_id
         ):
             return None
     return (
