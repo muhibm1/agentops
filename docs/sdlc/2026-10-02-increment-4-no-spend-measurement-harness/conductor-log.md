@@ -44,3 +44,5 @@
 2026-10-02T21:53:04.781Z | review | wh-fixer | R2b fixed in da5a079; E49 adversarial and E50 golden added; 878 passed
 2026-10-02T21:54:36.005Z | verify | wh.js verify | checks green at da5a079 (4 defined)
 2026-10-02T21:57:07.017Z | verify | conductor | verifier green 878 passed; bug and security re-check closed R2b
+2026-10-02T22:00:14.371Z | verify | wh-shipper | ship.md revised for R2b, 137 lines
+2026-10-02T22:00:14.636Z | review | conductor | G4 Ship presented
