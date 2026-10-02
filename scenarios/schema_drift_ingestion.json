@@ -148,6 +148,46 @@
         "Update the downstream readers to accept the struct column before redeploying v5.2.0.",
         "Replay the batches held in the dead-letter queue."
       ]
+    },
+    "baseline": {
+      "steps": [
+        {
+          "tool": "get_logs",
+          "args": {
+            "start": "2026-03-18T08:00:00Z",
+            "end": "2026-03-18T09:00:00Z"
+          }
+        },
+        {
+          "tool": "get_deployments",
+          "args": {
+            "start": "2026-03-18T08:00:00Z",
+            "end": "2026-03-18T09:00:00Z"
+          }
+        },
+        {
+          "tool": "get_config",
+          "args": {}
+        },
+        {
+          "tool": "apply",
+          "args": {
+            "action": "rollback_deploy",
+            "target": "deploy-001",
+            "params": {
+              "to_version": "v5.1.4"
+            }
+          }
+        }
+      ],
+      "answer": {
+        "root_cause": "schema_drift_in_ingestion",
+        "action": "rollback_deploy",
+        "target": "deploy-001",
+        "params": {
+          "to_version": "v5.1.4"
+        }
+      }
     }
   }
 }

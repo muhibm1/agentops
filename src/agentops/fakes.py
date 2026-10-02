@@ -5,6 +5,7 @@ It reads no environment variable and opens no socket: every answer comes from th
 
 import builtins
 import json
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from langchain_core.callbacks import CallbackManagerForLLMRun
@@ -12,6 +13,8 @@ from langchain_core.language_models import BaseChatModel, LanguageModelInput
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
+from langchain_core.tools import BaseTool
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import BaseModel, Field, PrivateAttr, SkipValidation
 
 from agentops.sources.scenario import Scenario
@@ -52,13 +55,20 @@ class ScriptedChatModel(BaseChatModel):
     answers_by_prompt_marker: SkipValidation[dict[type, dict[str, list[ScriptEntry]]]] = Field(
         default_factory=dict
     )
+    # Whole replies, tool calls included, answered before any `script` entry; a ReAct agent
+    # needs replies that call tools, which a text entry cannot express.
+    messages: SkipValidation[list[AIMessage]] = Field(default_factory=list)
+    # The names of the tools passed to `bind_tools`, in order, for tests to read.
+    bound_tools: list[str] = Field(default_factory=list)
     calls: list[list[BaseMessage]] = Field(default_factory=list)
+    _pending_messages: list[AIMessage] = PrivateAttr(default_factory=list)
     _pending_outputs: list[str] = PrivateAttr(default_factory=list)
     _pending_by_schema: dict[type, list[str]] = PrivateAttr(default_factory=dict)
     _pending_by_marker: dict[type, dict[str, list[str]]] = PrivateAttr(default_factory=dict)
 
     def model_post_init(self, context: Any, /) -> None:
         super().model_post_init(context)
+        self._pending_messages = list(self.messages)
         self._pending_outputs = [entry_as_json_text(entry) for entry in self.script]
         self._pending_by_schema = {
             schema: [entry_as_json_text(entry) for entry in entries]
@@ -84,13 +94,27 @@ class ScriptedChatModel(BaseChatModel):
         **kwargs: Any,
     ) -> ChatResult:
         self.calls.append(list(messages))
+        if self._pending_messages:
+            reply = self._pending_messages.pop(0)
+            return ChatResult(generations=[ChatGeneration(message=reply)])
         if not self._pending_outputs:
             raise ScriptExhausted(
-                f"The scripted model was called {len(self.calls)} times "
-                f"but its script has only {len(self.script)} entries."
+                f"The scripted model was called {len(self.calls)} times but it has only "
+                f"{len(self.messages)} messages and {len(self.script)} script entries."
             )
         content = self._pending_outputs.pop(0)
         return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+
+    def bind_tools(
+        self,
+        tools: Sequence[builtins.dict[str, Any] | type | Callable[..., Any] | BaseTool],
+        *,
+        tool_choice: str | None = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, AIMessage]:
+        """Records the tool names and returns this model: the script decides every tool call."""
+        self.bound_tools = [convert_to_openai_tool(tool)["function"]["name"] for tool in tools]
+        return self
 
     def with_structured_output(
         self,
@@ -180,6 +204,28 @@ def scripted_model_for(scenario: Scenario, attempts: int = DEFAULT_ATTEMPTS) -> 
     return ScriptedChatModel(
         script_by_schema=script_by_schema, answers_by_prompt_marker=answers_by_prompt_marker
     )
+
+
+def scripted_baseline_model_for(scenario: Scenario) -> ScriptedChatModel:
+    """A model that replays the scenario's baseline script: one tool call per step, ids
+    `call-1`, `call-2` and so on, then the answer as JSON text.
+
+    Raises `ValueError` naming the scenario when it has no `scripted_outputs.baseline`.
+    """
+    script = scenario.scripted_outputs.baseline
+    if script is None:
+        raise ValueError(
+            f"Scenario {scenario.id!r} has no scripted_outputs.baseline, so the baseline "
+            "cannot run on the scripted model."
+        )
+    tool_calls = [
+        AIMessage(
+            content="",
+            tool_calls=[{"name": step.tool, "args": step.args, "id": f"call-{number}"}],
+        )
+        for number, step in enumerate(script.steps, start=1)
+    ]
+    return ScriptedChatModel(messages=tool_calls, script=[script.answer])
 
 
 def prompt_lines(messages: list[BaseMessage]) -> list[str]:

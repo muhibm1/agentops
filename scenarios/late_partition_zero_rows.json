@@ -164,6 +164,50 @@
         "Make the rollup wait for the upstream partition instead of running on an empty one.",
         "Fail the job when it writes zero rows for a daily partition."
       ]
+    },
+    "baseline": {
+      "steps": [
+        {
+          "tool": "get_logs",
+          "args": {
+            "start": "2026-03-19T06:30:00Z",
+            "end": "2026-03-19T07:30:00Z"
+          }
+        },
+        {
+          "tool": "get_metrics",
+          "args": {
+            "names": [
+              "rows_written",
+              "ingestion_lag_seconds"
+            ],
+            "start": "2026-03-19T06:30:00Z",
+            "end": "2026-03-19T07:30:00Z"
+          }
+        },
+        {
+          "tool": "get_config",
+          "args": {}
+        },
+        {
+          "tool": "apply",
+          "args": {
+            "action": "rerun_partition",
+            "target": "daily_revenue_rollup",
+            "params": {
+              "partition": "2026-03-18"
+            }
+          }
+        }
+      ],
+      "answer": {
+        "root_cause": "late_upstream_partition",
+        "action": "rerun_partition",
+        "target": "daily_revenue_rollup",
+        "params": {
+          "partition": "2026-03-18"
+        }
+      }
     }
   }
 }
