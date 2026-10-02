@@ -442,3 +442,30 @@ def test_ansi_escapes_never_reach_the_terminal(tmp_path: Path) -> None:
         assert result.exit_code == 0, result.output
         assert "\x1b" not in result.stdout
         assert "\x1b" not in result.stderr
+
+
+# E40 (R4): a ledger torn by a crash mid-write is reported once on stderr, and the approved
+# action still applies exactly once, on a fresh line after the fragment.
+def test_a_torn_ledger_line_is_reported_and_the_action_still_applies_once(
+    workspace: Workspace,
+) -> None:
+    thread = "torn-1"
+    fragment = '{"idempotency_key": "ab'
+    run_scenario(workspace, CLEAN_BAD_DEPLOY, thread)
+    ledger_path = workspace.audit_dir / f"{thread}.ledger.jsonl"
+    ledger_path.write_text(fragment, encoding="utf-8")
+
+    approved = agentops(workspace, "approve", thread, "--decision", "approve")
+
+    assert approved.exit_code == 0, approved.output
+    assert f"ledger: skipped torn line 1 in {ledger_path}" in approved.stderr
+    assert "status: resolved" in approved.stdout
+    ledger_lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert ledger_lines[0] == fragment
+    assert [json.loads(line)["action"] for line in ledger_lines[1:]] == ["rollback_deploy"]
+    applied = [
+        record
+        for record in workspace.audit(thread)
+        if record["event"] == "apply" and record["applied"] is True
+    ]
+    assert len(applied) == 1

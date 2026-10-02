@@ -8,7 +8,8 @@ changed hypothesis scores. Threads are checkpointed to a SQLite file (`--state-d
 `agentops.sqlite`) under a thread id equal to the incident id; the audit log and the simulator
 ledger are written under `--audit-dir` (default `audit/`). Each thread has its own ledger,
 `<thread>.ledger.jsonl`, so a fork starts from an unchanged simulated system and never inherits
-the actions the original thread applied.
+the actions the original thread applied. `eval` and `dataset` measure the graph against the
+ReAct baseline offline; they live in `agentops.evals.commands`.
 
 Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
 problem (unknown scenario or thread, malformed thread id, thread not waiting, bad decision,
@@ -38,6 +39,7 @@ from pydantic import ValidationError
 from agentops import __version__
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import default_registry
+from agentops.evals.commands import dataset_command, eval_command
 from agentops.fakes import scripted_model_for
 from agentops.graph import build_graph, checkpoint_serializer
 from agentops.nodes.verify import verify_rounds
@@ -80,6 +82,8 @@ ScenariosDirOption = Annotated[
 ThreadArgument = Annotated[str, typer.Argument(help="The thread id `run` printed.")]
 
 app = typer.Typer(help="Investigate a simulated production incident with cited evidence.")
+app.command("eval")(eval_command)
+app.command("dataset")(dataset_command)
 
 
 def print_version_and_exit(is_requested: bool) -> None:
@@ -257,11 +261,19 @@ class ThreadRun:
     ) -> "ThreadRun":
         """The graph for `scenario`, its simulator remembering applied actions in the ledger
         file of `thread_id`: a fork has its own ledger and never inherits the original's applied
-        actions. Exits 2 when that ledger cannot be read."""
+        actions. Exits 2 when that ledger cannot be read; prints one stderr notice per line a
+        crash tore mid-write and the simulator skipped."""
+        ledger_path = ledger_path_for(audit_dir, thread_id)
         try:
-            source = SimulatorSource(scenario, ledger_path=ledger_path_for(audit_dir, thread_id))
+            source = SimulatorSource(scenario, ledger_path=ledger_path)
         except ValueError as error:
             fail(RUN_FAILED, f"The ledger could not be used: {error}")
+        # Not an audit event: the notice concerns the simulator's own file, not the incident.
+        for line_number in source.torn_ledger_lines:
+            typer.echo(
+                escape_for_terminal(f"ledger: skipped torn line {line_number} in {ledger_path}"),
+                err=True,
+            )
         graph = build_graph(
             source, scripted_model_for(scenario), default_registry(), AuditLog(audit_dir), saver
         )
@@ -581,11 +593,7 @@ def pending_proposal_lines(pending: dict[str, Any]) -> list[str]:
 
 def closing_sentence(state: IncidentState, thread_id: str, *, is_waiting: bool) -> str:
     """What happens next, and whether anything was changed so far."""
-    # Action evidence outlives the execution record, which a later loop replaces.
-    has_applied = any(
-        item.kind == "action" and item.payload.get("applied") is True for item in state["evidence"]
-    )
-    changes = "An approved action was applied." if has_applied else "Nothing was changed."
+    changes = changes_sentence(state)
     if is_waiting:
         return (
             f"Waiting for an operator's decision on thread {thread_id}: "
@@ -594,6 +602,18 @@ def closing_sentence(state: IncidentState, thread_id: str, *, is_waiting: bool) 
     if state["status"] == "escalated":
         return f"Handed to a human. {changes}"
     return f"The run ended with status {state['status']}. {changes}"
+
+
+def changes_sentence(state: IncidentState) -> str:
+    """Whether an approved action changed the system: applied, possibly applied (the apply
+    raised, so its effect is unknown), or nothing changed."""
+    # Action evidence outlives the execution record, which a later loop replaces.
+    actions = [item.payload for item in state["evidence"] if item.kind == "action"]
+    if any(payload.get("applied") is True for payload in actions):
+        return "An approved action was applied."
+    if any(payload.get("effect") == "unknown" for payload in actions):
+        return "An approved action may have been applied; its effect is unknown."
+    return "Nothing was changed."
 
 
 def fail(exit_code: int, sentence: str) -> NoReturn:
