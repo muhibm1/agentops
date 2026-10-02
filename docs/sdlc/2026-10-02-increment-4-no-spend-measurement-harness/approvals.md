@@ -32,3 +32,12 @@ Each block is appended by `/workhorse:approve` and committed. Never edit earlier
 - Packet: `docs/sdlc/2026-10-02-increment-4-no-spend-measurement-harness/ship.md` sha256 `089105af97deb58568e0c31b5d03a53e4c55788feb298fc8fe45a98a03e62fa7`
 - Tier at decision: 3
 - Notes: D26: recommendation accepted; D25: recommendation accepted; D24: recommendation accepted; D13: recommendation accepted. Recorded by the main session on the owner's standing instruction of 2026-10-02; the owner did not read this packet. Main-session review: R2b fixed in da5a079 (approval bound to thread_id), E49 adversarial through the real graph confirmed failing on the old code, E50 fork golden passes; 878 passed; CI green at f059867 and the later commits are ship.md and conductor-log only (git diff --stat checked). Replaced executor tests verified stronger, not weaker. Open lows accepted as listed.
+
+## G5: approved
+
+- Who: 90530587+muhibm1@users.noreply.github.com
+- When: 2026-10-02T22:03:45.548Z
+- Artifact commit: `4f6165f96aab1a1bba4390b231a3e576d6d722cf` (contains the packet below)
+- Packet: `docs/sdlc/2026-10-02-increment-4-no-spend-measurement-harness/release.md` sha256 `3683b16e2a3a10db7efe323ff632a3960f648b43bef261d3f32eb5fed2e4880e`
+- Tier at decision: 3
+- Notes: Recorded by the main session on the owner's standing instruction of 2026-10-02. The release was the merge of PR 10 (9e3af26); nothing is deployed; rollback is a revert of the merge commit through a PR.
