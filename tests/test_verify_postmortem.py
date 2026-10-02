@@ -36,6 +36,7 @@ from agentops.nodes.verify import (
     next_step_fields,
     read_post_action_signals,
     verify,
+    verify_window,
 )
 from agentops.sources.base import (
     VERIFY_WINDOW,
@@ -414,6 +415,53 @@ def test_verify_with_the_default_window_does_not_see_a_point_at_seventy_five_min
 
     assert {window.end for window in recording.windows} == {scenario.incident_time + VERIFY_WINDOW}
     assert record["cleared"] is False
+
+
+# E22b: when the window cannot come from the runbook, verify falls back to the 30-minute default
+# instead of raising or reading an empty window.
+def test_verify_falls_back_to_the_default_window_when_the_action_left_the_runbook(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    without_rollback = Registry(
+        [
+            default_registry().get(name)
+            for name in default_registry().names()
+            if name != "rollback_deploy"
+        ]
+    )
+    recording = WindowRecordingSource(scenario)
+
+    _, record = run_verify(state, recording, tmp_path, without_rollback)
+
+    assert {window.end for window in recording.windows} == {scenario.incident_time + VERIFY_WINDOW}
+    assert record["cleared"] is False
+
+
+def test_verify_falls_back_to_the_default_window_when_there_is_no_execution(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    state["execution"] = None
+    recording = WindowRecordingSource(scenario)
+
+    run_verify(state, recording, tmp_path, registry_with_window("rollback_deploy", 90))
+
+    assert {window.end for window in recording.windows} == {scenario.incident_time + VERIFY_WINDOW}
+
+
+def test_the_window_comes_from_the_runbook_only_when_the_action_is_still_in_it() -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+
+    assert verify_window(state, registry_with_window("rollback_deploy", 90)) == timedelta(
+        minutes=90
+    )
+    assert verify_window(state, registry_with_window("scale_db_pool", 90)) == (
+        timedelta(minutes=default_registry().get("rollback_deploy").verify_window_minutes)
+    )
 
 
 # E16: the scripted postmortem cites ids in state and resolves the incident.
