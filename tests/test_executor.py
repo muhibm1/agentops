@@ -9,7 +9,7 @@ order of every read, check and write is visible, and read the audit file back li
 import hashlib
 import inspect
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -166,6 +166,22 @@ def approved_state(
         idempotency_key=idempotency_key(scenario.id, proposal),
     )
     return state
+
+
+def naming_the_job_in_logs(scenario: Scenario, job: str) -> Scenario:
+    """A copy of the scenario with a log line naming `job` five minutes before the incident,
+    inside the hour the target_named_in_logs precondition reads."""
+    named = scenario.model_copy(deep=True)
+    named.signals.logs.append(
+        LogLine(
+            id="log-job-named",
+            timestamp=scenario.incident_time - timedelta(minutes=5),
+            level="INFO",
+            message=f"scheduler listed {job} among the running batch jobs",
+            service=scenario.service,
+        )
+    )
+    return named
 
 
 def with_remediation(state: IncidentState, **changes: Any) -> IncidentState:
@@ -480,7 +496,7 @@ def test_every_apply_record_carries_an_effect_matching_its_applied_value(tmp_pat
     clean_source = SimulatorSource(clean)
     run_executor(approved_state(clean), clean_source, applied_dir)
     run_executor(approved_state(clean), clean_source, applied_dir)
-    refusing = clean.model_copy(deep=True)
+    refusing = naming_the_job_in_logs(clean, "reindex-job-nightly")
     refusing.signals.config["batch_jobs_enabled"] = True
     pause = Remediation(
         action="pause_batch_job",
@@ -591,7 +607,7 @@ def test_a_key_already_in_the_source_ledger_returns_already_applied(tmp_path: Pa
 
 # E39: a source that refuses the action gives apply_failed and escalates.
 def test_a_source_refusal_is_apply_failed_and_escalates(tmp_path: Path) -> None:
-    scenario = scenario_named("clean_bad_deploy").model_copy(deep=True)
+    scenario = naming_the_job_in_logs(scenario_named("clean_bad_deploy"), "reindex-job-nightly")
     # Scenario 1 has no batch job flag; set it so the precondition passes and apply is reached.
     scenario.signals.config["batch_jobs_enabled"] = True
     source = SimulatorSource(scenario)
@@ -623,6 +639,35 @@ def test_a_source_refusal_is_apply_failed_and_escalates(tmp_path: Path) -> None:
     assert evidence.payload["applied"] is False
     assert after["escalation_reason"] == "apply_failed"
     assert after_execute(after) == "escalate"
+    assert source.ledger() == []
+
+
+# E39 negative: without a log line naming the job, the same run stops at precondition_failed.
+def test_a_job_target_absent_from_the_logs_stops_at_precondition_failed(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy").model_copy(deep=True)
+    scenario.signals.config["batch_jobs_enabled"] = True
+    source = SimulatorSource(scenario)
+    pause = Remediation(
+        action="pause_batch_job",
+        target="reindex-job-nightly",
+        reason="Shaped for a missing log line.",
+        evidence_ids=["log-001"],
+        risk="low",
+        rollback="Resume it.",
+    )
+    state = approved_state(scenario, remediation=pause)
+
+    update = execute_node(
+        state,
+        thread_config(state),
+        source=source,
+        registry=default_registry(),
+        audit=AuditLog(tmp_path),
+    )
+    [failure] = [item for item in update["evidence"] if item.kind == "precondition"]
+
+    assert failure.payload["check"] == "target_named_in_logs"
+    assert failure.payload["passed"] is False
     assert source.ledger() == []
 
 
