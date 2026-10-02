@@ -56,3 +56,9 @@ def test_pyyaml_is_a_runtime_requirement_only() -> None:
     dev_lines = requirement_lines("requirements-dev.txt")
 
     assert not any(line.startswith("pyyaml==") for line in dev_lines)
+
+
+def test_runtime_requirements_pin_langchain() -> None:
+    lines = requirement_lines("requirements.txt")
+
+    assert "langchain==1.4.3  # MIT" in lines
