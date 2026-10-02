@@ -638,7 +638,10 @@ def test_postmortem_names_an_action_whose_effect_is_unknown() -> None:
     described = applied_descriptions(state)
     prompt = postmortem_human_prompt(state, "0123456789abcdef")
 
-    assert described == ["scale_db_pool on postgres", "rollback_deploy on deploy-001 (effect unknown)"]
+    assert described == [
+        "scale_db_pool on postgres",
+        "rollback_deploy on deploy-001 (effect unknown)",
+    ]
     assert (
         "Actions applied: scale_db_pool on postgres; rollback_deploy on deploy-001 (effect unknown)"
         in prompt
@@ -649,7 +652,10 @@ def test_an_unknown_effect_later_confirmed_applied_is_described_once_as_applied(
     state = two_applied_actions_state()
     confirmed = state["evidence"][-1]
     unknown = confirmed.model_copy(
-        update={"id": "action-0", "payload": {**confirmed.payload, "applied": None, "effect": "unknown"}}
+        update={
+            "id": "action-0",
+            "payload": {**confirmed.payload, "applied": None, "effect": "unknown"},
+        }
     )
     state["evidence"] = [*state["evidence"][:-2], unknown, *state["evidence"][-2:]]
 
