@@ -113,10 +113,13 @@ one of `LANGCHAIN_TRACING_V2`, `LANGSMITH_TRACING_V2`, `LANGCHAIN_TRACING`) is t
 `true`, `yes` or `on`, any case) and `LANGSMITH_API_KEY` is set. A falsy value (`0`, `false`,
 `no`, `off` or empty) counts as unset, so tracing stays off whether or not a key is present.
 A truthy switch without a key, or a switch set to anything else, is a problem: `agentops eval`
-exits 1 naming the variable, never its value. When tracing is on, traces go to the project in
+exits 1 naming the variable, never its value. Only `agentops eval` checks this rule; the other
+commands (`run`, `approve`, `resume`, `history`, `fork`, `dataset`) do not read the switches, so
+a shell that has a switch and a key set will still let the LangChain libraries trace them. Unset
+the switches in a shell where that is not wanted. When tracing is on, traces go to the project in
 `LANGSMITH_PROJECT`, default `agentops`, and the header says so. A trace holds the prompts, the
-model outputs and the scenario's synthetic evidence. The tests clear `LANGSMITH_TRACING`,
-`LANGCHAIN_TRACING_V2` and the LangSmith key and endpoint variables before every test, and CI
+model outputs and the scenario's synthetic evidence. The tests clear all four switches and the LangSmith
+and LangChain key and endpoint variables before every test, and CI
 sets none of them.
 
 ### langgraph dev
