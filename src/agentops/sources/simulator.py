@@ -8,6 +8,7 @@ Given a ledger path, it also remembers applied actions across processes: each ap
 JSON line to that file before returning, and a source built on the file replays it (ADR 0002).
 """
 
+import json
 import os
 import re
 from pathlib import Path
@@ -59,6 +60,8 @@ class SimulatorSource:
         # Keys of the worlds already merged, so one world is never merged twice.
         self._merged_worlds: set[str] = set()
         self._ledger_path = ledger_path
+        # Numbers of ledger lines skipped on replay because a crash tore them mid-write.
+        self.torn_ledger_lines: list[int] = []
         if ledger_path is not None:
             check_ledger_file_name(ledger_path)
             self._replay(ledger_path)
@@ -166,18 +169,35 @@ class SimulatorSource:
         self._ledger.append(entry)
 
     def _replay(self, ledger_path: Path) -> None:
+        """Replays every line of the ledger file into this source.
+
+        Only a final line with no newline after it can be torn by a crash mid-write, and the
+        simulator applied nothing for it, so such a line that is not JSON is skipped and its
+        number kept in `torn_ledger_lines`. Any other line that is not an applied action this
+        scenario can model raises `LedgerError` naming it (D17).
+        """
         if not ledger_path.exists():
             return
-        lines = ledger_path.read_text(encoding="utf-8").splitlines()
-        for line_number, line in enumerate(lines, start=1):
-            entry = parse_ledger_line(ledger_path, line_number, line)
-            world_key = self._world_key_after(entry.action)
-            if world_key is None:
-                raise LedgerError(
-                    f"Ledger {ledger_path} line {line_number} names the action "
-                    f"{entry.action!r}, which this scenario cannot model."
-                )
-            self._record(entry, world_key)
+        complete_lines, final_line = read_ledger_lines(ledger_path)
+        for line_number, line in enumerate(complete_lines, start=1):
+            self._replay_line(ledger_path, line_number, line)
+        if final_line is None:
+            return
+        final_line_number = len(complete_lines) + 1
+        if is_json(final_line):
+            self._replay_line(ledger_path, final_line_number, final_line)
+        else:
+            self.torn_ledger_lines.append(final_line_number)
+
+    def _replay_line(self, ledger_path: Path, line_number: int, line: str) -> None:
+        entry = parse_ledger_line(ledger_path, line_number, line)
+        world_key = self._world_key_after(entry.action)
+        if world_key is None:
+            raise LedgerError(
+                f"Ledger {ledger_path} line {line_number} names the action "
+                f"{entry.action!r}, which this scenario cannot model."
+            )
+        self._record(entry, world_key)
 
     def _merge_world(self, world: PostActionWorld) -> None:
         series_by_id = {series.id: series for series in self._signals.metrics}
@@ -205,11 +225,43 @@ def parse_ledger_line(ledger_path: Path, line_number: int, line: str) -> Applied
         ) from error
 
 
+def read_ledger_lines(ledger_path: Path) -> tuple[list[str], str | None]:
+    """The lines that end in a newline, and the text after the last newline (None when the
+    file ends in one). Only that final text can be torn, so only it is decoded leniently: a
+    crash can cut a multibyte character, and a cut line is never valid JSON either way."""
+    raw = ledger_path.read_bytes()
+    complete_part, newline, final_part = raw.rpartition(b"\n")
+    complete_lines = (complete_part + newline).decode("utf-8").splitlines()
+    if not final_part:
+        return complete_lines, None
+    return complete_lines, final_part.decode("utf-8", errors="replace")
+
+
+def is_json(text: str) -> bool:
+    try:
+        json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
 def append_ledger_line(ledger_path: Path, entry: AppliedAction) -> None:
     """Appends one JSON line and syncs it to disk, so a process killed right after `apply`
-    returns still leaves the entry behind. The file is only ever opened in append mode."""
+    returns still leaves the entry behind. The file is only ever opened in append mode.
+
+    When a crash left the file without a final newline, the entry starts on a fresh line so
+    it never joins the torn fragment."""
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    separator = "" if ends_in_newline_or_is_empty(ledger_path) else "\n"
     with ledger_path.open("a", encoding="utf-8") as ledger_file:
-        ledger_file.write(entry.model_dump_json() + "\n")
+        ledger_file.write(separator + entry.model_dump_json() + "\n")
         ledger_file.flush()
         os.fsync(ledger_file.fileno())
+
+
+def ends_in_newline_or_is_empty(ledger_path: Path) -> bool:
+    if not ledger_path.exists() or ledger_path.stat().st_size == 0:
+        return True
+    with ledger_path.open("rb") as ledger_file:
+        ledger_file.seek(-1, os.SEEK_END)
+        return ledger_file.read(1) == b"\n"
