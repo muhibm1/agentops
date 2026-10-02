@@ -1,18 +1,26 @@
 """E19 and E20: the scripted chat model replays its script through structured output (R11).
+E10 and E11: it binds tools and replays tool-call messages for the baseline (R9).
 
 The schemas in the first tests are local stand-ins; the `scripted_model_for` tests use the real
 state schemas and a shipped scenario.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel, ValidationError
 
-from agentops.fakes import DEFAULT_ATTEMPTS, ScriptedChatModel, ScriptExhausted, scripted_model_for
-from agentops.sources.scenario import load_scenario
+from agentops.fakes import (
+    DEFAULT_ATTEMPTS,
+    ScriptedChatModel,
+    ScriptExhausted,
+    scripted_baseline_model_for,
+    scripted_model_for,
+)
+from agentops.sources.scenario import Scenario, load_scenario
 from agentops.state import Escalation, Postmortem, RcaOutput, Triage
 
 
@@ -174,3 +182,63 @@ def test_an_exhausted_marker_queue_raises() -> None:
 
     with pytest.raises(ScriptExhausted, match="Marker:"):
         model.with_structured_output(RcaStandIn).invoke([HumanMessage("Marker: yes")])
+
+
+def read_logs() -> str:
+    """A stand-in tool the model is bound to."""
+    return ""
+
+
+def read_metrics() -> str:
+    """A second stand-in tool the model is bound to."""
+    return ""
+
+
+def test_the_scripted_model_binds_tools_and_replays_tool_call_messages() -> None:
+    first_call = AIMessage(content="", tool_calls=[{"name": "read_logs", "args": {}, "id": "c-1"}])
+    second_call = AIMessage(
+        content="", tool_calls=[{"name": "read_metrics", "args": {}, "id": "c-2"}]
+    )
+    model = ScriptedChatModel(messages=[first_call, second_call], script=["the answer"])
+
+    bound = model.bind_tools([read_logs, read_metrics])
+    replies = [bound.invoke([HumanMessage("checkout is failing")]) for _ in range(3)]
+
+    assert bound is model
+    assert model.bound_tools == ["read_logs", "read_metrics"]
+    assert [reply.tool_calls for reply in replies[:2]] == [
+        first_call.tool_calls,
+        second_call.tool_calls,
+    ]
+    assert replies[2].content == "the answer"
+    assert replies[2].tool_calls == []
+
+
+def test_a_scenario_without_a_baseline_script_is_refused_by_name() -> None:
+    raw = json.loads(SCENARIO_PATH.read_text(encoding="utf-8"))
+    raw["scripted_outputs"].pop("baseline", None)
+
+    scenario = Scenario.model_validate(raw)
+
+    with pytest.raises(ValueError, match="clean_bad_deploy"):
+        scripted_baseline_model_for(scenario)
+
+
+def test_the_baseline_model_replays_one_tool_call_per_step_then_the_answer() -> None:
+    scenario = load_scenario(SCENARIO_PATH)
+    script = scenario.scripted_outputs.baseline
+    assert script is not None
+    model = scripted_baseline_model_for(scenario)
+
+    replies = [model.invoke("checkout is failing") for _ in range(len(script.steps) + 1)]
+
+    assert [reply.tool_calls[0]["name"] for reply in replies[:-1]] == [
+        step.tool for step in script.steps
+    ]
+    assert [reply.tool_calls[0]["args"] for reply in replies[:-1]] == [
+        step.args for step in script.steps
+    ]
+    assert [reply.tool_calls[0]["id"] for reply in replies[:-1]] == [
+        f"call-{n}" for n in range(1, len(script.steps) + 1)
+    ]
+    assert json.loads(str(replies[-1].content)) == script.answer

@@ -7,12 +7,12 @@ import pytest
 from agentops.fakes import ScriptedChatModel, scripted_model_for
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
 from agentops.sources.simulator import SimulatorSource
+from agentops.tracing import TRACING_SWITCHES
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 SCENARIO_IDS = list_scenario_ids(SCENARIOS_DIR)
 TRACING_VARIABLES = [
-    "LANGSMITH_TRACING",
-    "LANGCHAIN_TRACING_V2",
+    *TRACING_SWITCHES,
     "LANGSMITH_API_KEY",
     "LANGCHAIN_API_KEY",
     "LANGSMITH_ENDPOINT",

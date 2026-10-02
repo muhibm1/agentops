@@ -322,11 +322,10 @@ def test_a_restarted_source_replays_both_actions_into_the_combined_world(tmp_pat
 @pytest.mark.parametrize(
     "second_line",
     [
-        "{not json",
         '{"idempotency_key": "k"}',
         json.dumps({"idempotency_key": "k", **ROLLBACK.model_dump(), "x": 1}),
     ],
-    ids=["not json", "missing fields", "unknown key"],
+    ids=["missing fields", "unknown key"],
 )
 def test_a_malformed_ledger_line_stops_the_source_naming_the_line(
     tmp_path: Path, second_line: str
@@ -396,3 +395,382 @@ def test_the_same_action_under_a_new_key_does_not_merge_its_world_a_second_time(
         ]
         assert len(point_times) == len(set(point_times))
     assert len(source.ledger()) == 2
+
+
+TORN_FRAGMENT = '{"idempotency_key": "ab'
+SEAL_MARKER = '{"torn_seal": true}'
+ROLLBACK_LINE = json.dumps({"idempotency_key": "key-rollback-1", **ROLLBACK.model_dump()})
+
+
+def test_a_torn_final_ledger_line_is_skipped_and_counted(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}", encoding="utf-8")
+
+    source = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert [entry.idempotency_key for entry in source.ledger()] == ["key-rollback-1"]
+    assert source.torn_ledger_lines == [2]
+
+
+def test_a_ledger_holding_only_a_torn_fragment_replays_nothing_and_counts_line_one(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(TORN_FRAGMENT, encoding="utf-8")
+
+    source = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert source.ledger() == []
+    assert source.torn_ledger_lines == [1]
+
+
+def test_a_final_fragment_cut_inside_a_multibyte_character_is_torn(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    unicode_entry = json.dumps(
+        {"idempotency_key": "key-café", **ROLLBACK.model_dump()}, ensure_ascii=False
+    ).encode("utf-8")
+    cut_inside_e_acute = unicode_entry.index("é".encode()) + 1
+    ledger_path.write_bytes(ROLLBACK_LINE.encode() + b"\n" + unicode_entry[:cut_inside_e_acute])
+
+    source = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert [entry.idempotency_key for entry in source.ledger()] == ["key-rollback-1"]
+    assert source.torn_ledger_lines == [2]
+
+
+def test_a_ledger_with_no_torn_line_reports_none(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n", encoding="utf-8")
+
+    with_file = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+    without_file = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY))
+
+    assert with_file.torn_ledger_lines == []
+    assert without_file.torn_ledger_lines == []
+
+
+def test_an_append_after_a_torn_line_starts_a_fresh_line(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}", encoding="utf-8")
+    source = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    result = source.apply(ROLLBACK, "key-rollback-2")
+
+    lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert result.applied is True
+    assert len(lines) == 4
+    assert lines[1] == TORN_FRAGMENT
+    assert lines[2] == SEAL_MARKER
+    assert json.loads(lines[3])["idempotency_key"] == "key-rollback-2"
+    assert [entry.idempotency_key for entry in source.ledger()] == [
+        "key-rollback-1",
+        "key-rollback-2",
+    ]
+    assert source.torn_ledger_lines == [2]
+
+
+# D21, changed by the seal marker: a fragment sealed by a later append used to raise on the next
+# replay, which made the thread unreadable after a recovered crash. The marker line now tells a
+# sealed fragment from corruption, so the second process replays it and counts the fragment.
+def test_a_later_source_on_a_ledger_with_a_sealed_fragment_replays_and_counts_it(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}", encoding="utf-8")
+    SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path).apply(
+        ROLLBACK, "key-rollback-2"
+    )
+
+    later = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert [entry.idempotency_key for entry in later.ledger()] == [
+        "key-rollback-1",
+        "key-rollback-2",
+    ]
+    assert later.torn_ledger_lines == [2]
+
+
+def test_two_torn_crashes_in_a_row_replay_with_both_fragments_counted(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}", encoding="utf-8")
+    SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path).apply(
+        ROLLBACK, "key-rollback-2"
+    )
+    with ledger_path.open("a", encoding="utf-8") as ledger_file:
+        ledger_file.write(TORN_FRAGMENT)
+    SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path).apply(
+        ROLLBACK, "key-rollback-3"
+    )
+
+    later = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert len(ledger_path.read_text(encoding="utf-8").splitlines()) == 7
+    assert [entry.idempotency_key for entry in later.ledger()] == [
+        "key-rollback-1",
+        "key-rollback-2",
+        "key-rollback-3",
+    ]
+    assert later.torn_ledger_lines == [2, 5]
+
+
+@pytest.mark.parametrize(
+    ("content", "failing_line"),
+    [
+        (f"{SEAL_MARKER}\n{ROLLBACK_LINE}\n", "line 1"),
+        (f"{ROLLBACK_LINE}\n{SEAL_MARKER}\n", "line 2"),
+        (f"{ROLLBACK_LINE}\n{SEAL_MARKER}\n{TORN_FRAGMENT}", "line 2"),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{SEAL_MARKER}\n{ROLLBACK_LINE}\n", "line 3"),
+        (f'{TORN_FRAGMENT}\n{{"torn_seal": true, "x": 1}}\n{ROLLBACK_LINE}\n', "line 1"),
+        (f'{TORN_FRAGMENT}\n{{"torn_seal": false}}\n{ROLLBACK_LINE}\n', "line 1"),
+        (f'{TORN_FRAGMENT}\n{{"torn_seal": 1}}\n{ROLLBACK_LINE}\n', "line 1"),
+        (f"{TORN_FRAGMENT}\n{ROLLBACK_LINE}\n", "line 1"),
+    ],
+    ids=[
+        "marker first",
+        "marker after a valid line",
+        "marker after a valid line then a fragment",
+        "two markers in a row",
+        "marker with an extra key",
+        "marker with the value false",
+        "marker with the value 1",
+        "fragment followed by an entry, not a marker",
+    ],
+)
+def test_a_seal_marker_is_legal_only_directly_after_a_fragment(
+    tmp_path: Path, content: str, failing_line: str
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(LedgerError, match=failing_line):
+        SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+
+@pytest.mark.parametrize("ending", ["\n", ""], ids=["newline after", "final line"])
+@pytest.mark.parametrize(
+    "second_line",
+    [
+        '{"idempotency_key": "k"}',
+        json.dumps({"idempotency_key": "k", "action": "drop_table", "target": "x", "params": {}}),
+    ],
+    ids=["not an applied action", "unmodellable action"],
+)
+def test_a_complete_but_invalid_ledger_line_still_raises(
+    tmp_path: Path, second_line: str, ending: str
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{second_line}{ending}", encoding="utf-8")
+
+    with pytest.raises(LedgerError, match="line 2"):
+        SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+
+@pytest.mark.parametrize("ending", ["\n", ""], ids=["newline after", "no newline after"])
+def test_a_non_json_line_that_is_not_the_last_still_raises(tmp_path: Path, ending: str) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{TORN_FRAGMENT}\n{ROLLBACK_LINE}{ending}", encoding="utf-8")
+
+    with pytest.raises(LedgerError, match="line 1"):
+        SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+
+def replayed(ledger_path: Path) -> SimulatorSource:
+    return SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+
+def keys_of(source: SimulatorSource) -> list[str]:
+    return [entry.idempotency_key for entry in source.ledger()]
+
+
+# A second crash inside the repair write itself must not brick the ledger: every shape the cut
+# can take is a run of non-JSON lines that ends at a marker or at the end of the file.
+@pytest.mark.parametrize(
+    ("tail", "torn_lines"),
+    [
+        (f"{TORN_FRAGMENT}\n", [2]),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER[:-3]}", [2, 3]),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER[:1]}", [2, 3]),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{ROLLBACK_LINE[:20]}", [2, 4]),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{ROLLBACK_LINE[:20]}\n", [2, 4]),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}", [2]),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n", [2]),
+    ],
+    ids=[
+        "fragment then bare newline",
+        "fragment then torn marker",
+        "fragment then one byte of marker",
+        "torn entry after the marker",
+        "torn entry after the marker with a newline",
+        "marker without its newline",
+        "marker with nothing after it",
+    ],
+)
+def test_a_tear_inside_the_repair_write_still_replays_and_counts_every_cut_line(
+    tmp_path: Path, tail: str, torn_lines: list[int]
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{tail}", encoding="utf-8")
+
+    source = replayed(ledger_path)
+
+    assert keys_of(source) == ["key-rollback-1"]
+    assert source.torn_ledger_lines == torn_lines
+
+
+@pytest.mark.parametrize(
+    "tail",
+    [
+        f"{TORN_FRAGMENT}\n{SEAL_MARKER[:-3]}",
+        f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{ROLLBACK_LINE[:20]}",
+        f"{TORN_FRAGMENT}\n",
+        f"{TORN_FRAGMENT}\n{SEAL_MARKER}",
+    ],
+    ids=["torn marker", "torn entry after marker", "bare newline", "marker without newline"],
+)
+def test_an_append_after_a_tear_inside_the_repair_write_replays_in_a_later_process(
+    tmp_path: Path, tail: str
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{tail}", encoding="utf-8")
+    replayed(ledger_path).apply(ROLLBACK, "key-rollback-2")
+
+    later = replayed(ledger_path)
+
+    assert keys_of(later) == ["key-rollback-1", "key-rollback-2"]
+
+
+def test_repeated_crashes_with_a_different_cut_each_time_never_brick_the_ledger(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}", encoding="utf-8")
+    cuts = [SEAL_MARKER[:-3], ROLLBACK_LINE[:20], "", SEAL_MARKER[:2]]
+    for number, cut in enumerate(cuts, start=2):
+        replayed(ledger_path).apply(ROLLBACK, f"key-rollback-{number}")
+        with ledger_path.open("a", encoding="utf-8") as ledger_file:
+            ledger_file.write(cut)
+
+    later = replayed(ledger_path)
+
+    assert keys_of(later) == [f"key-rollback-{number}" for number in range(1, 6)]
+
+
+def test_a_final_entry_that_is_complete_json_without_its_newline_gets_only_a_newline(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_bytes(ROLLBACK_LINE.encode())
+    first = replayed(ledger_path)
+    assert keys_of(first) == ["key-rollback-1"]
+
+    first.apply(ROLLBACK, "key-rollback-2")
+
+    lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert SEAL_MARKER not in lines
+    later = replayed(ledger_path)
+    assert keys_of(later) == ["key-rollback-1", "key-rollback-2"]
+    assert later.torn_ledger_lines == []
+
+
+def test_an_append_after_a_marker_that_is_the_last_line_adds_no_second_marker(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}\n{SEAL_MARKER}\n", encoding="utf-8")
+
+    replayed(ledger_path).apply(ROLLBACK, "key-rollback-2")
+
+    lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert lines.count(SEAL_MARKER) == 1
+    assert keys_of(replayed(ledger_path)) == ["key-rollback-1", "key-rollback-2"]
+
+
+def test_an_append_to_a_ledger_with_a_complete_last_line_adds_no_marker(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n", encoding="utf-8")
+
+    replayed(ledger_path).apply(ROLLBACK, "key-rollback-2")
+
+    assert SEAL_MARKER not in ledger_path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("content", "failing_line"),
+    [
+        (f"{TORN_FRAGMENT}\n{ROLLBACK_LINE}\n", "line 1"),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER[:-3]}\n{ROLLBACK_LINE}\n", "line 1"),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{ROLLBACK_LINE[:20]}\n{ROLLBACK_LINE}\n", "line 3"),
+        (f"{ROLLBACK_LINE}\n{SEAL_MARKER}\n", "line 2"),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{SEAL_MARKER}\n", "line 3"),
+        (
+            f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{ROLLBACK_LINE[:20]}\n{SEAL_MARKER}\n{SEAL_MARKER}",
+            "line 5",
+        ),
+    ],
+    ids=[
+        "fragment then an entry",
+        "torn marker then an entry",
+        "torn entry after a marker then an entry",
+        "marker after an entry",
+        "marker after a marker",
+        "second marker after a sealed torn entry",
+    ],
+)
+def test_a_run_of_torn_lines_followed_by_an_entry_or_a_stray_marker_still_raises(
+    tmp_path: Path, content: str, failing_line: str
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(LedgerError, match=failing_line):
+        replayed(ledger_path)
+
+
+# Windows text mode turned "\n" into "\r\n", so a write cut between the two left a last line
+# ending in "\r" and the next append produced "\r\r\n".
+def test_an_append_after_a_write_cut_between_cr_and_lf_replays_cleanly(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_bytes(ROLLBACK_LINE.encode() + b"\r")
+
+    replayed(ledger_path).apply(ROLLBACK, "key-rollback-2")
+
+    assert b"\r\r" not in ledger_path.read_bytes()
+    again = replayed(ledger_path)
+    assert [entry.idempotency_key for entry in again.ledger()] == [
+        "key-rollback-1",
+        "key-rollback-2",
+    ]
+
+
+def test_a_ledger_written_with_crlf_line_ends_still_replays(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_bytes(f"{ROLLBACK_LINE}\r\n".encode())
+
+    source = replayed(ledger_path)
+
+    assert [entry.idempotency_key for entry in source.ledger()] == ["key-rollback-1"]
+
+
+def test_a_new_ledger_line_ends_in_a_bare_newline(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+
+    replayed(ledger_path).apply(ROLLBACK, "key-rollback-1")
+
+    assert b"\r" not in ledger_path.read_bytes()
+
+
+def test_a_whitespace_only_line_in_the_middle_is_skipped_but_other_junk_still_raises(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n  \t\n\n{ROLLBACK_LINE}\n", encoding="utf-8")
+
+    skipped = replayed(ledger_path)
+
+    assert [entry.idempotency_key for entry in skipped.ledger()] == ["key-rollback-1"] * 2
+    assert skipped.torn_ledger_lines == []
+
+    ledger_path.write_text(f"{ROLLBACK_LINE}\nnot json\n{ROLLBACK_LINE}\n", encoding="utf-8")
+    with pytest.raises(LedgerError, match="line 2"):
+        replayed(ledger_path)

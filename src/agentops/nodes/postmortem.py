@@ -108,18 +108,30 @@ def fallback_postmortem(state: IncidentState) -> Postmortem:
 
 
 def applied_descriptions(state: IncidentState) -> list[str]:
-    """`<action> on <target>` for every change in effect, in the order applied. The action
-    evidence is the record of every loop; the last execution is the fallback when it has none."""
+    """`<action> on <target>` for every change in effect, in the order applied, then
+    `<action> on <target> (effect unknown)` for every change whose apply raised and that no later
+    evidence confirms. The action evidence is the record of every loop; the last execution is the
+    fallback when it has none."""
     described: dict[str, str] = {}
+    unknown: dict[str, str] = {}
     for item in state["evidence"]:
-        if item.kind == "action" and item.payload.get("applied") is True:
-            key = str(item.payload.get("idempotency_key", item.id))
-            action = neutralise_delimiters(str(item.payload.get("action", item.id)))
-            described[key] = f"{action} on {neutralise_delimiters(str(item.payload.get('target')))}"
+        if item.kind != "action":
+            continue
+        key = str(item.payload.get("idempotency_key", item.id))
+        if item.payload.get("applied") is True:
+            described[key] = action_description(item.payload, item.id)
+        elif item.payload.get("effect") == "unknown":
+            unknown[key] = f"{action_description(item.payload, item.id)} (effect unknown)"
     execution = state["execution"]
     if not described and execution is not None and execution.applied:
         described[execution.idempotency_key] = f"{execution.action} on {execution.target}"
-    return list(described.values())
+    still_unknown = [text for key, text in unknown.items() if key not in described]
+    return [*described.values(), *still_unknown]
+
+
+def action_description(payload: dict[str, Any], evidence_id: str) -> str:
+    action = neutralise_delimiters(str(payload.get("action", evidence_id)))
+    return f"{action} on {neutralise_delimiters(str(payload.get('target')))}"
 
 
 def fallback_citations(state: IncidentState) -> list[str]:

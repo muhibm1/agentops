@@ -1,4 +1,5 @@
-"""E6, E7, E36, E37, E52: the typed runbook, its loader and the registry built from it."""
+"""E6, E7, E36, E37, E52 and increment 4's E21, E24, A9: the typed runbook, its loader and the
+registry built from it."""
 
 import hashlib
 import json
@@ -17,6 +18,7 @@ from agentops.actions.registry import (
     idempotency_key,
 )
 from agentops.actions.runbook import RunbookError, load_runbook
+from agentops.sources.base import VERIFY_WINDOW
 from agentops.sources.scenario import Scenario, load_scenario
 from agentops.state import Remediation
 
@@ -372,3 +374,80 @@ def test_a_runbook_entry_without_a_target_pattern_is_rejected(tmp_path: Path) ->
 
     with pytest.raises(RunbookError, match="target_pattern"):
         load_runbook(path)
+
+
+# E21 (increment 4, R5): the verify window is a bounded per-action runbook parameter.
+def test_verify_window_minutes_defaults_to_thirty_and_is_bounded(tmp_path: Path) -> None:
+    def loaded_window(minutes: int | None) -> int:
+        line = "" if minutes is None else f"  verify_window_minutes: {minutes}\n"
+        path = write_runbook(tmp_path, VALID_ENTRY + line)
+        (entry,) = load_runbook(path)
+        return entry.verify_window_minutes
+
+    assert loaded_window(None) == 30
+    assert loaded_window(None) == VERIFY_WINDOW.total_seconds() // 60
+    assert loaded_window(1) == 1
+    assert loaded_window(1440) == 1440
+    for out_of_range in (0, 1441):
+        with pytest.raises(RunbookError, match="verify_window_minutes"):
+            loaded_window(out_of_range)
+
+
+# E24 (increment 4, R6): each job action accepts only its own naming convention.
+@pytest.mark.parametrize(
+    ("action", "params", "accepted", "rejected"),
+    [
+        (
+            "rerun_partition",
+            {"partition": "2026-03-18"},
+            "daily_revenue_rollup",
+            ["reindex-job-nightly", "daily", "tmp_table"],
+        ),
+        ("pause_batch_job", {}, "reindex-job-nightly", ["daily_revenue_rollup", "job", "reindex"]),
+    ],
+)
+def test_job_actions_accept_only_their_naming_convention(
+    registry: Registry,
+    action: str,
+    params: dict[str, Any],
+    accepted: str,
+    rejected: list[str],
+) -> None:
+    registry.validate_params(action, params, target=accepted)
+
+    for target in rejected:
+        with pytest.raises(ParameterError) as raised:
+            registry.validate_params(action, params, target=target)
+        assert raised.value.parameters == ["target"], target
+
+
+# A9 (increment 4, R6): the job patterns are full matches over exact characters.
+@pytest.mark.parametrize(
+    ("action", "params", "target"),
+    [
+        ("rerun_partition", {"partition": "2026-03-18"}, "daily_revenue_rollup\n"),
+        ("rerun_partition", {"partition": "2026-03-18"}, "Daily_Revenue_Rollup"),
+        ("rerun_partition", {"partition": "2026-03-18"}, "daily_revenue_rollup "),
+        ("rerun_partition", {"partition": "2026-03-18"}, "da\u0456ly_revenue_rollup"),
+        ("pause_batch_job", {}, "reindex-job-nightly\n"),
+        ("pause_batch_job", {}, "Reindex-Job"),
+        ("pause_batch_job", {}, "reindex\u2011job"),
+    ],
+    ids=[
+        "rollup trailing newline",
+        "rollup upper case",
+        "rollup trailing space",
+        "rollup cyrillic i",
+        "job trailing newline",
+        "job upper case",
+        "job non-breaking hyphen",
+    ],
+)
+def test_job_targets_with_trailing_newline_case_or_lookalike_characters_are_rejected(
+    registry: Registry, action: str, params: dict[str, Any], target: str
+) -> None:
+    with pytest.raises(ParameterError) as raised:
+        registry.validate_params(action, params, target=target)
+
+    assert raised.value.parameters == ["target"]
+    assert registry.get(action).target_pattern in str(raised.value)

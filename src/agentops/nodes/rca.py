@@ -252,6 +252,9 @@ def rca_human_prompt(state: IncidentState, nonce: str) -> str:
     applied = applied_action_names(state["evidence"])
     if applied:
         lines.append(f"Actions already applied: {', '.join(applied)}")
+    possibly_applied = possibly_applied_action_names(state["evidence"])
+    if possibly_applied:
+        lines.append(f"Actions possibly applied: {', '.join(possibly_applied)}")
     return "\n".join(lines) + "\n\n" + render_evidence(state["evidence"], nonce)
 
 
@@ -259,11 +262,27 @@ def applied_action_names(evidence: Sequence[Evidence]) -> list[str]:
     """The distinct action names of the evidence items of kind `action` that record a change in
     effect, in the order they were applied."""
     names = [
-        str(neutralise_delimiters(str(item.payload.get("action", item.id))))
+        action_name(item)
         for item in evidence
         if item.kind == "action" and item.payload.get("applied") is True
     ]
     return list(dict.fromkeys(names))
+
+
+def possibly_applied_action_names(evidence: Sequence[Evidence]) -> list[str]:
+    """The distinct action names whose apply raised (`effect` is `unknown`) and that no evidence
+    records as applied: the change may be in effect, and rca must not assume either way."""
+    applied = set(applied_action_names(evidence))
+    names = [
+        action_name(item)
+        for item in evidence
+        if item.kind == "action" and item.payload.get("effect") == "unknown"
+    ]
+    return [name for name in dict.fromkeys(names) if name not in applied]
+
+
+def action_name(item: Evidence) -> str:
+    return str(neutralise_delimiters(str(item.payload.get("action", item.id))))
 
 
 def render_evidence(evidence: Sequence[Evidence], nonce: str) -> str:

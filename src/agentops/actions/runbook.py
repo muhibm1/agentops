@@ -11,7 +11,13 @@ from typing import Annotated, Literal, Self
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from agentops.sources.base import VERIFY_WINDOW
+
 ACTION_NAME = r"^[a-z0-9_]+$"
+# An action that declares no window is verified over the same 30 minutes scenario files are
+# held to (ADR 0003), so the default never lets verify read past what a scenario may place.
+DEFAULT_VERIFY_WINDOW_MINUTES = int(VERIFY_WINDOW.total_seconds() // 60)
+MAX_VERIFY_WINDOW_MINUTES = 24 * 60
 
 
 class RunbookError(ValueError):
@@ -80,13 +86,21 @@ class ConfigTrue(RunbookModel):
     key: str = Field(pattern=ACTION_NAME)
 
 
+class TargetNamedInLogs(RunbookModel):
+    """Passes only when a log line of the service, in the hour before the incident opened,
+    names the target."""
+
+    check: Literal["target_named_in_logs"]
+
+
 Precondition = Annotated[
     MetricAbove
     | MetricBelow
     | DeploymentWithinMinutes
     | PreviousVersionAvailable
     | DependencyNotHealthy
-    | ConfigTrue,
+    | ConfigTrue
+    | TargetNamedInLogs,
     Field(discriminator="check"),
 ]
 
@@ -117,6 +131,10 @@ class ActionEntry(RunbookModel):
     dry_run: Literal["describe"]
     rollback: RollbackDeclaration
     idempotent: bool
+    # How long after the incident opened verify and the metric preconditions read signals.
+    verify_window_minutes: int = Field(
+        default=DEFAULT_VERIFY_WINDOW_MINUTES, ge=1, le=MAX_VERIFY_WINDOW_MINUTES
+    )
 
     @model_validator(mode="after")
     def check_target_pattern_compiles(self) -> Self:

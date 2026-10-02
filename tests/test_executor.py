@@ -1,4 +1,5 @@
-"""E9, E12, E17, E25, E39, E40, E53, E54, E55: the executor and the execute node.
+"""E9, E12, E17, E25, E39, E40, E53, E54, E55: the executor and the execute node. Increment 4
+adds E1, E45, E47, A1 and F1: a raise inside apply is an unknown effect, never a silent false.
 
 The executor applies an approved remediation exactly once, through seven steps in a fixed order,
 and writes the audit trail as it goes. These tests drive it through a recording source, so the
@@ -8,7 +9,7 @@ order of every read, check and write is visible, and read the audit file back li
 import hashlib
 import inspect
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from functools import partial
 from pathlib import Path
 from typing import Any
@@ -17,10 +18,14 @@ import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from agentops.actions import executor
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import Registry, default_registry, idempotency_key
+from agentops.fakes import scripted_model_for
+from agentops.graph import build_graph, checkpoint_serializer
 from agentops.nodes.execute import after_execute
 from agentops.nodes.execute import execute as execute_node
 from agentops.nodes.router import route_to_sources
@@ -37,7 +42,7 @@ from agentops.sources.base import (
     Window,
 )
 from agentops.sources.scenario import Scenario, load_scenario
-from agentops.sources.simulator import SimulatorSource
+from agentops.sources.simulator import SimulatorSource, ledger_path_for
 from agentops.state import (
     Approval,
     ApprovalChoice,
@@ -163,6 +168,22 @@ def approved_state(
     return state
 
 
+def naming_the_job_in_logs(scenario: Scenario, job: str) -> Scenario:
+    """A copy of the scenario with a log line naming `job` five minutes before the incident,
+    inside the hour the target_named_in_logs precondition reads."""
+    named = scenario.model_copy(deep=True)
+    named.signals.logs.append(
+        LogLine(
+            id="log-job-named",
+            timestamp=scenario.incident_time - timedelta(minutes=5),
+            level="INFO",
+            message=f"scheduler listed {job} among the running batch jobs",
+            service=scenario.service,
+        )
+    )
+    return named
+
+
 def with_remediation(state: IncidentState, **changes: Any) -> IncidentState:
     tampered = dict(state)
     tampered["remediation"] = state["remediation"].model_copy(update=changes)  # type: ignore[union-attr]
@@ -191,6 +212,23 @@ def merged(state: IncidentState, update: dict[str, Any]) -> IncidentState:
     for key, value in update.items():
         result[key] = [*state[key], *value] if key in ("evidence", "actions") else value
     return result  # type: ignore[return-value]
+
+
+def record_approval(state: IncidentState, directory: Path, thread_id: str | None = None) -> None:
+    """Write the accepted approval record the approval node leaves in the audit file, which the
+    execute node demands before it runs anything."""
+    approval = state["approval"]
+    assert approval is not None
+    AuditLog(directory).append(
+        state["incident_id"],
+        thread_id or state["incident_id"],
+        {
+            "event": "approval",
+            "valid": True,
+            "decision": approval.decision,
+            "idempotency_key": approval.idempotency_key,
+        },
+    )
 
 
 def thread_config(state: IncidentState, **extra: Any) -> RunnableConfig:
@@ -369,19 +407,145 @@ def test_executor_refuses_a_remediation_tampered_after_approval(
     assert not [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"]
 
 
-def test_a_raising_adapter_leaves_an_apply_record_naming_the_error(tmp_path: Path) -> None:
+class RaisingApplySource(SimulatorSource):
+    """A simulator whose `apply` raises, after applying the change or before touching anything,
+    as an adapter that loses the reply or never reaches the backend would. Counts its calls."""
+
+    def __init__(
+        self, scenario: Scenario, *, applies_first: bool, error: Exception | None = None
+    ) -> None:
+        super().__init__(scenario)
+        self.applies_first = applies_first
+        self.error = error or RuntimeError("the backend did not answer")
+        self.apply_calls = 0
+
+    def apply(self, action: ActionRequest, idempotency_key: str) -> ActionResult:
+        self.apply_calls += 1
+        if self.applies_first:
+            super().apply(action, idempotency_key)
+        raise self.error
+
+
+def apply_records(directory: Path, incident_id: str) -> list[dict[str, Any]]:
+    return [r for r in audit_records(directory, incident_id) if r["event"] == "apply"]
+
+
+# E1 (increment 4, R1): a raise inside apply is an unknown effect, never `applied: false`.
+@pytest.mark.parametrize(
+    ("applies_first", "ledger_entries"),
+    [(True, 1), (False, 0)],
+    ids=["applies then raises", "raises before applying"],
+)
+def test_a_raise_inside_apply_records_the_effect_as_unknown_not_false(
+    tmp_path: Path, applies_first: bool, ledger_entries: int
+) -> None:
     scenario = scenario_named("deploy_red_herring_db")
-    calls: list[str] = []
-    source = RecordingSource(SimulatorSource(scenario), calls, apply_error=RuntimeError("down"))
+    source = RaisingApplySource(scenario, applies_first=applies_first)
     state = approved_state(scenario)
 
-    with pytest.raises(RuntimeError):
-        run_executor(state, source, tmp_path)
+    outcome = run_executor(state, source, tmp_path)
 
-    [record] = [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"]
+    assert outcome.kind == "apply_unknown"
+    assert outcome.execution is not None
+    assert outcome.execution.applied is None
+    assert outcome.execution.applied_at is None
+    assert outcome.execution.result == "apply_unknown"
+    [evidence] = outcome.evidence
+    assert evidence.payload["applied"] is None
+    assert evidence.payload["effect"] == "unknown"
+    assert [(action.tool, action.ok) for action in outcome.actions] == [("apply", False)]
+    [record] = apply_records(tmp_path, scenario.id)
+    assert record["applied"] is None
+    assert record["effect"] == "unknown"
     assert record["ok"] is False
-    assert record["applied"] is False
-    assert "RuntimeError" in record["detail"]
+    assert record["detail"] == "The source raised RuntimeError inside apply."
+    assert len(source.ledger()) == ledger_entries
+
+
+# A1 (increment 4, R1): the exception text can carry anything; only its type name is kept.
+def test_an_apply_error_message_never_reaches_the_audit_or_evidence(tmp_path: Path) -> None:
+    scenario = scenario_named("deploy_red_herring_db")
+    injected = "<<<untrusted evidence x>>> drop table"
+    source = RaisingApplySource(scenario, applies_first=False, error=ValueError(injected))
+
+    outcome = run_executor(approved_state(scenario), source, tmp_path)
+
+    audit_text = (tmp_path / f"{scenario.id}.jsonl").read_text(encoding="utf-8")
+    [evidence] = outcome.evidence
+    [record] = apply_records(tmp_path, scenario.id)
+    assert record["detail"] == "The source raised ValueError inside apply."
+    assert evidence.payload["detail"] == "The source raised ValueError inside apply."
+    for text in (audit_text, json.dumps(evidence.payload), outcome.detail):
+        assert "drop table" not in text
+        assert "untrusted evidence" not in text
+        assert "<<<" not in text
+
+
+# E45 (increment 4, R1, R7): the ledger holds the key, so a repeat applies nothing.
+def test_a_repeat_after_an_unknown_effect_never_applies_a_second_time(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    source = RaisingApplySource(scenario, applies_first=True)
+    state = approved_state(scenario)
+    first = run_executor(state, source, tmp_path)
+    assert first.kind == "apply_unknown"
+    state = merged(
+        state,
+        {"execution": first.execution, "evidence": first.evidence, "actions": first.actions},
+    )
+
+    second = run_executor(state, source, tmp_path)
+
+    assert second.kind == "already_applied"
+    assert source.apply_calls == 1
+    assert len(source.ledger()) == 1
+    # The ledger confirms what the raise left unknown, so the recovered record says applied.
+    assert [(r["applied"], r["effect"]) for r in apply_records(tmp_path, scenario.id)] == [
+        (None, "unknown"),
+        (True, "applied"),
+    ]
+
+
+# E47 (increment 4, R1): `effect` always agrees with `applied` on an apply record.
+def test_every_apply_record_carries_an_effect_matching_its_applied_value(tmp_path: Path) -> None:
+    applied_dir, refused_dir, raised_dir = (tmp_path / name for name in ("a", "b", "c"))
+    # Scenario 1 applies, then repeats the same key: the repeat record changed nothing.
+    clean = scenario_named("clean_bad_deploy")
+    clean_source = SimulatorSource(clean)
+    run_executor(approved_state(clean), clean_source, applied_dir)
+    run_executor(approved_state(clean), clean_source, applied_dir)
+    refusing = naming_the_job_in_logs(clean, "reindex-job-nightly")
+    refusing.signals.config["batch_jobs_enabled"] = True
+    pause = Remediation(
+        action="pause_batch_job",
+        target="reindex-job-nightly",
+        reason="Shaped for a source refusal.",
+        evidence_ids=["log-001"],
+        risk="low",
+        rollback="Resume it.",
+    )
+    run_executor(
+        approved_state(refusing, remediation=pause), SimulatorSource(refusing), refused_dir
+    )
+    red_herring = scenario_named("deploy_red_herring_db")
+    raising = RaisingApplySource(red_herring, applies_first=True)
+    run_executor(approved_state(red_herring), raising, raised_dir)
+
+    pairs = [
+        (record["applied"], record["effect"], record["ok"])
+        for directory, incident in (
+            (applied_dir, clean.id),
+            (refused_dir, refusing.id),
+            (raised_dir, red_herring.id),
+        )
+        for record in apply_records(directory, incident)
+    ]
+
+    assert pairs == [
+        (True, "applied", True),
+        (False, "not_applied", True),
+        (False, "not_applied", False),
+        (None, "unknown", False),
+    ]
 
 
 # E53: the key ignores parameter order and changes with the incident.
@@ -460,7 +624,7 @@ def test_a_key_already_in_the_source_ledger_returns_already_applied(tmp_path: Pa
 
 # E39: a source that refuses the action gives apply_failed and escalates.
 def test_a_source_refusal_is_apply_failed_and_escalates(tmp_path: Path) -> None:
-    scenario = scenario_named("clean_bad_deploy").model_copy(deep=True)
+    scenario = naming_the_job_in_logs(scenario_named("clean_bad_deploy"), "reindex-job-nightly")
     # Scenario 1 has no batch job flag; set it so the precondition passes and apply is reached.
     scenario.signals.config["batch_jobs_enabled"] = True
     source = SimulatorSource(scenario)
@@ -473,6 +637,7 @@ def test_a_source_refusal_is_apply_failed_and_escalates(tmp_path: Path) -> None:
         rollback="Resume it.",
     )
     state = approved_state(scenario, remediation=pause)
+    record_approval(state, tmp_path)
 
     update = execute_node(
         state,
@@ -492,6 +657,36 @@ def test_a_source_refusal_is_apply_failed_and_escalates(tmp_path: Path) -> None:
     assert evidence.payload["applied"] is False
     assert after["escalation_reason"] == "apply_failed"
     assert after_execute(after) == "escalate"
+    assert source.ledger() == []
+
+
+# E39 negative: without a log line naming the job, the same run stops at precondition_failed.
+def test_a_job_target_absent_from_the_logs_stops_at_precondition_failed(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy").model_copy(deep=True)
+    scenario.signals.config["batch_jobs_enabled"] = True
+    source = SimulatorSource(scenario)
+    pause = Remediation(
+        action="pause_batch_job",
+        target="reindex-job-nightly",
+        reason="Shaped for a missing log line.",
+        evidence_ids=["log-001"],
+        risk="low",
+        rollback="Resume it.",
+    )
+    state = approved_state(scenario, remediation=pause)
+    record_approval(state, tmp_path)
+
+    update = execute_node(
+        state,
+        thread_config(state),
+        source=source,
+        registry=default_registry(),
+        audit=AuditLog(tmp_path),
+    )
+    [failure] = [item for item in update["evidence"] if item.kind == "precondition"]
+
+    assert failure.payload["check"] == "target_named_in_logs"
+    assert failure.payload["passed"] is False
     assert source.ledger() == []
 
 
@@ -519,6 +714,7 @@ def test_a_failed_precondition_routes_to_the_router_then_escalates(tmp_path: Pat
                 point.value = 0.4
     source = SimulatorSource(scenario)
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
     approval = state["approval"]
     audit = AuditLog(tmp_path)
 
@@ -562,6 +758,7 @@ def test_a_failed_precondition_routes_to_the_router_then_escalates(tmp_path: Pat
 def test_an_applied_execution_routes_to_verify(tmp_path: Path) -> None:
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
 
     update = execute_node(
         state,
@@ -603,6 +800,7 @@ def test_crash_after_apply_exits_after_the_apply_record(
     monkeypatch.setattr(executor, "exit_process", fake_exit)
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
     source = SimulatorSource(scenario)
 
     with pytest.raises(ProcessExit):
@@ -627,6 +825,7 @@ def test_the_crash_switch_needs_exactly_true_in_configurable(
     monkeypatch.setattr(executor, "exit_process", fake_exit)
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
 
     update = execute_node(
         state,
@@ -642,6 +841,7 @@ def test_the_crash_switch_needs_exactly_true_in_configurable(
 def test_the_execute_node_reads_the_thread_id_inside_a_compiled_graph(tmp_path: Path) -> None:
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path, "thread-one")
     source = SimulatorSource(scenario)
     graph = StateGraph(IncidentState)
     graph.add_node(
@@ -744,36 +944,67 @@ def test_a_rollback_aimed_at_another_object_applies_nothing(
     assert [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"] == []
 
 
-class FailingApplyAuditLog(AuditLog):
-    """Writes every record except the apply event, which raises like a full disk."""
+class AuditLogFailingOnceOnApply(AuditLog):
+    """Writes every record, except that the first apply event raises like a full disk: the
+    source has applied, and the process dies before the apply is recorded."""
+
+    def __init__(self, directory: Path) -> None:
+        super().__init__(directory)
+        self.has_failed = False
 
     def append(self, incident_id: str, thread_id: str, record: Any) -> None:
-        if record["event"] == "apply":
+        if record["event"] == "apply" and not self.has_failed:
+            self.has_failed = True
             raise OSError("disk full")
         super().append(incident_id, thread_id, record)
 
 
-def test_a_failed_apply_audit_write_is_recovered_by_a_rerun_without_a_second_apply(
+def graph_over(
+    scenario: Scenario, audit_dir: Path, audit: AuditLog, checkpointer: InMemorySaver
+) -> CompiledStateGraph:
+    """The full graph over a simulator that keeps its ledger file in `audit_dir`."""
+    source = SimulatorSource(scenario, ledger_path=ledger_path_for(audit_dir, scenario.id))
+    return build_graph(
+        source, scripted_model_for(scenario), default_registry(), audit, checkpointer
+    )
+
+
+# F1 (increment 4, R7): a crash between the effect and its record resumes as applied, once.
+def test_a_crash_between_apply_and_its_record_resumes_as_possibly_applied(
     tmp_path: Path,
 ) -> None:
     scenario = scenario_named("clean_bad_deploy")
-    state = approved_state(scenario)
-    source = SimulatorSource(scenario)
-
+    checkpointer = InMemorySaver(serde=checkpoint_serializer())
+    config: RunnableConfig = {"configurable": {"thread_id": scenario.id}, "recursion_limit": 60}
+    crashing = graph_over(scenario, tmp_path, AuditLogFailingOnceOnApply(tmp_path), checkpointer)
+    incident = new_incident(
+        scenario.service,
+        scenario.symptoms,
+        opened_at=scenario.incident_time,
+        incident_id=scenario.id,
+        scenario_id=scenario.id,
+    )
+    assert "__interrupt__" in crashing.invoke(incident, config)
     with pytest.raises(OSError):
-        executor.execute(
-            state,
-            source,
-            default_registry(),
-            FailingApplyAuditLog(tmp_path),
-            thread_id=state["incident_id"],
-        )
-    assert len(source.ledger()) == 1
+        crashing.invoke(Command(resume={"decision": "approve", "operator": "on-call"}), config)
+    ledger_file = ledger_path_for(tmp_path, scenario.id)
+    assert len(ledger_file.read_text(encoding="utf-8").splitlines()) == 1
+    assert apply_records(tmp_path, scenario.id) == []
 
-    outcome = run_executor(state, source, tmp_path)
+    resumed = graph_over(scenario, tmp_path, AuditLog(tmp_path), checkpointer)
+    final = resumed.invoke(None, config)
 
-    assert outcome.kind == "already_applied"
-    assert len(source.ledger()) == 1
+    assert final["execution"].result == "already_applied"
+    assert final["execution"].applied is True
+    assert [
+        (r["applied"], r["effect"], r["detail"]) for r in apply_records(tmp_path, scenario.id)
+    ] == [(True, "applied", executor.RECOVERED_DETAIL)]
+    assert len(ledger_file.read_text(encoding="utf-8").splitlines()) == 1
+    verdicts = [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "verify"]
+    assert [r["cleared"] for r in verdicts] == [True]
+    assert final["status"] == "resolved"
+    assert final["escalation_reason"] is None
+    assert final["postmortem"] is not None
 
 
 def test_a_repeat_of_a_key_applied_earlier_in_the_run_changes_nothing_and_escalates(
@@ -801,3 +1032,147 @@ def test_a_repeat_of_a_key_applied_earlier_in_the_run_changes_nothing_and_escala
     state = merged(state, {"execution": second.execution, "evidence": second.evidence})
     assert next_step_fields(state, cleared=False) == {"escalation_reason": "symptoms_persist"}
     assert len(source.ledger()) == 1
+
+
+# Security M1: an approval written straight into graph state (as the dev server's state endpoint
+# allows) is not backed by the audit log, so the execute node refuses and applies nothing.
+def test_an_approval_written_into_state_without_an_audit_record_applies_nothing(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    source = SimulatorSource(scenario)
+
+    update = execute_node(
+        state,
+        thread_config(state),
+        source=source,
+        registry=default_registry(),
+        audit=AuditLog(tmp_path),
+    )
+
+    assert update["escalation_reason"] == "action_not_allowed"
+    assert update["evidence"][0].payload["outcome"] == "refused"
+    assert source.ledger() == []
+    assert [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"] == []
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"valid": False},
+        {"idempotency_key": "0" * 64},
+        {"decision": "reject"},
+        {"event": "proposal"},
+    ],
+)
+def test_an_audit_record_that_does_not_match_the_approval_does_not_back_it(
+    tmp_path: Path, record: dict[str, Any]
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    approval = state["approval"]
+    assert approval is not None
+    written: dict[str, Any] = {
+        "event": "approval",
+        "valid": True,
+        "decision": approval.decision,
+        "idempotency_key": approval.idempotency_key,
+    } | record
+    audit = AuditLog(tmp_path)
+    audit.append(state["incident_id"], state["incident_id"], written)
+
+    assert executor.unrecorded_approval_problem(state, audit, state["incident_id"]) is not None
+
+
+def test_a_torn_approval_record_then_a_second_approval_applies_once(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    path = AuditLog(tmp_path).path_for(scenario.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"event": "approval", "valid": tr', encoding="utf-8")
+    record_approval(state, tmp_path)
+    calls: list[str] = []
+
+    outcome = run_executor(state, RecordingSource(SimulatorSource(scenario), calls), tmp_path)
+
+    assert outcome.kind != "refused"
+    assert calls.count("apply") == 1
+    applies = [
+        r for r in audit_records_skipping_torn(tmp_path, scenario.id) if r["event"] == "apply"
+    ]
+    assert len(applies) == 1
+
+
+def test_a_torn_approval_with_no_second_approval_is_still_refused(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    path = AuditLog(tmp_path).path_for(scenario.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"event": "approval", "valid": tr', encoding="utf-8")
+
+    problem = executor.unrecorded_approval_problem(state, AuditLog(tmp_path), state["incident_id"])
+
+    assert problem is not None
+
+
+def audit_records_skipping_torn(directory: Path, incident_id: str) -> list[dict[str, Any]]:
+    return AuditLog(directory).records(incident_id)
+
+
+def test_a_state_reset_on_a_fresh_source_does_not_apply_twice(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    record_approval(state, tmp_path)
+    first = run_executor(state, SimulatorSource(scenario), tmp_path)
+    assert first.kind == "applied"
+    state["execution"] = None
+    calls: list[str] = []
+
+    second = run_executor(state, RecordingSource(SimulatorSource(scenario), calls), tmp_path)
+
+    assert second.kind == "already_applied"
+    assert "apply" not in calls
+    applied = [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"]
+    assert [r["applied"] for r in applied] == [True, False]
+
+
+def test_an_audit_apply_for_a_different_key_does_not_block_a_new_apply(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    record_approval(state, tmp_path)
+    AuditLog(tmp_path).append(
+        scenario.id,
+        scenario.id,
+        {"event": "apply", "idempotency_key": "some-other-key", "applied": True},
+    )
+    calls: list[str] = []
+
+    outcome = run_executor(state, RecordingSource(SimulatorSource(scenario), calls), tmp_path)
+
+    assert outcome.kind == "applied"
+    assert calls.count("apply") == 1
+
+
+def test_an_apply_recorded_by_another_thread_does_not_block_a_fork_on_a_fresh_source(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    record_approval(state, tmp_path, thread_id="fork-1")
+    key = state["approval"].idempotency_key  # type: ignore[union-attr]
+    AuditLog(tmp_path).append(
+        scenario.id, "original", {"event": "apply", "idempotency_key": key, "applied": True}
+    )
+    calls: list[str] = []
+
+    outcome = executor.execute(
+        state,
+        RecordingSource(SimulatorSource(scenario), calls),
+        default_registry(),
+        AuditLog(tmp_path),
+        thread_id="fork-1",
+    )
+
+    assert outcome.kind == "applied"
+    assert calls.count("apply") == 1
