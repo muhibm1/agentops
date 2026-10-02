@@ -80,8 +80,7 @@ def eval_command(
         stop(USAGE_ERROR, tracing.problem)
     require_readable_scenarios(scenarios_dir)
     split: Split = "held_out" if held_out else "dev"
-    if held_out:
-        require_matching_checksums(scenarios_dir, evals_dir)
+    require_matching_checksums(scenarios_dir, evals_dir)
     scenarios = load_split(split, scenarios_dir, evals_dir)
 
     os.environ.update(project_environment(tracing))
@@ -173,17 +172,21 @@ def require_matching_checksums(scenarios_dir: Path, evals_dir: Path) -> None:
     try:
         problems = check_dataset(scenarios_dir, evals_dir)
     except (OSError, UnicodeDecodeError) as error:
-        stop(UNREADABLE, f"The dataset files in {evals_dir} could not be read: {error}")
+        stop(
+            UNREADABLE,
+            f"The dataset files in {evals_dir} could not be read: {type(error).__name__}: {error}",
+        )
     if problems:
         stop(USAGE_ERROR, f"The frozen split does not match its checksums: {problems[0]}")
 
 
 def load_split(split: Split, scenarios_dir: Path, evals_dir: Path) -> list[Scenario]:
     """The scenarios of `split`. Exits 2 when the manifest cannot be read or names a missing
-    scenario. `held_out` is only asked for after its checksums matched."""
+    scenario. Both splits are only asked for after the checksums matched: the manifest decides
+    which scenarios are dev, so an edited manifest would move frozen ones into dev scoring."""
     try:
         return split_scenarios(split, scenarios_dir, evals_dir, allow_held_out=split == "held_out")
-    except (OSError, ValidationError) as error:
+    except (OSError, UnicodeDecodeError, ValidationError) as error:
         text = str(error)[:ERROR_TEXT_MAX_LENGTH]
         stop(
             UNREADABLE,

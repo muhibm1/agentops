@@ -325,3 +325,63 @@ def test_the_run_config_names_traces_only_when_tracing_is_on() -> None:
     assert project_environment(on) == {"LANGSMITH_PROJECT": "agentops"}
     assert not {"run_name", "tags", "metadata"} & set(untraced)
     assert project_environment(off) == {}
+
+
+# E35 (review round 1, wh-bug M3): the dev split trusts the manifest, so it is checked too. A
+# manifest or frozen file that no longer matches its pin refuses a dev run before it starts.
+def edit_manifest_to_freeze(evals_dir: Path, scenario_id: str) -> None:
+    manifest = evals_dir / "held_out" / "manifest.json"
+    manifest.write_text(json.dumps({"held_out": [scenario_id]}), encoding="utf-8")
+
+
+def test_a_dev_eval_refuses_a_manifest_that_no_longer_matches_its_checksums(
+    tmp_path: Path,
+) -> None:
+    scenarios_dir, evals_dir = temporary_frozen_split(tmp_path)
+    edit_manifest_to_freeze(evals_dir, TEMPORARY_DEV_ID)
+
+    run = evaluate(tmp_path, *split_options(scenarios_dir, evals_dir))
+
+    assert run.result.exit_code == 1
+    assert "manifest.json" in run.result.stderr
+    assert run.result.stdout == ""
+    assert run.rows == []
+
+
+def test_a_dev_eval_refuses_a_frozen_scenario_that_was_renamed_or_changed(tmp_path: Path) -> None:
+    scenarios_dir, evals_dir = temporary_frozen_split(tmp_path)
+    frozen_file = scenarios_dir / f"{TEMPORARY_HELD_OUT_ID}.json"
+    frozen_file.write_bytes(frozen_file.read_bytes().replace(b" ", b"\t", 1))
+    changed = evaluate(tmp_path, *split_options(scenarios_dir, evals_dir))
+    frozen_file.rename(scenarios_dir / "renamed_frozen.json")
+
+    renamed = evaluate(tmp_path, *split_options(scenarios_dir, evals_dir))
+
+    assert changed.result.exit_code == 1
+    assert renamed.result.exit_code == 1
+    assert changed.result.stdout == renamed.result.stdout == ""
+
+
+def test_a_dev_eval_over_a_matching_split_still_runs_and_scores_only_dev(tmp_path: Path) -> None:
+    scenarios_dir, evals_dir = temporary_frozen_split(tmp_path)
+
+    run = evaluate(tmp_path, "--system", "graph", *split_options(scenarios_dir, evals_dir))
+
+    assert run.result.exit_code == 0, run.result.output
+    assert {row["scenario_id"] for row in run.rows} == {TEMPORARY_DEV_ID}
+
+
+def test_a_manifest_that_is_not_utf8_exits_two_for_eval_and_dataset(tmp_path: Path) -> None:
+    scenarios_dir, evals_dir = temporary_frozen_split(tmp_path)
+    (evals_dir / "held_out" / "manifest.json").write_bytes(b'{"held_out": ["caf\xe9"]}')
+    options = split_options(scenarios_dir, evals_dir)
+
+    results = [
+        runner.invoke(app, ["eval", "--model", "scripted", *options]),
+        runner.invoke(app, ["eval", "--model", "scripted", "--held-out", *options]),
+        runner.invoke(app, ["dataset", *options]),
+    ]
+
+    assert [result.exit_code for result in results] == [2, 2, 2]
+    assert all("UnicodeDecodeError" in result.stderr for result in results)
+    assert all("Traceback" not in result.output for result in results)

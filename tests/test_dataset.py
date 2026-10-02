@@ -208,3 +208,41 @@ def test_a_missing_extra_or_malformed_checksum_line_fails_the_check(
 def test_an_unknown_split_name_is_refused():
     with pytest.raises(ValueError, match="frozen"):
         split_scenarios("frozen", SCENARIOS_DIR, EVALS_DIR)  # type: ignore[arg-type]
+
+
+def test_an_unreadable_scenario_file_fails_the_write_before_either_file_is_touched(
+    scenarios_copy: Path, written_evals: Path, monkeypatch: pytest.MonkeyPatch
+):
+    manifest_before = manifest_path(written_evals).read_bytes()
+    checksums_before = (written_evals / CHECKSUMS_NAME).read_bytes()
+
+    def refuse_to_read(path: Path) -> str:
+        raise PermissionError(f"cannot read {path.name}")
+
+    monkeypatch.setattr("agentops.evals.dataset.sha256_of", refuse_to_read)
+
+    with pytest.raises(PermissionError):
+        write_dataset(scenarios_copy, written_evals, force=True, held_out_ids=["clean_bad_deploy"])
+
+    assert manifest_path(written_evals).read_bytes() == manifest_before
+    assert (written_evals / CHECKSUMS_NAME).read_bytes() == checksums_before
+
+
+def test_a_manifest_that_is_not_utf8_raises_instead_of_being_reported_as_a_mismatch(
+    scenarios_copy: Path, written_evals: Path
+):
+    manifest_path(written_evals).write_bytes(b'{"held_out": ["caf\xe9"]}')
+
+    with pytest.raises(UnicodeDecodeError):
+        check_dataset(scenarios_copy, written_evals)
+
+
+def test_a_manifest_that_is_valid_utf8_but_malformed_is_still_a_mismatch_message(
+    scenarios_copy: Path, written_evals: Path
+):
+    manifest_path(written_evals).write_text("{not json", encoding="utf-8")
+
+    problems = check_dataset(scenarios_copy, written_evals)
+
+    assert len(problems) == 1
+    assert "not a valid manifest" in problems[0]
