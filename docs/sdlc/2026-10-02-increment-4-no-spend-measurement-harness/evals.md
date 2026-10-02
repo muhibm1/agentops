@@ -94,9 +94,12 @@ this change keeps as the permanent case the increment 3 retro asked for.
 | A9 | adversarial | Targets `daily_revenue_rollup\n`, `Daily_Revenue_Rollup`, `daily_revenue_rollup ` and a Cyrillic look-alike `daіly_revenue_rollup` for `rerun_partition`; `reindex-job-nightly\n`, `Reindex-Job`, `reindex‑job` (non-breaking hyphen) for `pause_batch_job` | Targets are validated against the runbook | Every one is rejected naming the target pattern | R6 | `tests/test_runbook.py::test_job_targets_with_trailing_newline_case_or_lookalike_characters_are_rejected` |
 | F11 | failure | `--scenarios-dir` naming a missing directory; separately a directory holding an unreadable (invalid JSON) scenario file | `agentops eval` and `agentops dataset` | Exit 2 in each case with the path in the message; no table printed | R13 | `tests/test_eval_cli.py::test_an_unreadable_scenarios_directory_exits_two_before_any_run` |
 | E46 | golden | A run-config helper in `run.py` with tracing status on, then off | Called for system `graph`, scenario `clean_bad_deploy`, repetition 2 | On: `run_name == "graph/clean_bad_deploy/2"`, tags carry system and split, metadata carries `scenario_id` and `repetition`, project defaults to `agentops`; off: none of those keys set; no network or LangSmith import is touched | R15 | `tests/test_eval_cli.py::test_the_run_config_names_traces_only_when_tracing_is_on` |
+| E49 | adversarial | Thread `p1` run through the real graph and approved and applied; its state copied into thread `p1-x` with `update_state(as_node="approval")` and `execution=None`, a fresh source | `invoke(None)` on `p1-x` | Refused: the audit holds one apply record (thread `p1`), the `p1-x` ledger stays empty, the `p1` ledger is unchanged, the run ends `escalated` with a refused-execution evidence item naming the missing approval | R2 | `tests/test_cli_lifecycle.py::test_an_approval_recorded_by_another_thread_does_not_admit_execute_on_a_copied_thread` |
+| E50 | golden | `incident-1` approved and applied, then a command-line `fork` and `approve` of `incident-1-fork-1` | The fork's own approval | The audit holds an accepted approval and an applied record for each of the two threads, so a fork still executes on its own approval | R2 | `tests/test_cli_lifecycle.py::test_a_fork_records_its_own_approval_and_executes_on_it` |
 
-72 cases: golden 39, edge 9, failure 11, adversarial 11, non-functional 2. E38 was rewritten and
-A10, A11 and E48 added after the constraint audit (brief D17 to D20).
+74 cases: golden 40, edge 9, failure 11, adversarial 12, non-functional 2. E38 was rewritten and
+A10, A11 and E48 added after the constraint audit (brief D17 to D20). E49 and E50 added
+after the G4 rejection of the approval check (bug-reviewer R2b).
 
 ## Non-functional
 

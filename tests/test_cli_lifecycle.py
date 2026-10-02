@@ -20,9 +20,20 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 from typer.testing import CliRunner, Result
 
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
 from agentops.cli import app
+from agentops.fakes import ScriptedChatModel, scripted_model_for
+from agentops.graph import build_graph, checkpoint_serializer
+from agentops.sources.scenario import Scenario, load_scenario
+from agentops.sources.simulator import SimulatorSource, ledger_path_for
+from agentops.state import Escalation, new_incident
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 CLEAN_BAD_DEPLOY = "clean_bad_deploy"
@@ -265,6 +276,96 @@ def test_a_fork_after_an_apply_has_its_own_empty_ledger_and_applies_for_itself(
     assert "execution: applied rollback_deploy" in approved.stdout
     assert len(workspace.ledger("incident-1-fork-1")) == 1
     assert len(workspace.ledger("incident-1")) == 1
+
+
+def graph_for(
+    workspace: Workspace,
+    scenario: Scenario,
+    thread: str,
+    saver: InMemorySaver,
+    model: ScriptedChatModel | None = None,
+) -> CompiledStateGraph:
+    source = SimulatorSource(scenario, ledger_path=ledger_path_for(workspace.audit_dir, thread))
+    return build_graph(
+        source,
+        model or scripted_model_for(scenario),
+        default_registry(),
+        AuditLog(workspace.audit_dir),
+        saver,
+    )
+
+
+def hand_off_model() -> ScriptedChatModel:
+    """A model that can only write the hand-off a refused execution escalates with."""
+    return ScriptedChatModel(
+        script_by_schema={Escalation: [{"summary": "Execution was refused; a person must look."}]}
+    )
+
+
+# E49: an approval another thread recorded does not admit execute on a copy of its state.
+def test_an_approval_recorded_by_another_thread_does_not_admit_execute_on_a_copied_thread(
+    workspace: Workspace,
+) -> None:
+    scenario = load_scenario(SCENARIOS_DIR / f"{CLEAN_BAD_DEPLOY}.json")
+    saver = InMemorySaver(serde=checkpoint_serializer())
+    graph = graph_for(workspace, scenario, "p1", saver)
+    incident = new_incident(
+        scenario.service,
+        scenario.symptoms,
+        opened_at=scenario.incident_time,
+        incident_id="p1",
+        scenario_id=scenario.id,
+    )
+    original: RunnableConfig = {"configurable": {"thread_id": "p1"}}
+    graph.invoke(incident, original)
+    graph.invoke(Command(resume={"decision": "approve", "operator": "operator"}), original)
+    approved_values = graph.get_state(original).values
+    ledger_before = workspace.ledger("p1")
+    copy_graph = graph_for(workspace, scenario, "p1-x", saver, hand_off_model())
+    copy: RunnableConfig = {"configurable": {"thread_id": "p1-x"}}
+
+    copy_graph.update_state(copy, {**approved_values, "execution": None}, as_node="approval")
+    copy_graph.invoke(None, copy)
+
+    applies = [r for r in workspace.audit("p1") if r["event"] == "apply"]
+    assert [r["thread_id"] for r in applies] == ["p1"]
+    assert workspace.ledger("p1-x") == []
+    assert workspace.ledger("p1") == ledger_before
+    final = copy_graph.get_state(copy).values
+    assert final["execution"] is None
+    assert final["status"] == "escalated"
+    refusals = [e for e in final["evidence"] if e.payload.get("outcome") == "refused"]
+    assert len(refusals) == 1
+    assert "no accepted approval" in refusals[0].payload["detail"]
+
+
+# E50: a fork made by the command line records its own approval at its own interrupt and executes.
+def test_a_fork_records_its_own_approval_and_executes_on_it(workspace: Workspace) -> None:
+    run_scenario(workspace, CLEAN_BAD_DEPLOY, "incident-1")
+    after_triage = next(
+        line
+        for line in reversed(history_lines(workspace, "incident-1"))
+        if "metrics" in line["next"]
+    )
+    agentops(workspace, "approve", "incident-1", "--decision", "approve")
+    agentops(
+        workspace,
+        "fork",
+        "incident-1",
+        "--at",
+        after_triage["id"],
+        "--set",
+        "recent_deploy_regression=0.9",
+    )
+
+    approved = agentops(workspace, "approve", "incident-1-fork-1", "--decision", "approve")
+
+    assert approved.exit_code == 0, approved.output
+    records = workspace.audit("incident-1")
+    approvals = [r for r in records if r["event"] == "approval" and r["valid"] is True]
+    applies = [r for r in records if r["event"] == "apply" and r["applied"] is True]
+    assert [r["thread_id"] for r in approvals] == ["incident-1", "incident-1-fork-1"]
+    assert [r["thread_id"] for r in applies] == ["incident-1", "incident-1-fork-1"]
 
 
 # An answer the node refuses re-asks the question, and the command must say it failed.
