@@ -47,3 +47,6 @@
 2026-10-02T22:00:14.371Z | verify | wh-shipper | ship.md revised for R2b, 137 lines
 2026-10-02T22:00:14.636Z | review | conductor | G4 Ship presented
 2026-10-02T22:00:18.138Z | review | conductor | G4 Ship posted to https://github.com/muhibm1/agentops/pull/10
+2026-10-02T22:03:19.293Z | review | conductor | resumed at review after G4 approved; PR #10 merged by main session (9e3af26); no deploy command, shipper deploy mode not dispatched
+2026-10-02T22:03:27.594Z | deploy | conductor | wrote release.md (merge-only release, no deploy, rollback is revert PR); presenting G5
+2026-10-02T22:03:27.662Z | deploy | conductor | G5 Deploy presented
