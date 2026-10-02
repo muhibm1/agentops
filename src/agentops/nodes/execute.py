@@ -17,7 +17,8 @@ from agentops.nodes.router import route_to_sources
 from agentops.sources.base import EvidenceSource
 from agentops.state import IncidentState
 
-VERIFIABLE_RESULTS = ("applied", "already_applied")
+# An unknown effect is verified too: the signals decide whether the change took (spec R2).
+VERIFIABLE_RESULTS = ("applied", "already_applied", "apply_unknown")
 
 
 def execute(
@@ -52,8 +53,8 @@ def execute(
 
 
 def after_execute(state: IncidentState) -> list[Send] | str:
-    """The edge after execute: `escalate` when the node wrote a reason, `verify` after an apply
-    or a repeat of one, otherwise back to the router to investigate again."""
+    """The edge after execute: `escalate` when the node wrote a reason, `verify` after an apply,
+    a repeat of one, or an apply whose effect is unknown, otherwise back to the router."""
     if state["escalation_reason"] is not None:
         return "escalate"
     execution = state["execution"]

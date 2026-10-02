@@ -35,8 +35,11 @@ from agentops.state import (
 )
 
 OutcomeKind = Literal[
-    "applied", "already_applied", "refused", "precondition_failed", "apply_failed"
+    "applied", "already_applied", "refused", "precondition_failed", "apply_failed", "apply_unknown"
 ]
+# What an `apply` record says about the change: `applied` True, False, or None (the source
+# raised, so nobody knows) map to these three words (increment 4, R1).
+Effect = Literal["applied", "not_applied", "unknown"]
 # The exit code of the demo crash; any non-zero code would do, this one is not used elsewhere.
 CRASH_EXIT_CODE = 3
 ALREADY_APPLIED = "already_applied"
@@ -85,8 +88,8 @@ def execute(
     Returns `refused` when there is no usable approval, the action or its parameters break the
     runbook, or the remediation is not the one approved; `precondition_failed` when a runbook
     check fails; `already_applied` when the key is recorded in state or in the source's ledger;
-    otherwise `applied` or `apply_failed`. Raises when the audit log cannot be written (before
-    apply) or the source raises inside `apply` (after its `apply` record is written).
+    `apply_unknown` when the source raises inside `apply`, so the change may or may not be in
+    effect; otherwise `applied` or `apply_failed`. Raises when the audit log cannot be written.
     """
     context = ExecutionContext(state, source, audit, thread_id)
     try:
@@ -248,9 +251,12 @@ def apply_and_audit(
     try:
         result = context.source.apply(request, key)
     except Exception as error:
+        # The source may have changed the world before raising, so the effect is unknown, not
+        # false; verify judges it. Only the type name: the message can quote anything.
         detail = f"The source raised {type(error).__name__} inside apply."
-        write_apply_record(context, remediation, key, applied=False, ok=False, detail=detail)
-        raise
+        write_apply_record(context, remediation, key, applied=None, ok=False, detail=detail)
+        latency_ms = (time.perf_counter() - started) * 1000
+        return unknown_outcome(context.state, remediation, key, description, detail, latency_ms)
     latency_ms = (time.perf_counter() - started) * 1000
     write_apply_record(
         context, remediation, key, applied=result.applied, ok=result.ok, detail=result.detail
@@ -285,6 +291,31 @@ def applied_outcome(
     )
     action = Action(tool="apply", ok=result.ok, latency_ms=latency_ms, detail=kind)
     return ExecutionOutcome(kind, result.detail, execution, [evidence], [action])
+
+
+def unknown_outcome(
+    state: IncidentState,
+    remediation: Remediation,
+    key: str,
+    description: str,
+    detail: str,
+    latency_ms: float,
+) -> ExecutionOutcome:
+    """The source raised inside apply: the change may be in effect or not, so `applied` is None
+    and the graph goes on to verify, which decides from the signals."""
+    kind: OutcomeKind = "apply_unknown"
+    execution = ExecutionRecord(
+        idempotency_key=key,
+        action=remediation.action,
+        target=remediation.target,
+        applied=None,
+        applied_at=None,
+        result=kind,
+        dry_run_output=description,
+    )
+    evidence = action_evidence(state, remediation, key, kind, applied=None, detail=detail)
+    action = Action(tool="apply", ok=False, latency_ms=latency_ms, detail=kind)
+    return ExecutionOutcome(kind, detail, execution, [evidence], [action])
 
 
 def already_applied(
@@ -375,7 +406,7 @@ def write_apply_record(
     remediation: Remediation,
     key: str,
     *,
-    applied: bool,
+    applied: bool | None,
     ok: bool,
     detail: str,
 ) -> None:
@@ -385,10 +416,17 @@ def write_apply_record(
             "idempotency_key": key,
             **describe(remediation),
             "applied": applied,
+            "effect": effect_of(applied),
             "ok": ok,
             "detail": detail,
         }
     )
+
+
+def effect_of(applied: bool | None) -> Effect:
+    if applied is None:
+        return "unknown"
+    return "applied" if applied else "not_applied"
 
 
 def action_evidence(
@@ -397,16 +435,18 @@ def action_evidence(
     key: str,
     outcome: OutcomeKind,
     *,
-    applied: bool,
+    applied: bool | None,
     detail: str,
 ) -> Evidence:
-    """Evidence of kind `action`: rca reads `action` and `applied` to list what is in effect."""
+    """Evidence of kind `action`: rca and postmortem read `action`, `applied` and `effect` to
+    list what is in effect and what may be."""
     number = count_of_kind(state, "action") + 1
     payload = {
         "idempotency_key": key,
         **describe(remediation),
         "outcome": outcome,
         "applied": applied,
+        "effect": effect_of(applied),
         "detail": detail,
     }
     return new_evidence(f"action-{number}", "apply", "action", payload)
