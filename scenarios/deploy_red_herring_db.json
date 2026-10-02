@@ -219,6 +219,38 @@
         "Find what raised connection demand at 14:02.",
         "Alert on pool utilisation above 0.85 before latency moves."
       ]
+    },
+    "baseline": {
+      "steps": [
+        {
+          "tool": "get_logs",
+          "args": {
+            "start": "2026-03-10T13:20:00Z",
+            "end": "2026-03-10T14:20:00Z"
+          }
+        },
+        {
+          "tool": "get_deployments",
+          "args": {
+            "start": "2026-03-10T13:20:00Z",
+            "end": "2026-03-10T14:20:00Z"
+          }
+        },
+        {
+          "tool": "apply",
+          "args": {
+            "action": "rollback_deploy",
+            "target": "deploy-001",
+            "params": {}
+          }
+        }
+      ],
+      "answer": {
+        "root_cause": "recent_deploy_regression",
+        "action": "rollback_deploy",
+        "target": "deploy-001",
+        "params": {}
+      }
     }
   }
 }

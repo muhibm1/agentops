@@ -1,4 +1,5 @@
-"""E16 to E18: every scenario file validates and references only its own signals (R10)."""
+"""E16 to E18: every scenario file validates and references only its own signals (R10).
+E12 and A2: every scenario scripts a naive baseline, and the trap scenarios take the bait (R9)."""
 
 import json
 import re
@@ -8,7 +9,13 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from agentops.sources.scenario import list_scenario_ids, load_scenario
+from agentops.actions.registry import default_registry
+from agentops.sources.scenario import (
+    BASELINE_TOOL_NAMES,
+    Scenario,
+    list_scenario_ids,
+    load_scenario,
+)
 from agentops.state import Escalation, Postmortem, RcaOutput, Triage
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
@@ -345,3 +352,83 @@ def test_a_post_action_signal_at_the_end_of_the_verify_window_is_accepted(
     scenario = load_scenario(path)
 
     assert scenario.id == "clean_bad_deploy"
+
+
+SIX_BASELINE_TOOLS = {
+    "get_logs",
+    "get_metrics",
+    "get_deployments",
+    "get_config",
+    "get_dependency_health",
+    "apply",
+}
+BASELINE_ANSWER_KEYS = {"root_cause", "action", "target", "params"}
+
+
+def applied_steps(scenario: Scenario) -> list[dict[str, Any]]:
+    script = scenario.scripted_outputs.baseline
+    assert script is not None
+    return [step.args for step in script.steps if step.tool == "apply"]
+
+
+@pytest.mark.parametrize("path", SCENARIO_FILES, ids=lambda path: path.stem)
+def test_every_scenario_scripts_a_baseline_with_known_tools(path: Path) -> None:
+    scenario = load_scenario(path)
+
+    script = scenario.scripted_outputs.baseline
+
+    assert BASELINE_TOOL_NAMES == SIX_BASELINE_TOOLS
+    assert script is not None
+    assert 3 <= len(script.steps) <= 6
+    assert {step.tool for step in script.steps} <= SIX_BASELINE_TOOLS
+    assert all({"action", "target"} <= set(args) for args in applied_steps(scenario))
+    assert isinstance(script.answer.get("root_cause"), str) and script.answer["root_cause"]
+    assert set(script.answer) <= BASELINE_ANSWER_KEYS
+    assert isinstance(script.answer.get("params", {}), dict)
+
+
+def test_the_trap_scenarios_baseline_scripts_take_the_bait() -> None:
+    injection = load_scenario(SCENARIOS_DIR / "log_injection_drop_table.json")
+    red_herring = load_scenario(SCENARIOS_DIR / "deploy_red_herring_db.json")
+    registry = default_registry()
+
+    injection_actions = [args["action"] for args in applied_steps(injection)]
+    red_herring_actions = [args["action"] for args in applied_steps(red_herring)]
+
+    assert injection_actions == ["drop_table"]
+    assert not registry.has("drop_table")
+    assert "drop_table" in injection.wrong_actions
+    assert len(red_herring_actions) == 1
+    assert red_herring_actions[0] in red_herring.wrong_actions
+    assert red_herring_actions[0] != red_herring.ground_truth.correct_action
+
+
+@pytest.mark.parametrize(
+    ("bad_step", "expected"),
+    [
+        ({"tool": "apply", "args": {"target": "deploy-001"}}, "action"),
+        ({"tool": "apply", "args": {"action": "rollback_deploy"}}, "target"),
+        ({"tool": "run_shell", "args": {}}, "tool"),
+    ],
+    ids=["apply without action", "apply without target", "unknown tool"],
+)
+def test_a_baseline_step_that_is_unknown_or_applies_nothing_named_is_rejected(
+    tmp_path: Path, bad_step: dict[str, Any], expected: str
+) -> None:
+    raw = raw_scenario("clean_bad_deploy")
+    raw["scripted_outputs"]["baseline"]["steps"].append(bad_step)
+    path = write_variant(tmp_path, raw, "clean_bad_deploy.json")
+
+    with pytest.raises(ValidationError) as raised:
+        load_scenario(path)
+
+    assert expected in str(raised.value)
+
+
+def test_a_baseline_script_with_no_steps_is_rejected(tmp_path: Path) -> None:
+    raw = raw_scenario("clean_bad_deploy")
+    raw["scripted_outputs"]["baseline"]["steps"] = []
+    path = write_variant(tmp_path, raw, "clean_bad_deploy.json")
+
+    with pytest.raises(ValidationError, match="steps"):
+        load_scenario(path)

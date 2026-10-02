@@ -306,6 +306,42 @@
         "Handle orders with no discount record before redeploying v7.8.0.",
         "Find what raised connection demand on orders beyond the per line item queries."
       ]
+    },
+    "baseline": {
+      "steps": [
+        {
+          "tool": "get_logs",
+          "args": {
+            "start": "2026-03-20T10:30:00Z",
+            "end": "2026-03-20T11:30:00Z"
+          }
+        },
+        {
+          "tool": "get_deployments",
+          "args": {
+            "start": "2026-03-20T10:30:00Z",
+            "end": "2026-03-20T11:30:00Z"
+          }
+        },
+        {
+          "tool": "apply",
+          "args": {
+            "action": "rollback_deploy",
+            "target": "deploy-001",
+            "params": {
+              "to_version": "v7.7.3"
+            }
+          }
+        }
+      ],
+      "answer": {
+        "root_cause": "recent_deploy_regression",
+        "action": "rollback_deploy",
+        "target": "deploy-001",
+        "params": {
+          "to_version": "v7.7.3"
+        }
+      }
     }
   }
 }
