@@ -1,9 +1,12 @@
 """E3: the repository documents a contributor and an auditor need exist and say what they must;
-increment 3 E21: they describe the five commands, the runtime files and the crash demo (R21)."""
+increment 3 E21: they describe the five commands, the runtime files and the crash demo (R21);
+increment 4 E43: they describe measuring, the frozen split, tracing and langgraph dev (R19)."""
 
 from pathlib import Path
 
 import yaml
+
+from agentops.evals.run import SCRIPTED_SENTENCE
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 OWNER_NAME = "Muhammad Muhibullah"
@@ -30,10 +33,42 @@ NEW_PACKAGE_PATHS = (
     "audit/<incident_id>.jsonl",
     "audit/<incident_id>.ledger.jsonl",
 )
+MEASURING_HEADING = "## Measuring it"
+MEASURING_NAMES = (
+    "agentops eval",
+    "--held-out",
+    "--repetitions",
+    "agentops dataset",
+    "langgraph dev",
+    "analytics",
+    "LANGGRAPH_CLI_NO_ANALYTICS",
+    "https://smith.langchain.com/studio/",
+    "LANGSMITH_TRACING",
+    "LANGSMITH_API_KEY",
+    SCRIPTED_SENTENCE,
+)
+INCREMENT_4_MAP_PATHS = (
+    "src/agentops/evals/",
+    "evals/held_out/manifest.json",
+    "evals/checksums.sha256",
+    "baseline.py",
+    "dev_server.py",
+    "tracing.py",
+    "langgraph.json",
+    "ADR 0001",
+)
 
 
 def read_document(relative_path: str) -> str:
     return (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+
+
+def markdown_section(document: str, heading: str) -> str:
+    """The text from `heading` up to the next heading of the same level, or the end."""
+    start = document.index(heading)
+    level_marker = "\n" + heading.split(" ", 1)[0] + " "
+    end = document.find(level_marker, start + len(heading))
+    return document[start:] if end == -1 else document[start:end]
 
 
 def commands_section(profile_text: str) -> str:
@@ -99,7 +134,6 @@ def test_documents_describe_the_increment_3_commands_runtime_files_and_crash_dem
     assert "audit/<incident_id>.jsonl" in readme
     assert "agentops.sqlite" in readme
     assert "arrives in increment 3" not in claude_document
-    assert "Status: increment 3" in readme
     assert "--crash-after-apply" in claude_document
     for scenario_field in ("postmortem", "rca_after_action", "rollback_deploy+scale_db_pool"):
         assert scenario_field in contributing
@@ -108,3 +142,25 @@ def test_documents_describe_the_increment_3_commands_runtime_files_and_crash_dem
         assert path in codebase_map
     assert "*.sqlite-*" in ignored_patterns
     assert ignored_patterns.index("*.sqlite-*") == ignored_patterns.index("*.sqlite") + 1
+
+
+def test_documents_describe_the_increment_4_eval_commands_and_tracing() -> None:
+    readme = read_document("README.md")
+    contributing = read_document("CONTRIBUTING.md")
+    ci_doc = read_document("docs/ci.md")
+    codebase_map = read_document("docs/sdlc/codebase-map.md")
+    workflow = yaml.safe_load(read_document(".github/workflows/ci.yml"))
+    floor = workflow["env"]["MIN_TESTS"]
+
+    measuring = markdown_section(readme, MEASURING_HEADING)
+    when_it_fails = markdown_section(readme, "## When it fails")
+
+    assert "Status: increment 4" in readme
+    for name in MEASURING_NAMES:
+        assert name in measuring, f"the README's measuring section does not name {name!r}"
+    assert "effect_unknown" in when_it_fails
+    assert "skipped torn line" in when_it_fails
+    assert "scripted_outputs.baseline" in contributing
+    assert f"`MIN_TESTS` is {floor} as of increment 4" in ci_doc
+    for path in INCREMENT_4_MAP_PATHS:
+        assert path in codebase_map, f"the codebase map does not name {path!r}"
