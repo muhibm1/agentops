@@ -13,7 +13,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Literal, get_args
 
-from pydantic import Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, ValidationError, field_validator
 
 from agentops.sources.base import SIGNAL_ID_PATTERN
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
@@ -60,8 +60,8 @@ def split_scenarios(
     """Load the scenarios of one split, sorted by id, using the manifest in `evals_dir`.
 
     Raises `HeldOutRefusedError` for `held_out` without `allow_held_out`, before reading any file;
-    `ValueError` for an unknown split; `FileNotFoundError` or `pydantic.ValidationError` for a
-    missing or malformed manifest or scenario file.
+    `ValueError` for an unknown split; `FileNotFoundError`, `UnicodeDecodeError` or
+    `pydantic.ValidationError` for a missing, unreadable or malformed manifest or scenario file.
     """
     if split not in SPLITS:
         raise ValueError(f"Unknown split {split!r}; expected one of: {', '.join(SPLITS)}.")
@@ -108,16 +108,28 @@ def write_dataset(
             f"No scenario file in {scenarios_dir} for held-out id(s): {', '.join(missing)}."
         )
 
+    manifest_text = manifest.model_dump_json(indent=2) + "\n"
+    lines = checksum_lines(scenarios_dir, manifest_text, manifest.held_out)
+
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
-    manifest_file.write_text(
-        manifest.model_dump_json(indent=2) + "\n", encoding="utf-8", newline="\n"
-    )
-    lines = [
-        f"{sha256_of(path)}  {label}\n"
-        for label, path in pinned_files(scenarios_dir, evals_dir, manifest.held_out)
-    ]
+    manifest_file.write_text(manifest_text, encoding="utf-8", newline="\n")
     checksums_file.write_text("".join(lines), encoding="utf-8", newline="\n")
     return [manifest_file, checksums_file]
+
+
+def checksum_lines(
+    scenarios_dir: Path, manifest_text: str, held_out_ids: Sequence[str]
+) -> list[str]:
+    """The `sha256sum` lines for the manifest text about to be written and each held-out file.
+
+    Every file is read here, before anything is written, so an unreadable scenario file fails
+    the command while the pinned split is still whole."""
+    manifest_digest = hashlib.sha256(manifest_text.encode("utf-8")).hexdigest()
+    lines = [f"{manifest_digest}  {MANIFEST_LABEL}\n"]
+    for stem in held_out_ids:
+        digest = sha256_of(scenario_path(scenarios_dir, stem))
+        lines.append(f"{digest}  scenarios/{stem}.json\n")
+    return lines
 
 
 def check_dataset(scenarios_dir: Path, evals_dir: Path) -> list[str]:
@@ -130,7 +142,7 @@ def check_dataset(scenarios_dir: Path, evals_dir: Path) -> list[str]:
         return [f"{MANIFEST_LABEL} is missing from {evals_dir}; {WRITE_HINT}."]
     try:
         held_out = held_out_ids_of(evals_dir)
-    except ValueError as error:
+    except ValidationError as error:
         return [f"{MANIFEST_LABEL} is not a valid manifest: {error}"]
     checksums_file = evals_dir / CHECKSUMS_NAME
     if not checksums_file.is_file():
