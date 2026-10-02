@@ -30,6 +30,7 @@ from agentops.sources.base import (
 from agentops.sources.scenario import PostActionWorld, Scenario, Signals, combined_world_key
 
 LEDGER_SUFFIX = ".ledger.jsonl"
+SEAL_MARKER_LINE = '{"torn_seal": true}\n'
 
 
 class LedgerError(ValueError):
@@ -171,23 +172,40 @@ class SimulatorSource:
     def _replay(self, ledger_path: Path) -> None:
         """Replays every line of the ledger file into this source.
 
-        Only a final line with no newline after it can be torn by a crash mid-write, and the
-        simulator applied nothing for it, so such a line that is not JSON is skipped and its
-        number kept in `torn_ledger_lines`. Any other line that is not an applied action this
-        scenario can model raises `LedgerError` naming it (D17).
+        A crash mid-write leaves a fragment that is not JSON and that the simulator never
+        applied, so it is skipped and its number kept in `torn_ledger_lines`. A fragment is
+        accepted only as the last line when it has no newline after it, or when the next line
+        is the seal marker that `append_ledger_line` writes between the fragment and a later
+        entry. A seal marker
+        anywhere else, and any other non-JSON line, raises `LedgerError` naming it (D17), as
+        does a line that is not an applied action this scenario can model.
         """
         if not ledger_path.exists():
             return
         complete_lines, final_line = read_ledger_lines(ledger_path)
-        for line_number, line in enumerate(complete_lines, start=1):
-            self._replay_line(ledger_path, line_number, line)
-        if final_line is None:
-            return
-        final_line_number = len(complete_lines) + 1
-        if is_json(final_line):
-            self._replay_line(ledger_path, final_line_number, final_line)
-        else:
-            self.torn_ledger_lines.append(final_line_number)
+        lines = complete_lines if final_line is None else [*complete_lines, final_line]
+        for index, line in enumerate(lines):
+            line_number = index + 1
+            previous_line = lines[index - 1] if index > 0 else None
+            next_line = lines[index + 1] if index + 1 < len(lines) else None
+            is_unterminated_last = final_line is not None and index == len(lines) - 1
+            if is_seal_marker(line):
+                if previous_line is None or is_json(previous_line):
+                    raise LedgerError(
+                        f"Ledger {ledger_path} line {line_number} is a seal marker "
+                        "that does not follow a torn fragment."
+                    )
+            elif not is_json(line):
+                sealed = next_line is not None and is_seal_marker(next_line)
+                if not (sealed or is_unterminated_last):
+                    raise LedgerError(
+                        f"Ledger {ledger_path} line {line_number} is not JSON and is "
+                        "followed by more entries; a ledger torn by a crash can only be "
+                        "cut in its last line."
+                    )
+                self.torn_ledger_lines.append(line_number)
+            else:
+                self._replay_line(ledger_path, line_number, line)
 
     def _replay_line(self, ledger_path: Path, line_number: int, line: str) -> None:
         entry = parse_ledger_line(ledger_path, line_number, line)
@@ -237,6 +255,17 @@ def read_ledger_lines(ledger_path: Path) -> tuple[list[str], str | None]:
     return complete_lines, final_part.decode("utf-8", errors="replace")
 
 
+def is_seal_marker(text: str) -> bool:
+    """True only for exactly `{"torn_seal": true}`; `1` or extra keys do not count."""
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(parsed, dict) and parsed.keys() == {"torn_seal"} and parsed["torn_seal"] is True
+    )
+
+
 def is_json(text: str) -> bool:
     try:
         json.loads(text)
@@ -249,10 +278,11 @@ def append_ledger_line(ledger_path: Path, entry: AppliedAction) -> None:
     """Appends one JSON line and syncs it to disk, so a process killed right after `apply`
     returns still leaves the entry behind. The file is only ever opened in append mode.
 
-    When a crash left the file without a final newline, the entry starts on a fresh line so
-    it never joins the torn fragment."""
+    When a crash left the file without a final newline, a newline and the seal marker line
+    come first, so the entry never joins the torn fragment and a later replay can tell the
+    sealed fragment from corruption in the middle of the file."""
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    separator = "" if ends_in_newline_or_is_empty(ledger_path) else "\n"
+    separator = "" if ends_in_newline_or_is_empty(ledger_path) else "\n" + SEAL_MARKER_LINE
     with ledger_path.open("a", encoding="utf-8") as ledger_file:
         ledger_file.write(separator + entry.model_dump_json() + "\n")
         ledger_file.flush()
