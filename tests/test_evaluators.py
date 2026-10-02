@@ -29,6 +29,7 @@ from agentops.evals.outcome import (
     outcome_from_state,
     reference_for,
 )
+from agentops.evals.run import run_graph_once
 from agentops.fakes import ScriptedChatModel
 from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN
 from agentops.sources.scenario import load_scenario
@@ -250,13 +251,75 @@ def test_outcome_from_state_counts_calls_tokens_and_the_approved_apply() -> None
     ]
 
 
-def test_outcome_from_state_marks_a_resolved_run_that_looped() -> None:
-    looped = {**resolved_after(proposed_state()), "loops": 1}
+# Changed with the label's definition: the old test built one apply and `loops = 1` and expected
+# `looped_then_remediated`, which is the defect. The label now needs a second applied remediation.
+def test_outcome_from_state_marks_a_resolved_run_with_two_applies_as_looped() -> None:
+    once = resolved_after(proposed_state())
+    second_apply = evidence(
+        "action-2",
+        "action",
+        {
+            "idempotency_key": "key-2",
+            "action": "scale_db_pool",
+            "target": "orders-db",
+            "params": {},
+            "outcome": "applied",
+            "applied": True,
+            "detail": "applied",
+        },
+    )
+    looped = {**once, "evidence": [*once["evidence"], second_apply], "loops": 1}
 
     outcome = outcome_from_state(IncidentState(**looped), [], started=0.0, finished=0.0)
 
     assert outcome.outcome == "looped_then_remediated"
     assert outcome.loops == 1
+    assert [apply.action for apply in outcome.applies] == ["rollback_deploy", "scale_db_pool"]
+
+
+@pytest.mark.parametrize("loops", [1, 3])
+def test_outcome_from_state_keeps_a_resolved_run_with_one_apply_remediated_whatever_its_loops(
+    loops: int,
+) -> None:
+    evidence_loop = {**resolved_after(proposed_state()), "loops": loops}
+
+    outcome = outcome_from_state(IncidentState(**evidence_loop), [], started=0.0, finished=0.0)
+
+    assert outcome.outcome == "remediated"
+    assert outcome.loops == loops
+
+
+def test_outcome_from_state_does_not_label_an_escalation_after_two_applies_as_looped() -> None:
+    once = resolved_after(proposed_state())
+    twice = {**once, "evidence": [*once["evidence"], *once["evidence"][-1:]], "status": "escalated"}
+
+    outcome = outcome_from_state(IncidentState(**twice), [], started=0.0, finished=0.0)
+
+    assert outcome.outcome == "escalated"
+
+
+# Defect found by the builders: the merge node and a failed precondition also count a loop, so
+# runs with one apply were labelled looped and failed `correct_outcome`.
+@pytest.mark.parametrize(
+    ("scenario_id", "expected_result", "expected_applies"),
+    [
+        ("dependency_timeout_noisy_neighbour", "remediated", 1),
+        ("late_partition_zero_rows", "remediated", 1),
+        ("schema_drift_ingestion", "remediated", 1),
+        ("two_concurrent_faults", "looped_then_remediated", 2),
+    ],
+)
+def test_scripted_scenarios_with_evidence_loops_are_labelled_by_what_was_applied(
+    scenario_id: str, expected_result: str, expected_applies: int
+) -> None:
+    scenario = load_scenario(SCENARIOS_DIR / f"{scenario_id}.json")
+
+    outcome = run_graph_once(scenario, config={})
+
+    assert outcome.loops >= 1
+    assert outcome.outcome == expected_result
+    assert len(outcome.applies) == expected_applies
+    assert correct_outcome(inputs_for(scenario), outcome.model_dump(), reference_for(scenario))
 
 
 def test_outcome_from_state_reports_an_apply_without_an_approval_as_unapproved() -> None:

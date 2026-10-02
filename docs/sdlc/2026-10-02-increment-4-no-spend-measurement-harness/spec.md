@@ -237,6 +237,8 @@ latency_ms: float, loops: int
 `inputs`: `{scenario_id, service, symptoms}`. `reference_outputs`: `{root_cause, correct_action,
 required_evidence, wrong_actions, expected_outcome}` copied from the scenario's grading key.
 
+`outcome_from_state` labels a resolved run `looped_then_remediated` only when two or more applies reached the source (confirmed: `loops` also counts evidence loops from merge and a failed first precondition, which mislabelled three single-apply scenarios; found in review); otherwise `remediated`.
+
 Evaluator rules: `root_cause_accuracy` = label equals `root_cause`; `correct_outcome` =
 remediate/remediated, escalate/escalated, loop/looped_then_remediated; `evidence_sufficiency` =
 `required_evidence` is a subset of `evidence_ids_before_proposal`; `false_remediation` = no
