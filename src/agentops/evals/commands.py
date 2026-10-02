@@ -1,9 +1,10 @@
 """`agentops eval` and `agentops dataset`, which `agentops.cli` registers on its app.
 
 Exit codes follow the rest of the command line: 0 when the command completed (failed runs are
-rows of the table, not a failed command); 1 for a usage problem (unknown model or system,
-repetitions outside 1 to 10, a tracing problem, a checksum mismatch, a write without
-`--force`); 2 when the scenarios directory, a scenario file or the dataset files cannot be read.
+rows of the table, not a failed command); 1 when every run failed, or for a usage problem
+(unknown model or system, repetitions outside 1 to 10, a tracing problem, a checksum mismatch,
+a write without `--force`); 2 when the scenarios directory, a scenario file or the dataset files
+cannot be read.
 """
 
 import os
@@ -85,7 +86,12 @@ def eval_command(
 
     os.environ.update(project_environment(tracing))
     rows = run_split(
-        scenarios, systems=systems, repetitions=repetitions, split=split, tracing=tracing
+        scenarios,
+        systems=systems,
+        repetitions=repetitions,
+        split=split,
+        tracing=tracing,
+        report=lambda text: typer.echo(cli.escape_for_terminal(text), err=True),
     )
     header = render_header(
         model=model,
@@ -98,6 +104,8 @@ def eval_command(
         typer.echo(cli.escape_for_terminal(line))
     if json_path is not None:
         write_json(json_path, rows_as_json(rows))
+    if rows and all(row.outcome.outcome == "failed" for row in rows):
+        stop(USAGE_ERROR, "Every run failed; the lines above say why.")
 
 
 def dataset_command(

@@ -385,3 +385,63 @@ def test_a_manifest_that_is_not_utf8_exits_two_for_eval_and_dataset(tmp_path: Pa
     assert [result.exit_code for result in results] == [2, 2, 2]
     assert all("UnicodeDecodeError" in result.stderr for result in results)
     assert all("Traceback" not in result.output for result in results)
+
+
+# Review round 1 (silent M1, low): a failed row is listed under failures for safety and
+# false_remediation too, its exception is reported on stderr, and the command exits 1 only when
+# every row failed.
+def broken_rca_scenarios(base: Path, *, keep_good_dev: bool) -> tuple[Path, Path]:
+    scenarios_dir = base / "scenarios"
+    if keep_good_dev:
+        copy_scenario(scenarios_dir, TEMPORARY_DEV_ID)
+    broken = copy_scenario(scenarios_dir, TEMPORARY_DEV_ID, new_id="broken_rca")
+    document = json.loads(broken.read_text(encoding="utf-8"))
+    document["scripted_outputs"]["rca"]["root_cause"]["evidence_ids"] = ["log-999"]
+    broken.write_text(json.dumps(document), encoding="utf-8")
+    copy_scenario(scenarios_dir, TEMPORARY_HELD_OUT_ID)
+    evals_dir = base / "evals"
+    write_dataset(scenarios_dir, evals_dir, force=False, held_out_ids=[TEMPORARY_HELD_OUT_ID])
+    return scenarios_dir, evals_dir
+
+
+def test_a_failed_row_fails_safety_and_false_remediation_in_the_table(tmp_path: Path) -> None:
+    scenarios_dir, evals_dir = broken_rca_scenarios(tmp_path, keep_good_dev=True)
+
+    run = evaluate(tmp_path, "--system", "graph", *split_options(scenarios_dir, evals_dir))
+
+    failures = run.result.stdout.splitlines()
+    assert "  graph broken_rca repetition 1: safety" in failures
+    assert "  graph broken_rca repetition 1: false_remediation" in failures
+    assert not [line for line in failures if TEMPORARY_DEV_ID in line and "repetition" in line]
+    (graph_row,) = table_rows(run.result.stdout)
+    # 2 runs: the good scenario passes both guards, the failed one fails both.
+    assert graph_row.split()[1] == "2"
+    assert graph_row.count("1/2 50%") >= 2
+
+
+def test_a_failed_row_prints_its_exception_and_where_it_was_raised_on_stderr(
+    tmp_path: Path,
+) -> None:
+    scenarios_dir, evals_dir = broken_rca_scenarios(tmp_path, keep_good_dev=True)
+
+    run = evaluate(tmp_path, "--system", "graph", *split_options(scenarios_dir, evals_dir))
+
+    assert run.result.exit_code == 0, run.result.output
+    assert "run failed: graph broken_rca: CitationError" in run.result.stderr
+    assert " at " in run.result.stderr
+
+
+def test_the_command_exits_one_only_when_every_row_failed(tmp_path: Path) -> None:
+    only_broken, only_broken_evals = broken_rca_scenarios(tmp_path / "all", keep_good_dev=False)
+    one_good, one_good_evals = broken_rca_scenarios(tmp_path / "some", keep_good_dev=True)
+
+    all_failed = evaluate(
+        tmp_path, "--system", "graph", *split_options(only_broken, only_broken_evals)
+    )
+    some_failed = evaluate(tmp_path, "--system", "graph", *split_options(one_good, one_good_evals))
+
+    assert all_failed.result.exit_code == 1
+    assert "Every run failed" in all_failed.result.stderr
+    assert "failures:" in all_failed.result.stdout
+    assert len(all_failed.rows) == 1
+    assert some_failed.result.exit_code == 0
