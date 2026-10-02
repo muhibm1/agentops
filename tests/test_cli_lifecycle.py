@@ -475,3 +475,50 @@ def test_a_torn_ledger_line_is_reported_and_the_action_still_applies_once(
     history = agentops(workspace, "history", thread)
     assert resumed.exit_code == 0, resumed.output
     assert history.exit_code == 0, history.output
+
+
+# R4 second round: a second crash inside the repair write (a torn seal marker) must leave a
+# thread that still resumes and shows its history, and a ledger whose last entry lost only its
+# newline must not be sealed as if it were a fragment.
+@pytest.mark.parametrize(
+    "tail",
+    ['{"idempotency_key": "ab\n{"torn_se', '{"idempotency_key": "ab\n{"torn_seal": true}\n{"idem'],
+    ids=["torn marker", "torn entry after marker"],
+)
+def test_a_thread_whose_ledger_was_torn_twice_still_approves_resumes_and_shows_history(
+    workspace: Workspace, tail: str
+) -> None:
+    thread = "torn-2"
+    run_scenario(workspace, CLEAN_BAD_DEPLOY, thread)
+    ledger_path = workspace.audit_dir / f"{thread}.ledger.jsonl"
+    ledger_path.write_text(tail, encoding="utf-8")
+
+    approved = agentops(workspace, "approve", thread, "--decision", "approve")
+    resumed = agentops(workspace, "resume", thread)
+    history = agentops(workspace, "history", thread)
+
+    assert approved.exit_code == 0, approved.output
+    assert "status: resolved" in approved.stdout
+    assert resumed.exit_code == 0, resumed.output
+    assert history.exit_code == 0, history.output
+    ledger_lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line).get("action") for line in ledger_lines[-1:]] == ["rollback_deploy"]
+
+
+def test_a_ledger_entry_that_lost_only_its_newline_is_not_sealed_and_the_thread_resumes(
+    workspace: Workspace,
+) -> None:
+    thread = "torn-3"
+    run_scenario(workspace, CLEAN_BAD_DEPLOY, thread)
+    first = agentops(workspace, "approve", thread, "--decision", "approve")
+    ledger_path = workspace.audit_dir / f"{thread}.ledger.jsonl"
+    ledger_path.write_bytes(ledger_path.read_bytes().rstrip(b"\r\n"))
+
+    resumed = agentops(workspace, "resume", thread)
+    history = agentops(workspace, "history", thread)
+
+    assert first.exit_code == 0, first.output
+    assert resumed.exit_code == 0, resumed.output
+    assert history.exit_code == 0, history.output
+    assert "torn" not in resumed.stderr
+    assert "torn_seal" not in ledger_path.read_text(encoding="utf-8")
