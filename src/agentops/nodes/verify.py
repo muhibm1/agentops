@@ -133,10 +133,14 @@ def latest_value(series: Series) -> float:
 
 def next_step_fields(state: IncidentState, cleared: bool) -> dict[str, Any]:
     """Cleared: keep `verifying` for the postmortem. Not cleared: investigate again while the
-    last execution changed something and budget is left, otherwise hand off with the reason."""
+    last execution changed something and budget is left, otherwise hand off with the reason.
+    An execution whose effect is unknown is never looped on: a human has to find out whether
+    the change took before anything else is proposed."""
     if cleared:
         return {"status": "verifying"}
     execution = state["execution"]
+    if execution is not None and execution.applied is None:
+        return {"escalation_reason": "effect_unknown"}
     if execution is None or not execution.applied:
         return {"escalation_reason": "symptoms_persist"}
     if state["investigation_budget"] <= 0:
