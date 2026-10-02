@@ -95,3 +95,11 @@ def test_the_factory_graph_never_applies_without_a_checkpointer(
     audit_lines = (tmp_path / "audit" / f"{incident['incident_id']}.jsonl").read_text("utf-8")
     events = [json.loads(line)["event"] for line in audit_lines.splitlines()]
     assert events == ["proposal"]
+
+
+# Security M1: the dev server's default CORS answer is `*`; the file narrows it to local origins.
+def test_langgraph_json_pins_the_dev_server_origins() -> None:
+    cors = json.loads(LANGGRAPH_JSON.read_text(encoding="utf-8"))["http"]["cors"]
+
+    assert "*" not in cors["allow_origins"]
+    assert cors["allow_credentials"] is False

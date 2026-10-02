@@ -109,6 +109,32 @@ def execute(
         return refused(state, str(refusal))
 
 
+def unrecorded_approval_problem(state: IncidentState, audit: AuditLog) -> str | None:
+    """Why the state's approval is not backed by the audit log, or None when it is (or when the
+    state has no approval, which `execute` refuses by itself).
+
+    `state["approval"]` is only a field: anything that can write graph state (the `langgraph dev`
+    state endpoint, a tampered checkpoint) could set it. The approval node appends an accepted
+    `approval` record to the audit file before it sets the field, so the file is the proof that an
+    operator was asked and said yes. The record must match the approval in decision and
+    idempotency key; the key already binds the action, target and parameters."""
+    approval = state["approval"]
+    if approval is None:
+        return None
+    for record in audit.records(state["incident_id"]):
+        if (
+            record.get("event") == "approval"
+            and record.get("valid") is True
+            and record.get("decision") == approval.decision
+            and record.get("idempotency_key") == approval.idempotency_key
+        ):
+            return None
+    return (
+        "The audit log holds no accepted approval for this remediation; "
+        "nothing executes on an approval the approval node did not record."
+    )
+
+
 def exit_process(code: int) -> None:
     """End the process at once, with no cleanup, as a crash would (the demo switch only)."""
     os._exit(code)
