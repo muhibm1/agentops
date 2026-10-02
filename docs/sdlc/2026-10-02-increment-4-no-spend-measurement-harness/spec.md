@@ -56,12 +56,17 @@ Part A closes increment 3. Part B is the harness. Every row is SHALL.
 Compliance: `profile.compliance.regimes` is empty; no control applies. Control 4 of the profile
 (flag any new SaaS or telemetry dependency) is met by naming LangSmith tracing here: opt-in,
 synthetic data only, never on in tests or CI. The same control covers `langgraph-cli[inmem]`
-(D2, D20): the CLI is believed, not verified, to send anonymous usage analytics by default, opted
-out with `LANGGRAPH_CLI_NO_ANALYTICS`, and `langgraph dev` is believed to open a LangSmith-hosted
-Studio page in the browser that talks to the local server. Task 9 reads the installed package
-source, replaces this paragraph's two "believed" labels with "confirmed against
-`<file>`" or "not present", names the Studio host, and writes the same facts into the README.
-Neither is reached by tests or CI, which never install or run the CLI.
+(D2, D20): the CLI sends anonymous usage analytics by default (operating system and version,
+Python and CLI versions, the command name and which options were changed, not their values) to a
+Supabase endpoint on every `dev`, `up`, `build`, `dockerfile`, `validate` and `new` command, opted
+out only with `LANGGRAPH_CLI_NO_ANALYTICS=1` (confirmed against
+`langgraph_cli/analytics.py` and `langgraph_cli/constants.py` in langgraph-cli 0.4.32), and
+`langgraph dev` opens a LangSmith-hosted Studio page,
+`https://smith.langchain.com/studio/?baseUrl=<local server>` unless `--studio-url` or LangSmith
+tracing names another host, in the browser that talks to the local server (confirmed against
+`langgraph_api/cli.py` in langgraph-api 0.15.1, installed by the `inmem` extra; `--no-browser`
+skips it). Task 9 wrote the same facts into the README. CI installs the CLI with the development
+requirements; no test and no CI step runs it.
 
 ## Design
 

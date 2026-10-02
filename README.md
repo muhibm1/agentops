@@ -49,6 +49,25 @@ appended to `audit/<incident_id>.jsonl`, and the simulated system's record of ap
 git-ignored. Scenario files are read from `--scenarios-dir`, which defaults to `scenarios`;
 every path is resolved relative to the current directory.
 
+## langgraph dev
+
+`langgraph dev`, run from the repository root after installing the development requirements
+(they pin `langgraph-cli[inmem]==0.4.32`), serves the graph to LangGraph Studio: `langgraph.json`
+points it at `make_graph` in `src/agentops/dev_server.py`, which builds the graph for
+`configurable.scenario_id` (default `clean_bad_deploy`) with the scripted model. What it sends
+off the machine, confirmed by reading the installed source of `langgraph-cli` 0.4.32 and
+`langgraph-api` 0.15.1: the CLI sends anonymous usage analytics (operating system and its
+version, Python and CLI versions, the command name, and which options were changed but not
+their values) to a Supabase endpoint each time `dev`, `up`, `build`, `dockerfile`, `validate` or
+`new` runs (`langgraph_cli/analytics.py`; the endpoint is `SUPABASE_URL` in
+`langgraph_cli/constants.py`). Set `LANGGRAPH_CLI_NO_ANALYTICS=1` to turn that off; only the
+value `1` counts. `langgraph dev` then opens LangGraph Studio in your browser at
+`https://smith.langchain.com/studio/?baseUrl=<the local server>` (`langgraph_api/cli.py`; your
+configured LangSmith host instead when LangSmith tracing is switched on), a page
+hosted by LangSmith that talks to the local server from your browser; `--no-browser` skips it
+and `--studio-url` names another Studio host. CI installs the CLI with the development
+requirements, but no test and no CI step runs it.
+
 ## When it fails
 
 Start with `agentops history <thread>` and the audit file `audit/<incident_id>.jsonl`: the last
