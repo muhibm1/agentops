@@ -1,9 +1,15 @@
 # Ship: increment 4, no-spend measurement harness
 
-Change id: `2026-10-02-increment-4-no-spend-measurement-harness` · Tier 3 · Branch `wh/2026-10-02-increment-4-no-spend-measurement-harness` · code head `17d6b56` (ship.md and review records are docs-only commits on top) · PR https://github.com/muhibm1/agentops/pull/10
-Prepared 2026-10-02 UTC · Design approved: see [approvals.md](./approvals.md) (G2, recorded by the main session on the owner's standing instruction; the owner did not read the brief)
+Change id: `2026-10-02-increment-4-no-spend-measurement-harness` · Tier 3 · Branch `wh/2026-10-02-increment-4-no-spend-measurement-harness` · code head `da5a079` (the R2b fix; ship.md and review records are docs-only commits on top, branch head `f059867`) · PR https://github.com/muhibm1/agentops/pull/10
+Revised 2026-10-02 UTC after the G4 rejection · Design approved: see [approvals.md](./approvals.md) (G2, recorded by the main session on the owner's standing instruction; the owner did not read the brief)
 
 Approving this document records Ship (G4). Per CLAUDE.md the release is the owner merging PR #10 to `main`; no agent merges and no deploy command exists.
+
+## Response to rejection
+
+G4 was rejected once ([approvals.md](./approvals.md)). The note, quoted: "Rejected for one finding: bug-reviewer R2b (executor.py:112-130). A recorded approval from thread p1 admits execute on a copied thread p1-x, giving a second apply with no approval on that thread." The note also asked for the thread to be bound, forks to keep working, and evals added.
+
+What changed (confirmed, commit `da5a079`): `unrecorded_approval_problem` now also requires the audit record's `thread_id` to equal the current thread, and `execute` passes it in. The eval ids are E49 (adversarial: approval recorded by another thread does not admit execute, through the real graph, no apply on either ledger) and E50 (golden: a CLI fork records its own approval and still applies once). The brief's E41 was already taken by the `langgraph.json` case. Re-checked closed by the bug reviewer ("Re-check 3") and the security reviewer (re-check of da5a079). Everything else in the packet was accepted as written and is unchanged below except the figures this fix moved.
 
 ## The short version
 
@@ -13,14 +19,14 @@ Increment 4 adds a measurement harness that runs the graph and a naive baseline 
 
 In plain words: you can now score the graph against a baseline from the command line, the held-out scenarios are locked by hashes, and a crash during a write no longer leaves a ledger or audit file that blocks resume. The held-out split was never scored (confirmed: verification.md, "Not verified").
 
-Diff tour, by risk (79 files, +7790 -165 against `main`):
+Diff tour, by risk (96 files, +8695 -165 against `main`, confirmed by `git diff --stat main...HEAD` on the branch head):
 
 1. `runbooks/default.yaml` (ask-first, security boundary): per-action verify window, job-name patterns, target-named-in-logs precondition. Diff is +8 -3; allowlist membership unchanged (believed, not verified).
 2. `requirements.txt`, `requirements-dev.txt` (ask-first): exact pins `langchain==1.4.3`, `langsmith==0.14.2`, `langgraph-cli[inmem]==0.4.32`, `langgraph-api` 0.15.1 and `langgraph-runtime-inmem` 0.35.1 (the last two Elastic-2.0, dev only).
 3. `.github/workflows/ci.yml` (ask-first): `MIN_TESTS` 450 to 700 by the docs/ci.md rule (784 x 0.9).
 4. `evals/checksums.sha256`, `evals/held_out/manifest.json` (ask-first, eval integrity): new files pinning the three frozen scenarios.
 5. `langgraph.json` (ask-first): new, one graph, CORS origins pinned, no `env` key. `.workhorse/profile.yml`: D13 ask rules (+2 lines).
-6. `src/agentops/actions/executor.py`, `audit.py`, `preconditions.py`, `nodes/execute.py`: approval must be in the audit log; torn audit line repaired; whole-token target match.
+6. `src/agentops/actions/executor.py`, `audit.py`, `preconditions.py`, `nodes/execute.py`: approval must be in the audit log and bound to the current thread (da5a079); torn audit line repaired; whole-token target match.
 7. `src/agentops/sources/simulator.py`: crash-safe ledger repair with a seal marker, LF-only appends.
 8. `src/agentops/evals/**`, `baseline.py`, `tracing.py`, `dev_server.py`, `cli.py`: harness, evaluators, runner, dataset, tracing switch rule.
 9. `scenarios/*.json` (8, with baseline scripts), `tests/**`, `README.md`, `CONTRIBUTING.md`, `docs/`: tests and docs.
@@ -29,28 +35,30 @@ Ask-first paths touched, plainly: `runbooks/default.yaml`, `requirements.txt`, `
 
 ## Proof
 
-All rows at commit `17d6b56` (confirmed, from [verification.md](./verification.md) and `verify-logs/summary.json`; the code did not move after that commit).
+All rows at code commit `da5a079` (confirmed, from [verification.md](./verification.md) and `verify-logs/summary.json`, `checks_green: true`; branch head `f059867` adds docs only, believed, not verified by diff).
 
 | Check | Command | Exit code | Output | Status |
 |-------|---------|-----------|--------|--------|
 | typecheck | `.venv/Scripts/python.exe -m pyright` | 0 | `verify-logs/typecheck.log` | confirmed |
 | lint | `.venv/Scripts/python.exe -m ruff check .` | 0 | `verify-logs/lint.log` | confirmed |
-| test | `.venv/Scripts/python.exe -m pytest -q` (876 passed, 1 skipped) | 0 | `verify-logs/test.log` | confirmed |
+| test | `.venv/Scripts/python.exe -m pytest -q` (878 passed, 1 skipped) | 0 | `verify-logs/test.log` | confirmed |
 | security_audit | `.venv/Scripts/python.exe -m pip_audit -r requirements.txt` | 0 | `verify-logs/security_audit.log` | confirmed |
+| format | `.venv/Scripts/python.exe -m ruff format --check .` | 0 | reported green by the conductor; not a summary.json check | believed, not verified |
 | install, build, e2e, screenshot | none defined, or install not run | | | not run |
-| CI `ci` (push) | GitHub Actions run 37068165078 at `17d6b56` | success | `gh pr checks 10 --watch` | confirmed |
-| CI `ci` (pull_request) | GitHub Actions run 37068166798 at `17d6b56` | success | `gh pr checks 10 --watch` | confirmed |
+| CI `ci` (push) | GitHub Actions run 37069809315 at `f059867` | success | `gh pr checks 10 --watch` | confirmed |
+| CI `ci` (pull_request) | GitHub Actions run 37069813703 at `f059867` | success | `gh pr checks 10 --watch` | confirmed |
 
-Evals (confirmed; 74 eval test ids plus `tests/test_full_runs.py` run at `17d6b56`, `verify-logs/evals.log`): golden 39/39, edge 9/9, failure 11/11, adversarial 11/11, all at the 100% target. Known pre-existing failures: none (`wh.js known-failure list`). Test count at the head: 877 collected, 876 passed, 1 skipped (which one: believed, not verified; previous change 784), above the CI floor of 700.
+Evals (confirmed; 74 cases, 73 distinct test ids plus `tests/test_full_runs.py` run at `da5a079`, `verify-logs/evals.log`): golden 40/40, edge 9/9, failure 11/11, adversarial 12/12, all at the 100% target (E49 and E50 are new). Known pre-existing failures: none (`wh.js known-failure list`). Test count at the head: 879 collected, 878 passed, 1 skipped (which one: believed, not verified; previous change 784), above the CI floor of 700.
 
 ## What the reviewers found
 
-Seven reviewers; reports in [reviews/](./reviews/); two re-check rounds. Critical 0; high 1 (fixed); medium 15 (all fixed, none accepted); lows below.
+Seven reviewers; reports in [reviews/](./reviews/); three re-check rounds. Critical 0; high 1 (fixed); medium 15 (all fixed, none accepted); R2b, rejected at G4, is now fixed; lows below.
 
 | Severity | Reviewer | File:line | Finding | Resolution |
 |----------|----------|-----------|---------|------------|
 | high | ecc-pr-test-analyzer | tests/test_simulator.py:494 | Second crash inside the ledger repair write bricks replay | fixed b8cfd7d |
-| medium | wh-security | langgraph.json:1, executor.py:117 | Dev server had no CORS pin; execute trusted `state["approval"]` | fixed 3ec1000 (audit-recorded approval, origins pinned); residue is R1, R2b below |
+| medium | wh-security | langgraph.json:1, executor.py:117 | Dev server had no CORS pin; execute trusted `state["approval"]` | fixed 3ec1000 (audit-recorded approval, origins pinned); residue is R1 below; R2b closed by da5a079 |
+| medium (G4 reject) | wh-security R2b, wh-bug | executor.py:112-134 | An approval recorded by one thread admitted execute on a copied thread: second apply, no approval on that thread | fixed da5a079 (thread_id bound, E49 + E50); re-checked closed by wh-bug "Re-check 3" and wh-security re-check (confirmed: probe ends escalated, no apply) |
 | medium | wh-bug | preconditions.py:224 | Target matched as a substring | fixed b0835b2 |
 | medium | wh-bug, ecc-silent, ecc-python | simulator.py:285, ~270 | Ledger repair not crash safe; complete JSON without newline mis-sealed | fixed b8cfd7d |
 | medium | wh-bug | dataset.py:73, commands.py:83 | Dev split skipped the checksum check | fixed 7f3b10a |
@@ -71,15 +79,16 @@ Unresolved lows (nothing hidden); none is critical, high or medium:
 | State | Reviewer | Where | Finding | Resolution |
 |-------|----------|-------|---------|------------|
 | open | wh-security R1 | langgraph.json:6 | CORS pin does not stop a `text/plain` simple POST; a real fix needs an auth handler in `langgraph.json` | accepted: conductor under the owner's standing instruction (D26), dev-only, simulator-only; not run against a live server |
-| open | wh-security R2b, wh-bug | src/agentops/actions/executor.py:112-130, :224 | One recorded approval can apply again from a second thread by writing state on the dev server. Proposed fix: match `thread_id` in the approval record, add eval E41 | open, no follow-up file; owner to decide |
-| open | wh-bug | src/agentops/evals/outcome.py:195-212 | `already_applied` is not counted as an apply; unreachable from `agentops eval` (believed) | open, no follow-up file |
+| open | wh-bug | src/agentops/evals/outcome.py:200 | `already_applied` is not counted as an apply; unreachable from `agentops eval` (believed); still open at Re-check 3, unchanged | open, no follow-up file |
+| open (note) | wh-bug (outside scope) | src/agentops/actions/executor.py:217 | Apply lookup matches any thread, not only the current one; fails closed, known | open, no follow-up file |
+| open (note) | wh-security (outside scope) | cli fork after approval, before execute | Such a fork has no interrupt of its own, so it is refused and escalates; fails closed, operator UX only (believed, not run) | open, no follow-up file |
 | open | ecc-python | src/agentops/evals/run.py:154 | `RUNNERS` erases the runner signature (Protocol proposed) | deferred as agreed |
 | open | ecc-python | src/agentops/evals/commands.py:87 | `os.environ.update` leaks the tracing project in-process | deferred as agreed |
 | open | ecc-silent | src/agentops/actions/executor.py:253 | Apply exception reduced to its type name; no traceback logged | open |
 | open | wh-adoption | README.md checksum bullet | Does not say held-out files are ask-first | open (new in re-check) |
 | by rule | conductor | scenario `two_concurrent_faults` | Graph `root_cause_accuracy` is False because grading reads the final diagnosis (D24) | accepted: conductor, no scenario or checksum edit |
 
-Spec conformance: 19 of 19 requirements (R1-R19 with N1, N2) traced to code and test; no scope creep (wh-conformance-reviewer, original pass at 78bc4a4). Adoption score: 5 (was 4).
+Spec conformance: 19 of 19 requirements (R1-R19 with N1, N2) traced to code and test; no scope creep (wh-conformance-reviewer, original pass at 78bc4a4; not re-run for da5a079, which adds no requirement, believed). Adoption score: 5 (was 4).
 
 ## Decisions
 
@@ -114,27 +123,7 @@ The release is the owner merging PR #10 to `main`. Undo: `git revert -m 1 <merge
 ## Clock
 
 ```
-Clock: agents 3 h 22 m of 3 h 00 m budget (OVER) · waiting on you 0 m · dead 1 h 28 m · wall 4 h 50 m
-By agent (minutes charged to the agent that reported):
-     70.4  build   wh-builder
-     50.7  review  wh-fixer
-     22.2  design  wh-designer
-     11.2  build   wh-builder x4
-      9.5  build   wh-fixer
-      8.5  build   wh-builder x3
-      6.8  review  re-check round 1
-      6.4  review  reviewers x7
-      3.9  review  wh-verifier + wh-bug-reviewer
-      2.9  review  wh.js verify
-      2.3  design  wh-constraint-auditor
-      1.5  build   wh-polish
-      1.3  verify  wh.js verify
-      0.9  verify  wh-verifier
-      0.2  design  conductor
-      0.2  build   conductor
-      0.0  design  wh-eval-designer
-      0.0  review  conductor
-    198.9  total
+Clock: agents 3 h 38 m of 3 h 00 m budget (OVER) · waiting on you 1 m · dead 1 h 28 m · wall 5 h 07 m
 ```
 
 ## Your decision
