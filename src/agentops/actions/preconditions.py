@@ -5,6 +5,7 @@ failed result: a check that cannot see the system must not let an action through
 not crash the run either.
 """
 
+import re
 from datetime import timedelta
 
 from pydantic import BaseModel, ConfigDict
@@ -211,17 +212,19 @@ def target_named_in_logs(
     state: IncidentState,
     source: EvidenceSource,
 ) -> PreconditionResult:
-    """Passes when a log line of the service from the hour before the incident opened contains
-    the target, compared casefolded; observes the first such line's id.
+    """Passes when a log line of the service from the hour before the incident opened names
+    the target as a whole token, compared casefolded; observes the first such line's id. A
+    letter, digit, `_` or `-` right before or after the target means the line names a longer
+    name (`reindex-job` inside `reindex-job-nightly`), so it does not count.
 
     It ties the target to the incident's observed logs, not to the operator's intent: a target
     named only in an injected line passes too, and the dry run the operator reads stays the
     control for that (spec, Design "Job names")."""
     opened_at = state["opened_at"]
     window = Window(start=opened_at - TARGET_LOG_LOOKBACK, end=opened_at)
-    target = remediation.target.casefold()
+    whole_token = re.compile(rf"(?<![\w-]){re.escape(remediation.target.casefold())}(?![\w-])")
     lines = source.get_logs(state["service"], window, None)
-    naming = next((line for line in lines if target in line.message.casefold()), None)
+    naming = next((line for line in lines if whole_token.search(line.message.casefold())), None)
     if naming is None:
         return failed(
             precondition.check,
