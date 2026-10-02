@@ -26,13 +26,13 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from agentops.actions.registry import Registry, default_registry
-from agentops.evals.outcome import UNDETERMINED_LABEL, ApplyAttempt
+from agentops.evals.outcome import UNDETERMINED_LABEL, ApplyAttempt, remediation_label
 from agentops.sources.base import ActionRequest, ActionResult, EvidenceSource, Window
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
 from agentops.state import StrictModel
 
-BaselineResult = Literal["remediated", "escalated", "failed"]
+BaselineResult = Literal["remediated", "looped_then_remediated", "escalated", "failed"]
 
 BASELINE_PROMPT = """You are an on-call engineer investigating a production incident.
 Use the tools to read the service's logs, metrics, deployments, configuration and dependency
@@ -67,9 +67,10 @@ class BaselineAnswer(BaseModel):
 
 
 class BaselineRun(StrictModel):
-    """What one baseline run did. `outcome` is `remediated` when at least one apply was
-    accepted by the source, `escalated` when the agent answered without one, and `failed`
-    when its final reply was not a valid answer."""
+    """What one baseline run did. `outcome` is `remediated` when one apply was accepted by the
+    source, `looped_then_remediated` when two or more were (the graph's rule, see
+    `remediation_label`), `escalated` when the agent answered without one, and `failed` when
+    its final reply was not a valid answer."""
 
     scenario_id: str
     outcome: BaselineResult
@@ -278,7 +279,7 @@ def baseline_run(
     if answer is None:
         outcome: BaselineResult = "failed"
     elif any(attempt.ok for attempt in trace.applies):
-        outcome = "remediated"
+        outcome = remediation_label(trace.applies)
     else:
         outcome = "escalated"
     return BaselineRun(
