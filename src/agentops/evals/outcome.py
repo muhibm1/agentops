@@ -138,14 +138,25 @@ def run_result(
     state: IncidentState, applies: Sequence[ApplyAttempt]
 ) -> tuple[RunResult, str | None]:
     """The run's result. A resolved run is `looped_then_remediated` only when a remediation was
-    applied and a second one had to follow; `loops` alone cannot say so, because the merge node
-    and a failed precondition also count a loop when they only go back for more evidence."""
+    applied and a second one had to follow (`remediation_label`); `loops` alone cannot say so,
+    because the merge node and a failed precondition also count a loop when they only go back
+    for more evidence."""
     status = state["status"]
     if status == "resolved":
-        return ("looped_then_remediated" if len(applies) >= 2 else "remediated"), None
+        return remediation_label(applies), None
     if status == "escalated":
         return "escalated", None
     return "failed", f"the run stopped in status {status}"
+
+
+def remediation_label(
+    applies: Sequence[ApplyAttempt],
+) -> Literal["remediated", "looped_then_remediated"]:
+    """The label of a run that changed the world: `looped_then_remediated` when the source
+    accepted two or more applies, `remediated` otherwise. The graph and the baseline both use
+    this one rule, so a `loop` scenario is scored the same for both."""
+    accepted = sum(1 for attempt in applies if attempt.ok)
+    return "looped_then_remediated" if accepted >= 2 else "remediated"
 
 
 def explanation_of(state: IncidentState) -> str | None:

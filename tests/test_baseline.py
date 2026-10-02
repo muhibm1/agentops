@@ -17,7 +17,15 @@ from agentops.baseline import (
     baseline_tools,
     run_baseline,
 )
-from agentops.evals.outcome import UNDETERMINED_LABEL, ApplyAttempt
+from agentops.evals.evaluators import correct_outcome
+from agentops.evals.outcome import (
+    UNDETERMINED_LABEL,
+    ApplyAttempt,
+    inputs_for,
+    reference_for,
+    remediation_label,
+)
+from agentops.evals.run import outcome_from_baseline
 from agentops.fakes import ScriptedChatModel, scripted_baseline_model_for
 from agentops.sources.base import (
     ActionRequest,
@@ -200,3 +208,77 @@ def test_the_baseline_refuses_any_source_that_is_not_the_simulator() -> None:
 
     assert source.calls == []
     assert model.calls == []
+
+
+# E31b: the baseline is labelled by the same rule as the graph, so a `loop` scenario is not
+# unwinnable for it: two accepted applies are `looped_then_remediated`.
+ROLLBACK_CALL = {
+    "action": "rollback_deploy",
+    "target": "deploy-001",
+    "params": {"to_version": "v7.7.3"},
+}
+SCALE_CALL = {"action": "scale_db_pool", "target": "postgres", "params": {"pool_size": 96}}
+FAULT_ANSWER = (
+    '{"root_cause": "recent_deploy_regression", "action": "rollback_deploy", '
+    '"target": "deploy-001", "params": {}}'
+)
+
+
+def baseline_applying(scenario: Scenario, *calls: dict[str, Any]) -> Any:
+    model = ScriptedChatModel(
+        messages=[one_tool_call("apply", call, f"call-{n}") for n, call in enumerate(calls, 1)],
+        script=[FAULT_ANSWER],
+    )
+    return run_baseline(scenario, model, incident_id=INCIDENT_ID)
+
+
+def test_a_baseline_with_two_accepted_applies_is_looped_then_remediated() -> None:
+    scenario = scenario_named("two_concurrent_faults")
+
+    run = baseline_applying(scenario, ROLLBACK_CALL, SCALE_CALL)
+
+    assert [attempt.ok for attempt in run.applies] == [True, True]
+    assert run.outcome == "looped_then_remediated"
+    outcome = outcome_from_baseline(run, started=0.0, finished=0.0)
+    assert correct_outcome(inputs_for(scenario), outcome.model_dump(), reference_for(scenario))
+
+
+def test_a_baseline_with_one_accepted_apply_is_remediated_and_misses_a_loop_scenario() -> None:
+    scenario = scenario_named("two_concurrent_faults")
+
+    run = baseline_applying(scenario, ROLLBACK_CALL)
+
+    assert run.outcome == "remediated"
+    outcome = outcome_from_baseline(run, started=0.0, finished=0.0)
+    assert not correct_outcome(inputs_for(scenario), outcome.model_dump(), reference_for(scenario))
+
+
+def test_a_baseline_whose_second_apply_was_refused_is_remediated_not_looped() -> None:
+    scenario = scenario_named("two_concurrent_faults")
+    unmodellable = {"action": "drop_table", "target": "orders", "params": {}}
+
+    run = baseline_applying(scenario, ROLLBACK_CALL, unmodellable)
+
+    assert [attempt.ok for attempt in run.applies] == [True, False]
+    assert run.outcome == "remediated"
+
+
+@pytest.mark.parametrize(
+    ("accepted_flags", "label"),
+    [
+        ([], "remediated"),
+        ([True], "remediated"),
+        ([False, True], "remediated"),
+        ([True, True], "looped_then_remediated"),
+        ([True, False, True], "looped_then_remediated"),
+    ],
+)
+def test_the_remediation_label_counts_accepted_applies(
+    accepted_flags: list[bool], label: str
+) -> None:
+    attempts = [
+        ApplyAttempt(action="a", target="t", approved=True, in_registry=True, ok=ok)
+        for ok in accepted_flags
+    ]
+
+    assert remediation_label(attempts) == label
