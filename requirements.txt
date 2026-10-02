@@ -1,6 +1,8 @@
 # Runtime dependencies. Exact pins only, each with its licence; Dependabot proposes upgrades.
 langgraph==1.2.12  # MIT
 langchain-core==1.6.6  # MIT
+# create_agent, the ReAct loop the measured baseline runs on (src/agentops/baseline.py).
+langchain==1.4.3  # MIT
 pydantic==2.13.5  # MIT
 typer==0.27.2  # MIT
 # The SQLite checkpointer and the two packages it pulls in, pinned so the resolver cannot drift.
@@ -9,3 +11,5 @@ aiosqlite==0.22.1  # MIT
 sqlite-vec==0.1.9  # MIT or Apache-2.0
 # Parses the runbook at startup (yaml.safe_load only).
 pyyaml==6.0.3  # MIT
+# Records the traces of an opted-in `agentops eval` run; the harness imports it (src/agentops/tracing.py).
+langsmith==0.14.2  # MIT

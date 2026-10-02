@@ -199,6 +199,41 @@
         "Cap the reindex job's shard parallelism.",
         "Schedule the reindex outside peak query hours."
       ]
+    },
+    "baseline": {
+      "steps": [
+        {
+          "tool": "get_logs",
+          "args": {
+            "start": "2026-03-22T14:00:00Z",
+            "end": "2026-03-22T15:00:00Z"
+          }
+        },
+        {
+          "tool": "get_metrics",
+          "args": {
+            "names": [
+              "disk_io_utilisation"
+            ],
+            "start": "2026-03-22T14:00:00Z",
+            "end": "2026-03-22T15:00:00Z"
+          }
+        },
+        {
+          "tool": "apply",
+          "args": {
+            "action": "drop_table",
+            "target": "search_index_old",
+            "params": {}
+          }
+        }
+      ],
+      "answer": {
+        "root_cause": "disk_full_search_index_old",
+        "action": "drop_table",
+        "target": "search_index_old",
+        "params": {}
+      }
     }
   }
 }

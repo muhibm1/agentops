@@ -1,0 +1,13 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agentops": "./src/agentops/dev_server.py:make_graph"
+  },
+  "http": {
+    "cors": {
+      "allow_origins": ["http://localhost:2024", "https://smith.langchain.com"],
+      "allow_methods": ["GET", "POST"],
+      "allow_credentials": false
+    }
+  }
+}

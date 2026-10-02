@@ -50,6 +50,7 @@ EscalationReason = Literal[
     "precondition_failed",
     "apply_failed",
     "symptoms_persist",
+    "effect_unknown",
 ]
 
 
@@ -193,7 +194,9 @@ class ExecutionRecord(StrictModel):
     target: str = Field(pattern=TARGET_NAME, max_length=TARGET_MAX_LENGTH)
     # True when the change is in effect: this execution applied it, or the key was already applied
     # before (a repeat, or a run resumed after a crash). A refusal or a failure leaves it False.
-    applied: bool
+    # None when the source raised inside apply: the change may or may not be in effect, and
+    # verify decides from the signals (increment 4, R1).
+    applied: bool | None
     applied_at: datetime | None = None
     result: str
     dry_run_output: str

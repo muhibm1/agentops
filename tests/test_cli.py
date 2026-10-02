@@ -417,6 +417,27 @@ def test_the_closing_sentence_says_a_change_was_made_when_action_evidence_shows_
     assert sentence.endswith("An approved action was applied.")
 
 
+# E39 (R3): an apply whose effect is unknown is reported as possibly applied, never as no change.
+def test_the_closing_sentence_says_the_effect_is_unknown() -> None:
+    state = new_incident("checkout", ["errors"], opened_at=datetime(2026, 3, 10, tzinfo=UTC))
+    state["status"] = "escalated"
+    state["evidence"] = [
+        Evidence(
+            id="action-1",
+            source="apply",
+            kind="action",
+            payload={"applied": None, "effect": "unknown"},
+            collected_at=datetime(2026, 3, 10, tzinfo=UTC),
+        )
+    ]
+
+    sentence = cli.closing_sentence(state, "t", is_waiting=False)
+
+    assert sentence == (
+        "Handed to a human. An approved action may have been applied; its effect is unknown."
+    )
+
+
 def test_error_path_cuts_a_long_failure_message(tmp_path: Path) -> None:
     document = scenario_document()
     document["scripted_outputs"]["rca"]["root_cause"]["evidence_ids"] = ["log-" + "9" * 500]

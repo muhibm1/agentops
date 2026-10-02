@@ -102,6 +102,8 @@ ask_commands:
   - "gh release create"
   - "gh workflow run"
   - "langgraph deploy"
+  - "--held-out"                # scores the frozen split (increment 4, D13)
+  - "--model anthropic"         # live model calls spend money (increment 4, D13)
 
 # Build phase parallelism. The planner groups file-disjoint tasks into waves; the conductor runs
 # up to max_parallel builders per wave, each in its own worktree. Lower it if the client's

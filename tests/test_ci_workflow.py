@@ -1,6 +1,7 @@
 """E30, E31, E33: the CI workflow, the pre-push hook and Dependabot (R16, R18); increment 3 E5:
-the test-count floor (R5)."""
+the test-count floor (R5); increment 4 N2 and A8: the raised floor and no tracked env file."""
 
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -12,8 +13,26 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 DEPENDABOT_PATH = REPO_ROOT / ".github" / "dependabot.yml"
 CI_DOCUMENT_PATH = REPO_ROOT / "docs" / "ci.md"
+LANGGRAPH_JSON_PATH = REPO_ROOT / "langgraph.json"
 PRE_PUSH_HOOK = ".githooks/pre-push"
 LOWEST_ALLOWED_FLOOR = 240
+INCREMENT_4_LOWEST_FLOOR = 450
+STEP_NAMES = [
+    "Create the virtual environment",
+    "Install pinned requirements",
+    "Lint",
+    "Format check",
+    "Typecheck",
+    "Tests",
+    "Test-count floor",
+    "Dependency audit",
+]
+# The sentence in docs/ci.md that states the floor, then the passing count it was computed from.
+FLOOR_STATEMENT = re.compile(
+    r"`MIN_TESTS` is (?P<floor>\d+) as of increment 4\..*?"
+    r"The suite passed (?P<passed>\d+) tests",
+    re.DOTALL,
+)
 
 GATES_IN_ORDER = [
     "python -m venv .venv",
@@ -87,7 +106,45 @@ def test_test_count_floor_is_at_least_240_and_docs_ci_states_the_same_number() -
 
     assert floor >= LOWEST_ALLOWED_FLOOR
     assert floor % 10 == 0
-    assert f"`MIN_TESTS` is {floor} as of increment 3" in ci_document
+    assert f"`MIN_TESTS` is {floor} as of increment 4" in ci_document
+
+
+def largest_multiple_of_ten_at_or_below_90_percent(passed: int) -> int:
+    return passed * 9 // 100 * 10
+
+
+def test_the_floor_was_raised_and_the_job_still_reads_no_secret() -> None:
+    workflow = load_workflow()
+    raw_text = WORKFLOW_PATH.read_text(encoding="utf-8")
+    ci_document = CI_DOCUMENT_PATH.read_text(encoding="utf-8")
+
+    floor = int(workflow["env"]["MIN_TESTS"])
+    statement = FLOOR_STATEMENT.search(ci_document)
+    step_names = [step["name"] for step in the_only_job(workflow)["steps"] if "name" in step]
+
+    assert floor >= INCREMENT_4_LOWEST_FLOOR
+    assert floor % 10 == 0
+    assert statement is not None, "docs/ci.md does not state the increment 4 floor and count"
+    assert int(statement["floor"]) == floor
+    assert largest_multiple_of_ten_at_or_below_90_percent(int(statement["passed"])) == floor
+    assert "secrets." not in raw_text
+    assert step_names == STEP_NAMES
+
+
+def test_no_env_file_is_tracked_and_the_dev_server_reads_none() -> None:
+    tracked_paths = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "ls-files"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    langgraph_config = json.loads(LANGGRAPH_JSON_PATH.read_text(encoding="utf-8"))
+
+    tracked_env_files = [path for path in tracked_paths if Path(path).name.startswith(".env")]
+
+    assert tracked_paths, "git ls-files listed nothing; the check would prove nothing"
+    assert tracked_env_files == []
+    assert "env" not in langgraph_config
 
 
 def test_actions_are_sha_pinned_and_no_secret_is_referenced() -> None:

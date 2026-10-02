@@ -1,4 +1,5 @@
-"""`build_graph`: the incident graph from triage to a resolved or escalated incident.
+"""`build_graph`: the incident graph from triage to a resolved or escalated incident, compiled
+with a checkpointer. `build_state_graph` returns the same graph uncompiled.
 
     START -> triage --route_to_sources--> logs | metrics | deploys | merge
     logs, metrics, deploys -> merge --after_merge--> rca | escalate | the sources again
@@ -80,6 +81,19 @@ def build_graph(
             "build_graph needs a checkpointer: the approval step pauses the run and resumes it "
             "from the last checkpoint."
         )
+    graph = build_state_graph(source, model, registry, audit)
+    return graph.compile(checkpointer=checkpointer)
+
+
+def build_state_graph(
+    source: EvidenceSource,
+    model: BaseChatModel,
+    registry: Registry,
+    audit: AuditLog,
+) -> StateGraph:
+    """The same graph as `build_graph`, uncompiled, for a caller that compiles it itself. Every
+    run that can reach `approval` needs a checkpointer at compile time; `build_graph` enforces
+    that, this function does not."""
     graph = StateGraph(IncidentState)
     add_investigation_nodes(graph, source, model, registry, audit)
     add_action_nodes(graph, source, model, registry, audit)
@@ -101,7 +115,7 @@ def build_graph(
     )
     graph.add_edge("postmortem", END)
     graph.add_edge("escalate", END)
-    return graph.compile(checkpointer=checkpointer)
+    return graph
 
 
 def checkpoint_serializer() -> JsonPlusSerializer:
@@ -147,5 +161,5 @@ def add_action_nodes(
     """Approval, execute, verify and postmortem."""
     graph.add_node("approval", partial(approval, registry=registry, audit=audit))
     graph.add_node("execute", partial(execute, source=source, registry=registry, audit=audit))
-    graph.add_node("verify", partial(verify, source=source, audit=audit))
+    graph.add_node("verify", partial(verify, source=source, audit=audit, registry=registry))
     graph.add_node("postmortem", partial(postmortem, model=model))

@@ -1,4 +1,5 @@
-"""E16, E26, E27, E42, E58, E63: the verify rule (ADR 0003) and the postmortem with its fallback.
+"""E16, E26, E27, E42, E58, E63 and increment 4's E22: the verify rule (ADR 0003) and the
+postmortem with its fallback.
 
 Verify is called on a source whose ledger already holds the applied action, as the execute node
 leaves it, and its audit record is read back. The postmortem is driven by a scripted model.
@@ -11,25 +12,43 @@ from typing import Any
 
 import pytest
 from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from agentops.actions.audit import AuditLog
-from agentops.actions.registry import idempotency_key
+from agentops.actions.registry import Registry, default_registry, idempotency_key
 from agentops.fakes import ScriptedChatModel, scripted_model_for
+from agentops.graph import build_graph, checkpoint_serializer
 from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN
 from agentops.nodes.escalate import escalate
 from agentops.nodes.evidence import as_evidence, deploys, logs, metrics
-from agentops.nodes.postmortem import fallback_postmortem, postmortem, postmortem_human_prompt
+from agentops.nodes.postmortem import (
+    applied_descriptions,
+    fallback_postmortem,
+    postmortem,
+    postmortem_human_prompt,
+)
 from agentops.nodes.router import route_to_sources
 from agentops.nodes.verify import (
     after_verify,
     is_healthy,
     judge,
+    next_step_fields,
     read_post_action_signals,
     verify,
+    verify_window,
 )
-from agentops.sources.base import ActionRequest, LogLine, Point, Series
+from agentops.sources.base import (
+    VERIFY_WINDOW,
+    ActionRequest,
+    ActionResult,
+    LogLine,
+    Point,
+    Series,
+    Window,
+)
 from agentops.sources.scenario import Scenario, load_scenario
-from agentops.sources.simulator import SimulatorSource
+from agentops.sources.simulator import SimulatorSource, ledger_path_for
 from agentops.state import (
     RCA,
     Escalation,
@@ -38,7 +57,9 @@ from agentops.state import (
     Hypothesis,
     IncidentState,
     Postmortem,
+    RcaOutput,
     Remediation,
+    Triage,
     new_incident,
 )
 
@@ -116,9 +137,18 @@ def verify_records(audit_dir: Path, incident_id: str) -> list[dict[str, Any]]:
 
 
 def run_verify(
-    state: IncidentState, source: SimulatorSource, audit_dir: Path
+    state: IncidentState,
+    source: SimulatorSource,
+    audit_dir: Path,
+    registry: Registry | None = None,
 ) -> tuple[IncidentState, dict[str, Any]]:
-    update = verify(state, thread_config(state), source=source, audit=AuditLog(audit_dir))
+    update = verify(
+        state,
+        thread_config(state),
+        source=source,
+        audit=AuditLog(audit_dir),
+        registry=registry or default_registry(),
+    )
     [record] = verify_records(audit_dir, state["incident_id"])
     return merged(state, update), record
 
@@ -323,10 +353,115 @@ def test_a_point_or_line_exactly_at_the_opening_is_not_a_post_action_signal() ->
     ]
     state = executed_state(scenario, SimulatorSource(scenario), apply=False)
 
-    series, lines, _ = read_post_action_signals(state, SimulatorSource(scenario))
+    series, lines, _ = read_post_action_signals(state, SimulatorSource(scenario), VERIFY_WINDOW)
 
     assert [point.value for point in series[0].points] == [0.001]
     assert lines == []
+
+
+class WindowRecordingSource(SimulatorSource):
+    """The scenario's source, except that metrics are one healthy point at +75 minutes and every
+    window verify asks for is recorded."""
+
+    def __init__(self, scenario: Scenario) -> None:
+        super().__init__(scenario)
+        self.healthy_at = scenario.incident_time + timedelta(minutes=75)
+        self.windows: list[Window] = []
+
+    def get_metrics(self, service: str, names: list[str], window: Window) -> list[Series]:
+        self.windows.append(window)
+        healthy = series_of("error_rate", [(self.healthy_at, 0.001)])
+        return [healthy] if window.contains(self.healthy_at) else []
+
+    def get_logs(self, service: str, window: Window, query: str | None) -> list[LogLine]:
+        self.windows.append(window)
+        return []
+
+
+def registry_with_window(action: str, minutes: int) -> Registry:
+    entries = [
+        entry.model_copy(update={"verify_window_minutes": minutes})
+        if entry.action == action
+        else entry
+        for entry in (default_registry().get(name) for name in default_registry().names())
+    ]
+    return Registry(entries)
+
+
+# E22 (increment 4, R5): verify reads as far as the executed action's runbook window.
+def test_verify_reads_the_window_the_runbook_declares_for_the_action(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    recording = WindowRecordingSource(scenario)
+    registry = registry_with_window("rollback_deploy", 90)
+
+    after, record = run_verify(state, recording, tmp_path, registry)
+
+    opened = scenario.incident_time
+    assert recording.windows
+    assert {window.end for window in recording.windows} == {opened + timedelta(minutes=90)}
+    assert record["cleared"] is True
+    assert after["status"] == "verifying"
+
+
+def test_verify_with_the_default_window_does_not_see_a_point_at_seventy_five_minutes(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    recording = WindowRecordingSource(scenario)
+
+    _, record = run_verify(state, recording, tmp_path)
+
+    assert {window.end for window in recording.windows} == {scenario.incident_time + VERIFY_WINDOW}
+    assert record["cleared"] is False
+
+
+# E22b: when the window cannot come from the runbook, verify falls back to the 30-minute default
+# instead of raising or reading an empty window.
+def test_verify_falls_back_to_the_default_window_when_the_action_left_the_runbook(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    without_rollback = Registry(
+        [
+            default_registry().get(name)
+            for name in default_registry().names()
+            if name != "rollback_deploy"
+        ]
+    )
+    recording = WindowRecordingSource(scenario)
+
+    _, record = run_verify(state, recording, tmp_path, without_rollback)
+
+    assert {window.end for window in recording.windows} == {scenario.incident_time + VERIFY_WINDOW}
+    assert record["cleared"] is False
+
+
+def test_verify_falls_back_to_the_default_window_when_there_is_no_execution(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    state["execution"] = None
+    recording = WindowRecordingSource(scenario)
+
+    run_verify(state, recording, tmp_path, registry_with_window("rollback_deploy", 90))
+
+    assert {window.end for window in recording.windows} == {scenario.incident_time + VERIFY_WINDOW}
+
+
+def test_the_window_comes_from_the_runbook_only_when_the_action_is_still_in_it() -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+
+    assert verify_window(state, registry_with_window("rollback_deploy", 90)) == timedelta(
+        minutes=90
+    )
+    assert verify_window(state, registry_with_window("scale_db_pool", 90)) == (
+        timedelta(minutes=default_registry().get("rollback_deploy").verify_window_minutes)
+    )
 
 
 # E16: the scripted postmortem cites ids in state and resolves the incident.
@@ -483,3 +618,179 @@ def test_escalate_and_postmortem_prompts_each_carry_one_fresh_fence(tmp_path: Pa
     nonces = prompt_nonces(escalate_model) + prompt_nonces(postmortem_model)
     assert len(nonces) == 4
     assert len(set(nonces)) == 4
+
+
+class RaisingApplySource(SimulatorSource):
+    """A simulator whose `apply` raises, after serving the post-action world or before touching
+    anything: the executor cannot tell which, and records the effect as unknown."""
+
+    def __init__(self, scenario: Scenario, ledger_path: Path, *, applies_first: bool) -> None:
+        super().__init__(scenario, ledger_path=ledger_path)
+        self.applies_first = applies_first
+
+    def apply(self, action: ActionRequest, idempotency_key: str) -> ActionResult:
+        if self.applies_first:
+            super().apply(action, idempotency_key)
+        raise RuntimeError("the backend did not answer")
+
+
+def approved_run_over(source: SimulatorSource, model: ScriptedChatModel, audit_dir: Path) -> Any:
+    """Run the full graph on `source` to the approval pause, approve, and return the end state."""
+    scenario = scenario_named("clean_bad_deploy")
+    graph = build_graph(
+        source,
+        model,
+        default_registry(),
+        AuditLog(audit_dir),
+        InMemorySaver(serde=checkpoint_serializer()),
+    )
+    config: RunnableConfig = {"configurable": {"thread_id": scenario.id}, "recursion_limit": 60}
+    incident = new_incident(
+        scenario.service,
+        scenario.symptoms,
+        opened_at=scenario.incident_time,
+        incident_id=scenario.id,
+        scenario_id=scenario.id,
+    )
+    assert "__interrupt__" in graph.invoke(incident, config)
+    return graph.invoke(Command(resume={"decision": "approve", "operator": "on-call"}), config)
+
+
+# E2 (increment 4, R2): verify judges an unknown effect; cleared symptoms resolve as usual.
+def test_an_unknown_effect_whose_symptoms_clear_resolves(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    ledger = ledger_path_for(tmp_path, scenario.id)
+    source = RaisingApplySource(scenario, ledger, applies_first=True)
+
+    final = approved_run_over(source, scripted_model_for(scenario), tmp_path)
+
+    assert final["execution"].result == "apply_unknown"
+    assert final["execution"].applied is None
+    assert [record["cleared"] for record in verify_records(tmp_path, scenario.id)] == [True]
+    assert final["status"] == "resolved"
+    assert final["escalation_reason"] is None
+    assert final["postmortem"] is not None
+
+
+# E3 (increment 4, R2): an unknown effect whose symptoms remain escalates; it never loops.
+def test_an_unknown_effect_with_symptoms_remaining_escalates_as_effect_unknown(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    ledger = ledger_path_for(tmp_path, scenario.id)
+    source = RaisingApplySource(scenario, ledger, applies_first=False)
+    outputs = scenario.scripted_outputs
+    model = ScriptedChatModel(
+        script_by_schema={
+            Triage: [outputs.triage] * 3,
+            RcaOutput: [outputs.rca] * 3,
+            Escalation: [{"summary": "The effect of the approved action is unknown."}] * 3,
+        }
+    )
+
+    final = approved_run_over(source, model, tmp_path)
+
+    assert [record["cleared"] for record in verify_records(tmp_path, scenario.id)] == [False]
+    assert final["status"] == "escalated"
+    assert final["escalation_reason"] == "effect_unknown"
+    assert final["loops"] == 0
+    assert final["postmortem"] is None
+    assert source.ledger() == []
+
+
+# Negative cases for the verify rule: an unknown effect never loops and is never "cleared" by a
+# read that failed, whatever budget is left.
+def unknown_effect_state(scenario: Scenario, source: SimulatorSource) -> IncidentState:
+    state = executed_state(scenario, source)
+    state["execution"] = state["execution"].model_copy(  # type: ignore[union-attr]
+        update={"applied": None, "applied_at": None, "result": "apply_unknown"}
+    )
+    return state
+
+
+def test_an_unknown_effect_with_budget_left_escalates_instead_of_looping(tmp_path: Path) -> None:
+    scenario = scenario_named("two_concurrent_faults")
+    source = SimulatorSource(scenario)
+    state = unknown_effect_state(scenario, source)
+    assert state["investigation_budget"] > 0
+
+    after, record = run_verify(state, source, tmp_path)
+
+    assert record["cleared"] is False
+    assert after["escalation_reason"] == "effect_unknown"
+    assert after["loops"] == state["loops"]
+    assert after_verify(after) == "escalate"
+
+
+@pytest.mark.parametrize("broken", ["metrics", "logs"])
+def test_an_unknown_effect_with_an_unreadable_verify_source_is_never_cleared(
+    tmp_path: Path, broken: str
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = unknown_effect_state(scenario, SimulatorSource(scenario))
+    source = UnreadableSource(scenario, broken=broken)
+    source.apply(
+        ActionRequest(action="rollback_deploy", target="deploy-001"),
+        state["execution"].idempotency_key,  # type: ignore[union-attr]
+    )
+
+    after, record = run_verify(state, source, tmp_path)
+
+    assert record["cleared"] is False
+    assert record["unreadable_sources"] == [broken]
+    assert after["escalation_reason"] == "effect_unknown"
+    assert after_verify(after) == "escalate"
+
+
+def test_a_change_that_applied_nothing_still_escalates_as_symptoms_persist() -> None:
+    scenario = scenario_named("two_concurrent_faults")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+
+    assert next_step_fields(state, cleared=False) == {"escalation_reason": "symptoms_persist"}
+
+
+def with_unknown_effect_on(state: IncidentState, index: int) -> IncidentState:
+    item = state["evidence"][index]
+    item.payload.update({"applied": None, "effect": "unknown"})
+    return state
+
+
+# E5 (increment 4, R3): the postmortem names an unknown effect as such, after the applied ones.
+def test_postmortem_names_an_action_whose_effect_is_unknown() -> None:
+    state = with_unknown_effect_on(two_applied_actions_state(), -2)
+
+    described = applied_descriptions(state)
+    prompt = postmortem_human_prompt(state, "0123456789abcdef")
+
+    assert described == [
+        "scale_db_pool on postgres",
+        "rollback_deploy on deploy-001 (effect unknown)",
+    ]
+    assert (
+        "Actions applied: scale_db_pool on postgres; rollback_deploy on deploy-001 (effect unknown)"
+        in prompt
+    )
+
+
+def test_an_unknown_effect_later_confirmed_applied_is_described_once_as_applied() -> None:
+    state = two_applied_actions_state()
+    confirmed = state["evidence"][-1]
+    unknown = confirmed.model_copy(
+        update={
+            "id": "action-0",
+            "payload": {**confirmed.payload, "applied": None, "effect": "unknown"},
+        }
+    )
+    state["evidence"] = [*state["evidence"][:-2], unknown, *state["evidence"][-2:]]
+
+    assert applied_descriptions(state) == [
+        "rollback_deploy on deploy-001",
+        "scale_db_pool on postgres",
+    ]
+
+
+def test_an_action_with_applied_null_but_no_unknown_effect_is_not_described() -> None:
+    state = two_applied_actions_state()
+    state["evidence"][-1].payload["applied"] = None
+
+    assert applied_descriptions(state) == ["rollback_deploy on deploy-001"]

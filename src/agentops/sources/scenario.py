@@ -8,7 +8,7 @@ key and test data; only `SimulatorSource.apply` reads `post_action_world`, and n
 import re
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, get_args
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
@@ -58,6 +58,38 @@ class PostActionWorld(ScenarioPart):
     logs: list[LogLine] = Field(default_factory=list)
 
 
+BaselineToolName = Literal[
+    "get_logs", "get_metrics", "get_deployments", "get_config", "get_dependency_health", "apply"
+]
+BASELINE_TOOL_NAMES: frozenset[str] = frozenset(get_args(BaselineToolName))
+
+
+class BaselineStep(ScenarioPart):
+    """One tool call the scripted baseline model makes, with the arguments it passes."""
+
+    tool: BaselineToolName
+    args: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def check_apply_names_its_action_and_target(self) -> Self:
+        if self.tool != "apply":
+            return self
+        missing = [key for key in ("action", "target") if key not in self.args]
+        if missing:
+            raise ValueError(f"an apply step must name {' and '.join(missing)} in its args")
+        return self
+
+
+class BaselineScript(ScenarioPart):
+    """What the ReAct baseline does on this scenario when it runs on the scripted model.
+
+    Written as a plausible naive agent, not as the ground truth (ADR 0005): the trap scenarios
+    take the bait. `answer` is the final reply, read by the baseline as its answer."""
+
+    steps: list[BaselineStep] = Field(min_length=1)
+    answer: dict[str, Any]
+
+
 class ScriptedOutputs(ScenarioPart):
     """What the scripted chat model answers for this scenario. Kept as raw JSON objects here;
     the node that asks for a `Triage`, an `RcaOutput`, an `Escalation` or a `Postmortem`
@@ -65,13 +97,15 @@ class ScriptedOutputs(ScenarioPart):
 
     `escalate` is present only for scenarios whose run ends in escalation; `postmortem` for
     scenarios whose run applies an action; `rca_after_action` is the rca answer once an action
-    is applied, required for a `loop` scenario."""
+    is applied, required for a `loop` scenario. `baseline` scripts the ReAct baseline, which
+    the graph never reads."""
 
     triage: dict[str, Any]
     rca: dict[str, Any]
     escalate: dict[str, Any] | None = None
     rca_after_action: dict[str, Any] | None = None
     postmortem: dict[str, Any] | None = None
+    baseline: BaselineScript | None = None
 
 
 class Scenario(ScenarioPart):

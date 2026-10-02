@@ -8,6 +8,7 @@ Given a ledger path, it also remembers applied actions across processes: each ap
 JSON line to that file before returning, and a source built on the file replays it (ADR 0002).
 """
 
+import json
 import os
 import re
 from pathlib import Path
@@ -29,6 +30,7 @@ from agentops.sources.base import (
 from agentops.sources.scenario import PostActionWorld, Scenario, Signals, combined_world_key
 
 LEDGER_SUFFIX = ".ledger.jsonl"
+SEAL_MARKER_LINE = '{"torn_seal": true}\n'
 
 
 class LedgerError(ValueError):
@@ -59,6 +61,8 @@ class SimulatorSource:
         # Keys of the worlds already merged, so one world is never merged twice.
         self._merged_worlds: set[str] = set()
         self._ledger_path = ledger_path
+        # Numbers of ledger lines skipped on replay because a crash tore them mid-write.
+        self.torn_ledger_lines: list[int] = []
         if ledger_path is not None:
             check_ledger_file_name(ledger_path)
             self._replay(ledger_path)
@@ -166,18 +170,53 @@ class SimulatorSource:
         self._ledger.append(entry)
 
     def _replay(self, ledger_path: Path) -> None:
+        """Replays every line of the ledger file into this source.
+
+        A crash mid-write leaves a fragment that is not JSON and that the simulator never
+        applied. A run of such lines (a fragment, a partly written seal marker, a torn entry
+        after a marker) is skipped and counted in `torn_ledger_lines` when it ends at a seal
+        marker, which `append_ledger_line` writes after a fragment, or at the end of the file.
+        A non-JSON line followed by a valid entry, and a seal marker that does not follow a
+        non-JSON line, raise `LedgerError` naming the line (D17), as does a line that is not
+        an applied action this scenario can model.
+        """
         if not ledger_path.exists():
             return
-        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+        complete_lines, final_line = read_ledger_lines(ledger_path)
+        lines = complete_lines if final_line is None else [*complete_lines, final_line]
+        torn_run: list[int] = []
         for line_number, line in enumerate(lines, start=1):
-            entry = parse_ledger_line(ledger_path, line_number, line)
-            world_key = self._world_key_after(entry.action)
-            if world_key is None:
+            if not line.strip():
+                continue
+            if is_seal_marker(line):
+                if not torn_run:
+                    raise LedgerError(
+                        f"Ledger {ledger_path} line {line_number} is a seal marker "
+                        "that does not follow a torn fragment."
+                    )
+                self.torn_ledger_lines.extend(torn_run)
+                torn_run = []
+            elif not is_json(line):
+                torn_run.append(line_number)
+            elif torn_run:
                 raise LedgerError(
-                    f"Ledger {ledger_path} line {line_number} names the action "
-                    f"{entry.action!r}, which this scenario cannot model."
+                    f"Ledger {ledger_path} line {torn_run[0]} is not JSON and is "
+                    "followed by more entries; a ledger torn by a crash can only be "
+                    "cut in its last line."
                 )
-            self._record(entry, world_key)
+            else:
+                self._replay_line(ledger_path, line_number, line)
+        self.torn_ledger_lines.extend(torn_run)
+
+    def _replay_line(self, ledger_path: Path, line_number: int, line: str) -> None:
+        entry = parse_ledger_line(ledger_path, line_number, line)
+        world_key = self._world_key_after(entry.action)
+        if world_key is None:
+            raise LedgerError(
+                f"Ledger {ledger_path} line {line_number} names the action "
+                f"{entry.action!r}, which this scenario cannot model."
+            )
+        self._record(entry, world_key)
 
     def _merge_world(self, world: PostActionWorld) -> None:
         series_by_id = {series.id: series for series in self._signals.metrics}
@@ -205,11 +244,67 @@ def parse_ledger_line(ledger_path: Path, line_number: int, line: str) -> Applied
         ) from error
 
 
+def read_ledger_lines(ledger_path: Path) -> tuple[list[str], str | None]:
+    """The lines that end in a newline, and the text after the last newline (None when the
+    file ends in one). Only that final text can be torn, so only it is decoded leniently: a
+    crash can cut a multibyte character, and a cut line is never valid JSON either way."""
+    raw = ledger_path.read_bytes()
+    complete_part, newline, final_part = raw.rpartition(b"\n")
+    complete_lines = (complete_part + newline).decode("utf-8").splitlines()
+    if not final_part:
+        return complete_lines, None
+    return complete_lines, final_part.decode("utf-8", errors="replace")
+
+
+def is_seal_marker(text: str) -> bool:
+    """True only for exactly `{"torn_seal": true}`; `1` or extra keys do not count."""
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return (
+        isinstance(parsed, dict) and parsed.keys() == {"torn_seal"} and parsed["torn_seal"] is True
+    )
+
+
+def is_json(text: str) -> bool:
+    try:
+        json.loads(text)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
 def append_ledger_line(ledger_path: Path, entry: AppliedAction) -> None:
     """Appends one JSON line and syncs it to disk, so a process killed right after `apply`
-    returns still leaves the entry behind. The file is only ever opened in append mode."""
+    returns still leaves the entry behind. The file is only ever opened in append mode.
+
+    The repair is decided from the content of the last line, not its last byte. A last line
+    that is not JSON (a torn fragment, a partly written marker, a torn entry) is followed by
+    the seal marker line, so the entry never joins it and a later replay can tell it from
+    corruption in the middle of the file. A last line that is complete JSON but lacks its
+    newline gets only the newline, and no marker."""
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    with ledger_path.open("a", encoding="utf-8") as ledger_file:
-        ledger_file.write(entry.model_dump_json() + "\n")
+    separator = repair_separator(ledger_path)
+    # An explicit LF stops Windows text mode writing CRLF, so a write cut at the CR cannot
+    # make the next append "CR CR LF".
+    with ledger_path.open("a", encoding="utf-8", newline="\n") as ledger_file:
+        ledger_file.write(separator + entry.model_dump_json() + "\n")
         ledger_file.flush()
         os.fsync(ledger_file.fileno())
+
+
+def repair_separator(ledger_path: Path) -> str:
+    """The text that must come before a new entry so it starts on its own, sealed line."""
+    if not ledger_path.exists():
+        return ""
+    complete_lines, final_line = read_ledger_lines(ledger_path)
+    if final_line is not None:
+        newline = "\n"
+        last_line: str | None = final_line
+    else:
+        newline = ""
+        last_line = complete_lines[-1] if complete_lines else None
+    if last_line is None or is_json(last_line):
+        return newline
+    return newline + SEAL_MARKER_LINE

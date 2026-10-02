@@ -7,6 +7,7 @@ is at level ERROR, and both the metric and the log read succeeded. No model take
 decision.
 """
 
+from datetime import timedelta
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -14,6 +15,7 @@ from langgraph.types import Send
 from pydantic import BaseModel, ConfigDict
 
 from agentops.actions.audit import AuditLog
+from agentops.actions.registry import Registry
 from agentops.nodes import run_thread_id
 from agentops.nodes.evidence import METRIC_CATALOGUE, as_evidence, read_with_one_retry
 from agentops.nodes.router import route_to_sources
@@ -55,14 +57,16 @@ def verify(
     *,
     source: EvidenceSource,
     audit: AuditLog,
+    registry: Registry,
 ) -> dict[str, Any]:
-    """Read the post-action signals, judge them, audit the verdict and write the next step.
+    """Read the post-action signals over the executed action's verify window, judge them, audit
+    the verdict and write the next step.
 
     Raises ValueError when the run's `configurable` has no thread id.
     """
     thread_id = run_thread_id(config, "verify")
     round_number = verify_rounds(state) + 1
-    series, lines, actions = read_post_action_signals(state, source)
+    series, lines, actions = read_post_action_signals(state, source, verify_window(state, registry))
     result = judge(series, lines, unreadable_sources(actions))
     execution = state["execution"]
     audit.append(
@@ -133,10 +137,14 @@ def latest_value(series: Series) -> float:
 
 def next_step_fields(state: IncidentState, cleared: bool) -> dict[str, Any]:
     """Cleared: keep `verifying` for the postmortem. Not cleared: investigate again while the
-    last execution changed something and budget is left, otherwise hand off with the reason."""
+    last execution changed something and budget is left, otherwise hand off with the reason.
+    An execution whose effect is unknown is never looped on: a human has to find out whether
+    the change took before anything else is proposed."""
     if cleared:
         return {"status": "verifying"}
     execution = state["execution"]
+    if execution is not None and execution.applied is None:
+        return {"escalation_reason": "effect_unknown"}
     if execution is None or not execution.applied:
         return {"escalation_reason": "symptoms_persist"}
     if state["investigation_budget"] <= 0:
@@ -150,13 +158,22 @@ def next_step_fields(state: IncidentState, cleared: bool) -> dict[str, Any]:
     }
 
 
+def verify_window(state: IncidentState, registry: Registry) -> timedelta:
+    """The executed action's runbook window; the 30-minute default when there is no execution
+    or its action has left the runbook, since neither can declare a longer one."""
+    execution = state["execution"]
+    if execution is None or not registry.has(execution.action):
+        return VERIFY_WINDOW
+    return timedelta(minutes=registry.get(execution.action).verify_window_minutes)
+
+
 def read_post_action_signals(
-    state: IncidentState, source: EvidenceSource
+    state: IncidentState, source: EvidenceSource, window_length: timedelta
 ) -> tuple[list[Series], list[LogLine], list[Action]]:
-    """Metrics and logs from the incident's opening to thirty minutes after, keeping only points
+    """Metrics and logs from the incident's opening to `window_length` after, keeping only points
     and lines later than the opening. A series left with no point is dropped."""
     opened_at = state["opened_at"]
-    window = Window(start=opened_at, end=opened_at + VERIFY_WINDOW)
+    window = Window(start=opened_at, end=opened_at + window_length)
     series, metric_actions = read_with_one_retry(
         METRICS_TOOL, lambda: source.get_metrics(state["service"], METRIC_CATALOGUE, window)
     )

@@ -60,10 +60,21 @@ class AuditLog:
         # default=str writes datetimes and other plain values as text instead of failing.
         text = json.dumps(line, default=str) + "\n"
         self.directory.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(text)
+        # A crash can leave a last line without its newline; end it first so the new record
+        # never joins the fragment. An explicit LF keeps Windows from writing CRLF.
+        with open(path, "a", encoding="utf-8", newline="\n") as handle:
+            handle.write(missing_newline(path) + text)
             handle.flush()
             os.fsync(handle.fileno())
+
+
+def missing_newline(path: Path) -> str:
+    """A newline when the file is non-empty and does not end in one, else the empty string."""
+    if not path.exists() or path.stat().st_size == 0:
+        return ""
+    with path.open("rb") as handle:
+        handle.seek(-1, os.SEEK_END)
+        return "" if handle.read(1) == b"\n" else "\n"
 
 
 def read_records(path: Path) -> list[dict[str, Any]]:

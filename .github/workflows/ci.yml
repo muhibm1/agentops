@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  MIN_TESTS: "450"
+  MIN_TESTS: "700"
 
 jobs:
   checks:
