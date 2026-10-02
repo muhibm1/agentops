@@ -14,6 +14,7 @@ import sqlite3
 import statistics
 import tempfile
 import time
+import traceback
 from collections.abc import Callable, Sequence
 from contextlib import closing
 from dataclasses import dataclass
@@ -50,8 +51,9 @@ SYSTEMS: tuple[SystemName, ...] = get_args(SystemName)
 RECURSION_LIMIT = 60
 CHECKPOINT_FILE = "checkpoints.sqlite"
 AUTO_APPROVAL = {"decision": "approve", "operator": "operator"}
-# A scenario that loops needs one approval per action; a run still paused after this many is
-# reported as failed in status `awaiting_approval`.
+# A scenario that loops needs one approval per action; a run still paused after this many is a
+# failed row (`evidence_ids_at_proposal` raises).
+FAILURE_MESSAGE_MAX_LENGTH = 200
 MAX_APPROVALS = 5
 PASS_FAIL_EVALUATORS = (
     "root_cause_accuracy",
@@ -85,14 +87,17 @@ def run_split(
     repetitions: int,
     split: Split,
     tracing: TracingStatus,
+    report: Callable[[str], None] = lambda text: None,
 ) -> list[EvalRow]:
-    """Each system over each scenario, `repetitions` times, graded by the seven evaluators."""
+    """Each system over each scenario, `repetitions` times, graded by the seven evaluators.
+
+    `report` receives one summary line for every run that raised."""
     rows: list[EvalRow] = []
     for system in systems:
         for scenario in scenarios:
             for repetition in range(1, repetitions + 1):
                 config = trace_config(system, scenario.id, repetition, split, tracing)
-                outcome = measured_run(system, scenario, config)
+                outcome = measured_run(system, scenario, config, report)
                 rows.append(
                     EvalRow(
                         system=system,
@@ -157,12 +162,27 @@ RUNNERS: dict[SystemName, Callable[..., RunOutcome]] = {
 }
 
 
-def measured_run(system: SystemName, scenario: Scenario, config: RunnableConfig) -> RunOutcome:
+def measured_run(
+    system: SystemName,
+    scenario: Scenario,
+    config: RunnableConfig,
+    report: Callable[[str], None] = lambda text: None,
+) -> RunOutcome:
     started = time.perf_counter()
     try:
         return RUNNERS[system](scenario, config=config)
     except Exception as error:  # a run that raises is a measured failure, shown in the table
+        report(failure_summary(system, scenario.id, error))
         return failed_outcome(system, scenario.id, error, started, time.perf_counter())
+
+
+def failure_summary(system: SystemName, scenario_id: str, error: Exception) -> str:
+    """One line for the operator: the run, the exception type and message, and where it was
+    raised. The table keeps only the type name; this is what lets someone find the cause."""
+    message = str(error)[:FAILURE_MESSAGE_MAX_LENGTH]
+    frames = traceback.extract_tb(error.__traceback__)
+    where = f" at {frames[-1].filename}:{frames[-1].lineno} in {frames[-1].name}" if frames else ""
+    return f"run failed: {system} {scenario_id}: {type(error).__name__}: {message}{where}"
 
 
 def trace_config(
@@ -242,7 +262,11 @@ def evidence_ids_at_proposal(
     graph: CompiledStateGraph, incident: IncidentState, config: RunnableConfig
 ) -> list[str]:
     """Runs the graph to its end, approving each pause, and returns the evidence ids held the
-    first time the run proposed a remediation or named an escalation reason."""
+    first time the run proposed a remediation or named an escalation reason.
+
+    Raises `RuntimeError` when the run is still paused after `MAX_APPROVALS` approvals, or ended
+    without proposing or escalating: the ids of a run that never decided say nothing about
+    evidence sufficiency, so the run must become a failed row, not a quietly wrong one."""
     captured: list[str] | None = None
     value: Any = incident
     for _ in range(MAX_APPROVALS + 1):
@@ -252,7 +276,11 @@ def evidence_ids_at_proposal(
         if not graph.get_state(config).interrupts:
             break
         value = Command(resume=AUTO_APPROVAL)
-    return captured or []
+    if graph.get_state(config).interrupts:
+        raise RuntimeError(f"the run was still waiting for an approval after {MAX_APPROVALS}")
+    if captured is None:
+        raise RuntimeError("the run ended without proposing a remediation or escalating")
+    return captured
 
 
 def has_decided(chunk: Any) -> bool:
