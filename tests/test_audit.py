@@ -109,3 +109,35 @@ def test_an_incident_id_outside_the_signal_pattern_is_refused_before_any_open(
 
     assert recorder.modes == []
     assert not directory.exists()
+
+
+def test_a_record_after_a_torn_last_line_starts_its_own_line(tmp_path: Path) -> None:
+    log = AuditLog(tmp_path)
+    log.append("inc-1", "thread-1", {"event": "proposal"})
+    path = log.path_for("inc-1")
+    path.write_bytes(path.read_bytes() + b'{"event": "appr')
+
+    log.append("inc-1", "thread-1", {"event": "approval", "valid": True})
+
+    records = log.records("inc-1")
+    assert [record["event"] for record in records] == ["proposal", "approval"]
+    assert b"\r" not in path.read_bytes()
+
+
+def test_a_complete_last_line_without_a_newline_gets_only_the_newline(tmp_path: Path) -> None:
+    log = AuditLog(tmp_path)
+    path = log.path_for("inc-1")
+    path.write_text('{"event": "proposal"}', encoding="utf-8")
+
+    log.append("inc-1", "thread-1", {"event": "verify"})
+
+    assert path.read_text(encoding="utf-8").splitlines()[0] == '{"event": "proposal"}'
+    assert [record["event"] for record in log.records("inc-1")] == ["proposal", "verify"]
+
+
+def test_an_append_to_a_file_that_ends_in_a_newline_adds_no_blank_line(tmp_path: Path) -> None:
+    log = AuditLog(tmp_path)
+    log.append("inc-1", "thread-1", {"event": "proposal"})
+    log.append("inc-1", "thread-1", {"event": "verify"})
+
+    assert all(line for line in log.path_for("inc-1").read_text(encoding="utf-8").splitlines())
