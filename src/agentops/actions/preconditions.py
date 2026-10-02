@@ -18,16 +18,19 @@ from agentops.actions.runbook import (
     MetricBelow,
     Precondition,
     PreviousVersionAvailable,
+    TargetNamedInLogs,
 )
 from agentops.sources.base import ConfigValue, Deployment, EvidenceSource, Window
 from agentops.state import IncidentState, Remediation
 
-# Metrics are read from an hour before the incident opened to thirty minutes after, so a check
-# made after an earlier action sees the post-action points (the verify window, ADR 0003).
+# Metrics are read from an hour before the incident opened to the end of the action's verify
+# window, so a check made after an earlier action sees the post-action points (ADR 0003).
 METRIC_LOOKBACK = timedelta(minutes=60)
-METRIC_LOOKAHEAD = timedelta(minutes=30)
 # Deployments are read a day back, so a deployment too old to roll back is still reported.
 DEPLOYMENT_LOOKBACK = timedelta(hours=24)
+# A job target must be named by a log line from the hour before the incident opened: the
+# incident's own observed logs, not anything an action wrote afterwards.
+TARGET_LOG_LOOKBACK = timedelta(minutes=60)
 
 Observed = ConfigValue | None
 
@@ -45,8 +48,10 @@ def evaluate(
     entry: ActionEntry, remediation: Remediation, state: IncidentState, source: EvidenceSource
 ) -> list[PreconditionResult]:
     """Every precondition `entry` declares, in order, evaluated for `remediation`. Never raises."""
+    lookahead = timedelta(minutes=entry.verify_window_minutes)
     return [
-        guarded(precondition, remediation, state, source) for precondition in entry.preconditions
+        guarded(precondition, remediation, state, source, lookahead)
+        for precondition in entry.preconditions
     ]
 
 
@@ -55,9 +60,10 @@ def guarded(
     remediation: Remediation,
     state: IncidentState,
     source: EvidenceSource,
+    lookahead: timedelta,
 ) -> PreconditionResult:
     try:
-        return check_one(precondition, remediation, state, source)
+        return check_one(precondition, remediation, state, source, lookahead)
     except Exception as error:  # A source error of any type fails the check (spec R8).
         return PreconditionResult(
             check=precondition.check,
@@ -72,10 +78,11 @@ def check_one(
     remediation: Remediation,
     state: IncidentState,
     source: EvidenceSource,
+    lookahead: timedelta,
 ) -> PreconditionResult:
     match precondition:
         case MetricAbove() | MetricBelow():
-            return metric_threshold(precondition, state, source)
+            return metric_threshold(precondition, state, source, lookahead)
         case DeploymentWithinMinutes():
             return deployment_within_minutes(precondition, remediation, state, source)
         case PreviousVersionAvailable():
@@ -84,15 +91,18 @@ def check_one(
             return dependency_not_healthy(precondition, remediation, state, source)
         case ConfigTrue():
             return config_true(precondition, state, source)
+        case TargetNamedInLogs():
+            return target_named_in_logs(precondition, remediation, state, source)
 
 
 def metric_threshold(
-    precondition: MetricAbove | MetricBelow, state: IncidentState, source: EvidenceSource
+    precondition: MetricAbove | MetricBelow,
+    state: IncidentState,
+    source: EvidenceSource,
+    lookahead: timedelta,
 ) -> PreconditionResult:
     """The latest point of the metric in the window, compared strictly with the threshold."""
-    window = Window(
-        start=state["opened_at"] - METRIC_LOOKBACK, end=state["opened_at"] + METRIC_LOOKAHEAD
-    )
+    window = Window(start=state["opened_at"] - METRIC_LOOKBACK, end=state["opened_at"] + lookahead)
     series = source.get_metrics(state["service"], [precondition.metric], window)
     points = [point for item in series if item.name == precondition.metric for point in item.points]
     if not points:
@@ -192,6 +202,37 @@ def config_true(
         passed=passed,
         observed=value,
         detail=f"Config {precondition.key} {verdict} true.",
+    )
+
+
+def target_named_in_logs(
+    precondition: TargetNamedInLogs,
+    remediation: Remediation,
+    state: IncidentState,
+    source: EvidenceSource,
+) -> PreconditionResult:
+    """Passes when a log line of the service from the hour before the incident opened contains
+    the target, compared casefolded; observes the first such line's id.
+
+    It ties the target to the incident's observed logs, not to the operator's intent: a target
+    named only in an injected line passes too, and the dry run the operator reads stays the
+    control for that (spec, Design "Job names")."""
+    opened_at = state["opened_at"]
+    window = Window(start=opened_at - TARGET_LOG_LOOKBACK, end=opened_at)
+    target = remediation.target.casefold()
+    lines = source.get_logs(state["service"], window, None)
+    naming = next((line for line in lines if target in line.message.casefold()), None)
+    if naming is None:
+        return failed(
+            precondition.check,
+            None,
+            f"No log line in the hour before the incident opened names {remediation.target}.",
+        )
+    return PreconditionResult(
+        check=precondition.check,
+        passed=True,
+        observed=naming.id,
+        detail=f"Log line {naming.id} names {remediation.target}.",
     )
 
 

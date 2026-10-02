@@ -1,4 +1,4 @@
-"""E8, E38, E64: runbook preconditions evaluated against the evidence source only."""
+"""E8, E38, E64, E23, E25: runbook preconditions evaluated against the evidence source only."""
 
 from datetime import timedelta
 from pathlib import Path
@@ -41,6 +41,7 @@ CHECK_KINDS = {
     "previous_version_available",
     "dependency_not_healthy",
     "config_true",
+    "target_named_in_logs",
 }
 
 
@@ -174,7 +175,7 @@ def test_every_runbook_check_passes_on_its_scenarios_source(
         assert result.detail
 
 
-def test_the_scenarios_exercise_all_six_check_kinds(registry: Registry) -> None:
+def test_the_scenarios_exercise_every_check_kind(registry: Registry) -> None:
     exercised: set[str] = set()
     for scenario_id in REMEDIATE_SCENARIOS:
         scenario = scenario_named(scenario_id)
@@ -296,3 +297,114 @@ def test_a_deployment_check_passes_when_the_target_is_the_latest_deployment(
 
     (result,) = [result for result in results if result.check == check]
     assert result.passed is True
+
+
+class RecordingSource(ShapedSource):
+    """A shaped source that serves the given log lines and remembers every window it is asked."""
+
+    def __init__(self, *, logs: list[LogLine] | None = None, **shaped: Any) -> None:
+        super().__init__(**shaped)
+        self._logs = logs or []
+        self.metric_windows: list[Window] = []
+        self.log_windows: list[Window] = []
+
+    def get_logs(self, service: str, window: Window, query: str | None) -> list[LogLine]:
+        self.log_windows.append(window)
+        return [line for line in self._logs if window.contains(line.timestamp)]
+
+    def get_metrics(self, service: str, names: list[str], window: Window) -> list[Series]:
+        self.metric_windows.append(window)
+        return super().get_metrics(service, names, window)
+
+
+class RaisingLogSource(ShapedSource):
+    def get_logs(self, service: str, window: Window, query: str | None) -> list[LogLine]:
+        raise ConnectionError("log backend unreachable")
+
+
+def log_line(incident: IncidentState, line_id: str, minutes_before: int, message: str) -> LogLine:
+    return LogLine(
+        id=line_id,
+        timestamp=incident["opened_at"] - timedelta(minutes=minutes_before),
+        level="INFO",
+        message=message,
+        service=incident["service"],
+    )
+
+
+def target_named_in_logs_result(
+    registry: Registry, incident: IncidentState, source: ShapedSource
+) -> PreconditionResult:
+    proposed = remediation("pause_batch_job", "reindex-job-nightly")
+    results = evaluate(registry.get("pause_batch_job"), proposed, incident, source)
+    (result,) = [result for result in results if result.check == "target_named_in_logs"]
+    return result
+
+
+# E23 (increment 4, R5): a metric check looks as far ahead as the action's verify window.
+def test_metric_preconditions_use_the_actions_verify_window(
+    registry: Registry, incident: IncidentState
+) -> None:
+    entry = registry.get("scale_db_pool").model_copy(update={"verify_window_minutes": 90})
+    source = RecordingSource(series=[one_series(incident, "db_pool_utilisation", 0.97)])
+    proposed = remediation("scale_db_pool", "postgres", {"pool_size": 96})
+
+    (result,) = evaluate(entry, proposed, incident, source)
+
+    assert result.passed is True
+    assert [window.end for window in source.metric_windows] == [
+        incident["opened_at"] + timedelta(minutes=90)
+    ]
+
+
+# E25 (increment 4, R6): a job action needs the incident's own logs to name its target. The
+# window is the hour before the incident opened (spec, Design "Job names").
+def test_target_named_in_logs_passes_only_when_the_incident_logs_name_it(
+    registry: Registry, incident: IncidentState
+) -> None:
+    naming = RecordingSource(
+        logs=[
+            log_line(incident, "log-001", 50, "search-api served 640 queries"),
+            log_line(incident, "log-002", 40, "Reindex-Job-Nightly started"),
+        ]
+    )
+    silent = RecordingSource(logs=[log_line(incident, "log-001", 50, "search-api is slow")])
+
+    named = target_named_in_logs_result(registry, incident, naming)
+    unnamed = target_named_in_logs_result(registry, incident, silent)
+    raised = target_named_in_logs_result(registry, incident, RaisingLogSource())
+
+    assert named.passed is True
+    assert named.observed == "log-002"
+    assert naming.log_windows == [
+        Window(start=incident["opened_at"] - timedelta(minutes=60), end=incident["opened_at"])
+    ]
+    assert unnamed.passed is False
+    assert unnamed.observed is None
+    assert raised.passed is False
+    assert raised.observed is None
+    assert "ConnectionError" in raised.detail
+
+
+def test_target_named_in_logs_ignores_lines_outside_the_hour_before_the_opening(
+    registry: Registry, incident: IncidentState
+) -> None:
+    too_early = log_line(incident, "log-001", 61, "reindex-job-nightly started")
+    after_opening = log_line(incident, "log-002", -5, "reindex-job-nightly still running")
+    source = RecordingSource(logs=[too_early, after_opening])
+
+    result = target_named_in_logs_result(registry, incident, source)
+
+    assert result.passed is False
+    assert result.observed is None
+
+
+def test_target_named_in_logs_fails_when_a_line_names_only_part_of_the_target(
+    registry: Registry, incident: IncidentState
+) -> None:
+    source = RecordingSource(logs=[log_line(incident, "log-001", 30, "reindex-job started")])
+
+    result = target_named_in_logs_result(registry, incident, source)
+
+    assert result.passed is False
+    assert result.observed is None
