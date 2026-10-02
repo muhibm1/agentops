@@ -71,3 +71,24 @@ def test_dev_requirements_pin_the_langgraph_cli() -> None:
 
     assert "langgraph-cli[inmem]==0.4.32  # MIT" in dev_lines
     assert not any(line.startswith("langgraph-cli") for line in runtime_lines)
+
+
+def test_langsmith_is_a_runtime_requirement() -> None:
+    lines = requirement_lines("requirements.txt")
+
+    assert "langsmith==0.14.2  # MIT" in lines
+
+
+@pytest.mark.parametrize(
+    "pin",
+    [
+        "langgraph-api==0.15.1  # Elastic-2.0",
+        "langgraph-runtime-inmem==0.35.1  # Elastic-2.0",
+    ],
+)
+def test_the_dev_server_packages_are_pinned_with_their_licence(pin: str) -> None:
+    dev_lines = requirement_lines("requirements-dev.txt")
+    runtime_lines = requirement_lines("requirements.txt")
+
+    assert pin in dev_lines
+    assert pin not in runtime_lines

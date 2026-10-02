@@ -126,7 +126,9 @@ sets none of them.
 ### langgraph dev
 
 `langgraph dev`, run from the repository root after installing the development requirements
-(they pin `langgraph-cli[inmem]==0.4.32`), serves the graph to LangGraph Studio: `langgraph.json`
+(they pin `langgraph-cli[inmem]==0.4.32`, and `langgraph-api` and `langgraph-runtime-inmem`, which are
+licensed Elastic-2.0, a source-available licence that is not MIT: fine for local development,
+but it bars offering them as a hosted service), serves the graph to LangGraph Studio: `langgraph.json`
 points it at `make_graph` in `src/agentops/dev_server.py`, which builds the graph for
 `configurable.scenario_id` (default `clean_bad_deploy`) with the scripted model. What it sends
 off the machine, confirmed by reading the installed source of `langgraph-cli` 0.4.32 and
