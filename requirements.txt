@@ -11,3 +11,5 @@ aiosqlite==0.22.1  # MIT
 sqlite-vec==0.1.9  # MIT or Apache-2.0
 # Parses the runbook at startup (yaml.safe_load only).
 pyyaml==6.0.3  # MIT
+# Records the traces of an opted-in `agentops eval` run; the harness imports it (src/agentops/tracing.py).
+langsmith==0.14.2  # MIT
