@@ -1,11 +1,13 @@
 """E4 to E8: the incident state, the model-output schemas and the citation rule (R4 to R6)."""
 
+import json
 from datetime import UTC, datetime
 from typing import Any, get_args
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
+from agentops.graph import checkpoint_serializer
 from agentops.state import (
     APPROVAL_REASON_MAX_LENGTH,
     CONTROL_FIELDS,
@@ -447,3 +449,35 @@ def test_a_target_of_sixty_five_characters_is_rejected_on_both_records() -> None
         Remediation.model_validate(remediation_payload(target=target))
     with pytest.raises(ValidationError, match="target"):
         ExecutionRecord.model_validate(execution_record_payload(target))
+
+
+# E6 (increment 4, R1): `applied` is True, False, or None for an effect nobody could confirm.
+@pytest.mark.parametrize("applied", [True, False, None], ids=["applied", "not applied", "unknown"])
+def test_execution_record_applied_may_be_unknown(applied: bool | None) -> None:
+    payload = {**execution_record_payload("checkout"), "applied": applied}
+    serializer = checkpoint_serializer()
+
+    record = ExecutionRecord.model_validate_json(json.dumps(payload))
+    revived = serializer.loads_typed(serializer.dumps_typed(record))
+
+    assert record.applied is applied
+    assert isinstance(revived, ExecutionRecord)
+    assert revived.applied is applied
+
+
+@pytest.mark.parametrize("applied", ["maybe", 2, [True]], ids=["word", "number", "list"])
+def test_execution_record_applied_rejects_anything_but_a_boolean_or_null(applied: Any) -> None:
+    with pytest.raises(ValidationError, match="applied"):
+        ExecutionRecord.model_validate({**execution_record_payload("checkout"), "applied": applied})
+
+
+def test_execution_record_applied_is_still_required() -> None:
+    payload = execution_record_payload("checkout")
+    del payload["applied"]
+
+    with pytest.raises(ValidationError, match="applied"):
+        ExecutionRecord.model_validate(payload)
+
+
+def test_effect_unknown_is_an_escalation_reason() -> None:
+    assert "effect_unknown" in get_args(EscalationReason)
