@@ -7,13 +7,23 @@
       "Read(./.env.production)",
       "Read(./**/*.pem)",
       "Read(./**/*.key)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
       "Edit(./.env)",
       "Edit(./.env.local)",
       "Edit(./.env.*.local)",
       "Edit(./.env.production)",
       "Bash(cat .env*)",
       "Bash(type .env*)",
-      "Bash(Get-Content .env*)"
+      "Bash(Get-Content .env*)",
+      "Bash(sudo *)",
+      "Bash(rm -rf *)",
+      "Bash(rm -fr *)"
+    ],
+    "ask": [
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(Invoke-WebRequest *)"
     ]
   }
 }
