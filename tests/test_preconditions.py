@@ -333,9 +333,12 @@ def log_line(incident: IncidentState, line_id: str, minutes_before: int, message
 
 
 def target_named_in_logs_result(
-    registry: Registry, incident: IncidentState, source: ShapedSource
+    registry: Registry,
+    incident: IncidentState,
+    source: ShapedSource,
+    target: str = "reindex-job-nightly",
 ) -> PreconditionResult:
-    proposed = remediation("pause_batch_job", "reindex-job-nightly")
+    proposed = remediation("pause_batch_job", target)
     results = evaluate(registry.get("pause_batch_job"), proposed, incident, source)
     (result,) = [result for result in results if result.check == "target_named_in_logs"]
     return result
@@ -408,3 +411,76 @@ def test_target_named_in_logs_fails_when_a_line_names_only_part_of_the_target(
 
     assert result.passed is False
     assert result.observed is None
+
+
+# E25b: the target must be a whole token in the log message, not a piece of a longer name.
+@pytest.mark.parametrize(
+    ("target", "message"),
+    [
+        ("reindex-job", "reindex-job-nightly started"),
+        ("reindex-job-nightly", "reindex-job-nightly-2 started"),
+        ("reindex-job-nightly", "old-reindex-job-nightly started"),
+        ("reindex-job-nightly", "xreindex-job-nightly started"),
+        ("reindex-job-nightly", "reindex-job-nightly2 started"),
+        ("reindex-job-nightly", "reindex-job-nightly_v2 started"),
+        ("reindex-job-nightly", "my_reindex-job-nightly started"),
+        ("reindex-job-nightly", "9reindex-job-nightly started"),
+        ("reindex-job-nightly", "reindex-job-nightlyé started"),
+    ],
+    ids=[
+        "target is a prefix of the logged name",
+        "dash and digit after",
+        "dash-joined before",
+        "letter before",
+        "digit after",
+        "underscore after",
+        "underscore before",
+        "digit before",
+        "accented letter after",
+    ],
+)
+def test_target_named_in_logs_fails_when_the_target_is_inside_a_longer_name(
+    registry: Registry, incident: IncidentState, target: str, message: str
+) -> None:
+    source = RecordingSource(logs=[log_line(incident, "log-001", 30, message)])
+
+    result = target_named_in_logs_result(registry, incident, source, target)
+
+    assert result.passed is False
+    assert result.observed is None
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "reindex-job-nightly",
+        "reindex-job-nightly started",
+        "started reindex-job-nightly",
+        "job reindex-job-nightly: started",
+        "(reindex-job-nightly) started",
+        "paused 'reindex-job-nightly'.",
+        "REINDEX-JOB-NIGHTLY started",
+        "jobs=reindex-job-nightly,other",
+        "a reindex-job-nightly-2 and reindex-job-nightly ran",
+    ],
+    ids=[
+        "the whole line",
+        "start of line",
+        "end of line",
+        "colon after",
+        "parentheses",
+        "quotes and a full stop",
+        "different case",
+        "equals and comma",
+        "a longer name on the same line as the exact name",
+    ],
+)
+def test_target_named_in_logs_passes_when_the_target_is_a_whole_token(
+    registry: Registry, incident: IncidentState, message: str
+) -> None:
+    source = RecordingSource(logs=[log_line(incident, "log-001", 30, message)])
+
+    result = target_named_in_logs_result(registry, incident, source)
+
+    assert result.passed is True
+    assert result.observed == "log-001"
