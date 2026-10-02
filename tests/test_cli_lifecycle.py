@@ -462,10 +462,16 @@ def test_a_torn_ledger_line_is_reported_and_the_action_still_applies_once(
     assert "status: resolved" in approved.stdout
     ledger_lines = ledger_path.read_text(encoding="utf-8").splitlines()
     assert ledger_lines[0] == fragment
-    assert [json.loads(line)["action"] for line in ledger_lines[1:]] == ["rollback_deploy"]
+    assert ledger_lines[1] == '{"torn_seal": true}'
+    assert [json.loads(line)["action"] for line in ledger_lines[2:]] == ["rollback_deploy"]
     applied = [
         record
         for record in workspace.audit(thread)
         if record["event"] == "apply" and record["applied"] is True
     ]
     assert len(applied) == 1
+    # The sealed fragment is no longer the last line; a later process must still read the thread.
+    resumed = agentops(workspace, "resume", thread)
+    history = agentops(workspace, "history", thread)
+    assert resumed.exit_code == 0, resumed.output
+    assert history.exit_code == 0, history.output

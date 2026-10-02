@@ -399,6 +399,7 @@ def test_the_same_action_under_a_new_key_does_not_merge_its_world_a_second_time(
 
 
 TORN_FRAGMENT = '{"idempotency_key": "ab'
+SEAL_MARKER = '{"torn_seal": true}'
 ROLLBACK_LINE = json.dumps({"idempotency_key": "key-rollback-1", **ROLLBACK.model_dump()})
 
 
@@ -458,9 +459,10 @@ def test_an_append_after_a_torn_line_starts_a_fresh_line(tmp_path: Path) -> None
 
     lines = ledger_path.read_text(encoding="utf-8").splitlines()
     assert result.applied is True
-    assert len(lines) == 3
+    assert len(lines) == 4
     assert lines[1] == TORN_FRAGMENT
-    assert json.loads(lines[2])["idempotency_key"] == "key-rollback-2"
+    assert lines[2] == SEAL_MARKER
+    assert json.loads(lines[3])["idempotency_key"] == "key-rollback-2"
     assert [entry.idempotency_key for entry in source.ledger()] == [
         "key-rollback-1",
         "key-rollback-2",
@@ -468,18 +470,80 @@ def test_an_append_after_a_torn_line_starts_a_fresh_line(tmp_path: Path) -> None
     assert source.torn_ledger_lines == [2]
 
 
-def test_a_later_source_on_a_ledger_with_a_sealed_fragment_raises_naming_it(
+# D21, changed by the seal marker: a fragment sealed by a later append used to raise on the next
+# replay, which made the thread unreadable after a recovered crash. The marker line now tells a
+# sealed fragment from corruption, so the second process replays it and counts the fragment.
+def test_a_later_source_on_a_ledger_with_a_sealed_fragment_replays_and_counts_it(
     tmp_path: Path,
 ) -> None:
-    # R4 and D17: once another entry follows the fragment it is no longer the last line,
-    # so a later replay refuses it rather than skipping a line in the middle of the ledger.
     ledger_path = ledger_path_for(tmp_path, "inc-001")
     ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}", encoding="utf-8")
     SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path).apply(
         ROLLBACK, "key-rollback-2"
     )
 
-    with pytest.raises(LedgerError, match="line 2"):
+    later = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert [entry.idempotency_key for entry in later.ledger()] == [
+        "key-rollback-1",
+        "key-rollback-2",
+    ]
+    assert later.torn_ledger_lines == [2]
+
+
+def test_two_torn_crashes_in_a_row_replay_with_both_fragments_counted(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n{TORN_FRAGMENT}", encoding="utf-8")
+    SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path).apply(
+        ROLLBACK, "key-rollback-2"
+    )
+    with ledger_path.open("a", encoding="utf-8") as ledger_file:
+        ledger_file.write(TORN_FRAGMENT)
+    SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path).apply(
+        ROLLBACK, "key-rollback-3"
+    )
+
+    later = SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
+
+    assert len(ledger_path.read_text(encoding="utf-8").splitlines()) == 7
+    assert [entry.idempotency_key for entry in later.ledger()] == [
+        "key-rollback-1",
+        "key-rollback-2",
+        "key-rollback-3",
+    ]
+    assert later.torn_ledger_lines == [2, 5]
+
+
+@pytest.mark.parametrize(
+    ("content", "failing_line"),
+    [
+        (f"{SEAL_MARKER}\n{ROLLBACK_LINE}\n", "line 1"),
+        (f"{ROLLBACK_LINE}\n{SEAL_MARKER}\n", "line 2"),
+        (f"{ROLLBACK_LINE}\n{SEAL_MARKER}\n{TORN_FRAGMENT}", "line 2"),
+        (f"{TORN_FRAGMENT}\n{SEAL_MARKER}\n{SEAL_MARKER}\n{ROLLBACK_LINE}\n", "line 3"),
+        (f'{TORN_FRAGMENT}\n{{"torn_seal": true, "x": 1}}\n{ROLLBACK_LINE}\n', "line 1"),
+        (f'{TORN_FRAGMENT}\n{{"torn_seal": false}}\n{ROLLBACK_LINE}\n', "line 1"),
+        (f'{TORN_FRAGMENT}\n{{"torn_seal": 1}}\n{ROLLBACK_LINE}\n', "line 1"),
+        (f"{TORN_FRAGMENT}\n{ROLLBACK_LINE}\n", "line 1"),
+    ],
+    ids=[
+        "marker first",
+        "marker after a valid line",
+        "marker after a valid line then a fragment",
+        "two markers in a row",
+        "marker with an extra key",
+        "marker with the value false",
+        "marker with the value 1",
+        "fragment followed by an entry, not a marker",
+    ],
+)
+def test_a_seal_marker_is_legal_only_directly_after_a_fragment(
+    tmp_path: Path, content: str, failing_line: str
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(LedgerError, match=failing_line):
         SimulatorSource(scenario_named(CLEAN_BAD_DEPLOY), ledger_path=ledger_path)
 
 
