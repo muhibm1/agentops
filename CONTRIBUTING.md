@@ -137,3 +137,8 @@ is refused by name. Write the script as a plausible naive agent, not as the grou
 in `deploy_red_herring_db` it applies one of the scenario's `wrong_actions`. A tool error is
 returned to the agent as text, so a step that fails does not stop the script. Then run
 `python -m pytest -q tests/test_scenarios.py tests/test_baseline.py` and the six commands.
+
+## Design decisions
+
+The decision records for increment 4 (the measurement harness) are in
+[docs/sdlc/2026-10-02-increment-4-no-spend-measurement-harness/adr](docs/sdlc/2026-10-02-increment-4-no-spend-measurement-harness/adr).

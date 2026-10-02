@@ -20,8 +20,9 @@ hand-off summary and the reason, such as `budget_exhausted`, `ambiguous`, `no_ev
 again, and the thread ends `resolved` with a postmortem or goes back to investigate. The live
 model arrives in a later increment.
 
-To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md). The five commands, run from
-the repository root:
+To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md). The five thread commands, run from
+the repository root (`agentops eval` and `agentops dataset` are described in
+[Measuring it](#measuring-it)):
 
 | Command | What it does |
 |---|---|
@@ -174,6 +175,16 @@ line says what was reached. Every thread is saved at each step, so stopping is s
   read and is not a new problem. Any other line that is not a valid record
   stops the command with exit 2, "The ledger could not be used"; do not edit or delete the
   ledger, which is the only record of what was applied.
+- `agentops eval` or `agentops dataset` exits 1 naming a mismatch: "The frozen split does not
+  match its checksums". A scenario file or the manifest changed after the checksums were
+  written. Do not edit the checksums to match; restore the file from git, or, if the change is
+  intended, write the files again with `agentops dataset --write --force` and review the diff.
+- `agentops eval` exits 1 naming a tracing variable: a tracing switch is on without
+  `LANGSMITH_API_KEY`, or a switch holds a value that is neither on nor off. Set the key or
+  turn the switch off (see Tracing). The message names the variable, never its value.
+- `agentops eval` or `agentops dataset` exits 2, "could not be read" or "does not exist": a
+  scenario file, the scenarios directory or a dataset file cannot be opened. Check the path
+  given to `--scenarios-dir` or `--evals-dir` and the file permissions.
 - `approve` exits 1 with "The decision was not recorded": the approval step refused the answer
   (for example an edit naming an action outside the runbook). Nothing was applied and the
   thread still waits; run `approve` again with a valid decision.
