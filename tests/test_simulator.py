@@ -725,3 +725,52 @@ def test_a_run_of_torn_lines_followed_by_an_entry_or_a_stray_marker_still_raises
 
     with pytest.raises(LedgerError, match=failing_line):
         replayed(ledger_path)
+
+
+# Windows text mode turned "\n" into "\r\n", so a write cut between the two left a last line
+# ending in "\r" and the next append produced "\r\r\n".
+def test_an_append_after_a_write_cut_between_cr_and_lf_replays_cleanly(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_bytes(ROLLBACK_LINE.encode() + b"\r")
+
+    replayed(ledger_path).apply(ROLLBACK, "key-rollback-2")
+
+    assert b"\r\r" not in ledger_path.read_bytes()
+    again = replayed(ledger_path)
+    assert [entry.idempotency_key for entry in again.ledger()] == [
+        "key-rollback-1",
+        "key-rollback-2",
+    ]
+
+
+def test_a_ledger_written_with_crlf_line_ends_still_replays(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_bytes(f"{ROLLBACK_LINE}\r\n".encode())
+
+    source = replayed(ledger_path)
+
+    assert [entry.idempotency_key for entry in source.ledger()] == ["key-rollback-1"]
+
+
+def test_a_new_ledger_line_ends_in_a_bare_newline(tmp_path: Path) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+
+    replayed(ledger_path).apply(ROLLBACK, "key-rollback-1")
+
+    assert b"\r" not in ledger_path.read_bytes()
+
+
+def test_a_whitespace_only_line_in_the_middle_is_skipped_but_other_junk_still_raises(
+    tmp_path: Path,
+) -> None:
+    ledger_path = ledger_path_for(tmp_path, "inc-001")
+    ledger_path.write_text(f"{ROLLBACK_LINE}\n  \t\n\n{ROLLBACK_LINE}\n", encoding="utf-8")
+
+    skipped = replayed(ledger_path)
+
+    assert [entry.idempotency_key for entry in skipped.ledger()] == ["key-rollback-1"] * 2
+    assert skipped.torn_ledger_lines == []
+
+    ledger_path.write_text(f"{ROLLBACK_LINE}\nnot json\n{ROLLBACK_LINE}\n", encoding="utf-8")
+    with pytest.raises(LedgerError, match="line 2"):
+        replayed(ledger_path)
