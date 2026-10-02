@@ -5,7 +5,9 @@ failure, proposes a remediation backed by cited evidence, stops for a human appr
 executes only allowlisted actions, each one exactly once. The model recommends; the graph
 enforces every edge, budget, retry and side effect in code.
 
-Status: increment 3, act, pause, persist and resume. The graph runs triage, parallel evidence
+Status: increment 4, the no-spend measurement harness. `agentops eval` scores the graph against
+a ReAct baseline offline with the scripted model (see [Measuring it](#measuring-it)); the paid
+comparison against a live model is a later change. The graph runs triage, parallel evidence
 collection (logs, metrics, deploys), a merge step with an investigation budget, root-cause
 analysis, a human approval, execution of an allowlisted action, verification and a postmortem,
 with an escalation path, over eight simulated scenarios with a scripted model, so no API key is
@@ -16,7 +18,7 @@ needed: `clean_bad_deploy`, `deploy_red_herring_db`, `dependency_timeout_noisy_n
 hand-off summary and the reason, such as `budget_exhausted`, `ambiguous`, `no_evidence` or
 `action_not_allowed`). After an approval the action is applied once, the symptoms are checked
 again, and the thread ends `resolved` with a postmortem or goes back to investigate. The live
-model and the evaluation harness arrive in later increments.
+model arrives in a later increment.
 
 To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md). The five commands, run from
 the repository root:
@@ -49,7 +51,75 @@ appended to `audit/<incident_id>.jsonl`, and the simulated system's record of ap
 git-ignored. Scenario files are read from `--scenarios-dir`, which defaults to `scenarios`;
 every path is resolved relative to the current directory.
 
-## langgraph dev
+## Measuring it
+
+`agentops eval --model scripted` runs the graph and a ReAct baseline (an agent built with
+LangChain's `create_agent` over six tools and the same simulator, with no approval step and no
+allowlist) over the dev split, grades every run, and prints the results. It needs no API key and
+calls no model service. The first lines are the header, which with the
+scripted model always includes this sentence:
+
+```
+Scripted model: these numbers measure the harness, not a model.
+```
+
+Read it literally. The scripted model replays answers written into each scenario file, for the
+graph and for the baseline alike (the baseline's answers are `scripted_outputs.baseline`, written
+as a plausible naive agent, so it takes the bait in the trap scenarios). The table shows that
+the measurement runs end to end and what each evaluator rewards; it says nothing about how well
+a model diagnoses incidents. That comparison needs the live model, which is a later change.
+
+The table has one row per system: runs, then pass count and percentage for
+`root_cause_accuracy`, `correct_outcome`, `evidence_sufficiency`, `false_remediation` and
+`safety`, then the mean, minimum and maximum of tool calls and latency. Every failing system,
+scenario, repetition and evaluator is listed after it, so the failures are part of the result.
+One is known and expected: the graph fails `root_cause_accuracy` on `two_concurrent_faults`,
+because that scenario needs two actions, the graph's final diagnosis is the second fault
+(`database_saturation`, after the rollback leaves the pool saturated) and grading reads the
+final diagnosis, while the scenario's ground truth names the first (`recent_deploy_regression`).
+A run that raises is a `failed` row naming the exception type, not a crash; an error inside one
+of the baseline's tools is caught by that tool and handed back to the agent as text, as a real
+agent would see it.
+
+Options: `--system graph|baseline|both` (default `both`), `--repetitions` (1 to 10, default 1),
+`--json <path>` (also writes one JSON object per run with every evaluator result),
+`--scenarios-dir` (default `scenarios/`) and `--evals-dir` (default `evals/`, where the frozen
+split's manifest and checksums are read). Each run gets a fresh simulator, an audit log and a
+SQLite checkpoint file in a temporary directory that is removed afterwards, and an automatic
+approval by the role `operator`; apart from the `--json` file, nothing is written under the
+working directory. `--model anthropic` exits 1 before any run: the live model is not wired yet.
+Exit codes: 0 when the measurement completed, even with failing rows; 1 for a usage problem
+(including a tracing problem or a checksum mismatch); 2 when a scenario or dataset file cannot
+be read.
+
+### The frozen split
+
+Eight scenarios are split five for development and three held out. The held-out ids are in
+`evals/held_out/manifest.json`, and `evals/checksums.sha256` pins the sha256 of that manifest and
+of the three held-out scenario files. `agentops dataset` checks them (the default, `--check`)
+and exits 1 naming the first mismatch; `agentops dataset --write` writes them and refuses to
+overwrite a pinned split without `--force`.
+
+`agentops eval --held-out` scores the held-out split. It first runs the same checksum check and
+exits 1 naming the first mismatch before any run, then prints a warning that the split is frozen.
+Run it only when a version is frozen, and never change the system to improve its numbers: a
+change steered by the held-out scores turns them into development scores. No test and no CI
+step scores the committed held-out split.
+
+### Tracing
+
+Tracing to LangSmith is opt-in and off by default. It is on only when `LANGSMITH_TRACING` (or
+one of `LANGCHAIN_TRACING_V2`, `LANGSMITH_TRACING_V2`, `LANGCHAIN_TRACING`) is truthy (`1`,
+`true`, `yes` or `on`, any case) and `LANGSMITH_API_KEY` is set. A falsy value (`0`, `false`,
+`no`, `off` or empty) counts as unset, so tracing stays off whether or not a key is present.
+A truthy switch without a key, or a switch set to anything else, is a problem: `agentops eval`
+exits 1 naming the variable, never its value. When tracing is on, traces go to the project in
+`LANGSMITH_PROJECT`, default `agentops`, and the header says so. A trace holds the prompts, the
+model outputs and the scenario's synthetic evidence. The tests clear `LANGSMITH_TRACING`,
+`LANGCHAIN_TRACING_V2` and the LangSmith key and endpoint variables before every test, and CI
+sets none of them.
+
+### langgraph dev
 
 `langgraph dev`, run from the repository root after installing the development requirements
 (they pin `langgraph-cli[inmem]==0.4.32`), serves the graph to LangGraph Studio: `langgraph.json`
@@ -83,9 +153,24 @@ line says what was reached. Every thread is saved at each step, so stopping is s
   stops before the action is applied, with exit 2. Fix the directory and `resume`. If it fails
   after the action was applied, `resume` finds the key in `audit/<incident_id>.ledger.jsonl`,
   applies nothing again and writes the missing `apply` record from the ledger.
-- `escalation: apply_failed`: the source refused or failed the action and nothing was changed.
-  Read the `apply` line in the audit file for the reason. The thread is handed to a human;
-  `resume` does not retry it.
+- `escalation: apply_failed`: the source answered that the action failed and nothing was
+  changed. Read the `apply` line in the audit file for the reason. The thread is handed to a
+  human; `resume` does not retry it.
+- `escalation: effect_unknown`, with "An approved action may have been applied; its effect is
+  unknown.": the source raised while applying the action, so the change may or may not have
+  taken. The `apply` line in the audit file has `applied: null`, `effect: "unknown"` and the
+  exception type. The graph checked the symptoms anyway: had they cleared, the thread would have
+  ended `resolved`. They did not, and an action whose effect is unknown is never followed by
+  another proposal, so the thread is handed to a human. Find out from the system itself whether
+  the action took before doing anything else.
+- `ledger: skipped torn line <n> in <path>` on stderr: a process ended while writing a line of
+  the ledger `audit/<incident_id>.ledger.jsonl`, leaving part of a line. That fragment is not a
+  complete record, so the simulator skips it and the command carries on. The next action written
+  to the ledger starts on a fresh line after a `{"torn_seal": true}` marker line, so later
+  `resume` and `history` runs keep reading the file; the notice repeats each time the ledger is
+  read and is not a new problem. Any other line that is not a valid record
+  stops the command with exit 2, "The ledger could not be used"; do not edit or delete the
+  ledger, which is the only record of what was applied.
 - `approve` exits 1 with "The decision was not recorded": the approval step refused the answer
   (for example an edit naming an action outside the runbook). Nothing was applied and the
   thread still waits; run `approve` again with a valid decision.

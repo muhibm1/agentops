@@ -1,14 +1,15 @@
 # AgentOps codebase map
 
 Written 2026-09-30 at onboarding and updated by increment 1 (change
-`2026-10-01-increment-1-scaffold`) and increment 3 (change
-`2026-10-01-increment-3-act-pause-persist-resume`). "What exists today" is confirmed against the repository; the
+`2026-10-01-increment-1-scaffold`), increment 3 (change
+`2026-10-01-increment-3-act-pause-persist-resume`) and increment 4 (change
+`2026-10-02-increment-4-no-spend-measurement-harness`). "What exists today" is confirmed against the repository; the
 sections after it describe the **planned** system from the approved design
 (`docs/superpowers/specs/2026-09-29-agentops-design.md`, cited below as "design §n"), and any
 planned path not in the table below is believed, not verified. Update this file in the change
 that makes a statement here true or false.
 
-## What exists today (confirmed 2026-10-01, increment 3)
+## What exists today (confirmed 2026-10-02, increment 4)
 
 | Path | What it is |
 |---|---|
@@ -16,23 +17,34 @@ that makes a statement here true or false.
 | `docs/superpowers/specs/2026-09-30-*.md` | Companions: eval methodology, cookbook, workshop, and the operator console (a **separate** repository, `muhibm1/agentops-console`) |
 | `pyproject.toml`, `requirements.txt`, `requirements-dev.txt` | Package metadata and the `agentops` entry point; exact pins with licence comments |
 | `LICENSE`, `README.md`, `CONTRIBUTING.md`, `docs/ci.md` | MIT licence, status and demo command, contributor setup, what CI checks |
-| `src/agentops/cli.py`, `src/agentops/__main__.py` | Typer app: `--version`, `run`, `approve`, `resume`, `history` and `fork` over SQLite checkpoints (`--state-db`, default `agentops.sqlite`), thread id equal to the incident id; exit 0 for waiting, escalated or resolved, 1 usage, 2 run failed or state file unusable; the hidden `approve --crash-after-apply` is the crash demo; every model string escaped. `python -m agentops` runs the same app |
+| `src/agentops/cli.py`, `src/agentops/__main__.py` | Typer app: `--version`, `run`, `approve`, `resume`, `history` and `fork` over SQLite checkpoints (`--state-db`, default `agentops.sqlite`), thread id equal to the incident id; exit 0 for waiting, escalated or resolved, 1 usage, 2 run failed or state file unusable; the hidden `approve --crash-after-apply` is the crash demo; every model string escaped; one stderr notice per torn ledger line skipped; `eval` and `dataset` registered from `src/agentops/evals/commands.py`. `python -m agentops` runs the same app |
 | `src/agentops/state.py` | `IncidentState`, the Pydantic models, `CONTROL_FIELDS`, `new_incident`, `CitationError`, `assert_cited` |
-| `src/agentops/graph.py` | `build_graph`: `START -> triage -> router -> logs/metrics/deploys -> merge -> rca -> approval -> execute -> verify -> postmortem`, with escalate and the loops back to the router, retry policies and the checkpoint serializer |
-| `src/agentops/nodes/` | `triage.py`, `router.py` (`route_to_sources`), `evidence.py` (parallel logs, metrics, deploys nodes), `merge.py` (budget, loops, `after_merge`), `rca.py`, `approval.py` (`interrupt()`, re-validated edits), `execute.py` (calls the executor), `verify.py` (re-reads the source, cleared or not), `postmortem.py`, `escalate.py`, shared helpers in `__init__.py` |
-| `src/agentops/actions/` | `runbook.py` (loads and validates the runbook with `yaml.safe_load`), `registry.py` (`has`, `get`, `validate_params`), `preconditions.py` (six check kinds against the `EvidenceSource`), `audit.py` (append-only JSONL audit log), `executor.py` (registry, parameters, preconditions, idempotency key, ledger check, dry run, apply, audit) |
-| `runbooks/default.yaml` | The action allowlist: `scale_db_pool`, `rollback_deploy`, `circuit_break_dependency`, `rerun_partition`, `pause_batch_job` |
-| `src/agentops/sources/` | `EvidenceSource` protocol and value types (`base.py`), `Scenario` (`scenario.py`, combined worlds keyed `a+b`), `SimulatorSource` (`simulator.py`, applied actions kept in a ledger file) |
-| `src/agentops/fakes.py` | `ScriptedChatModel` and `scripted_model_for`; in the package because the CLI demo uses it (ADR 0001) |
-| `scenarios/*.json` | Eight scenarios with `scripted_outputs` (triage, rca, escalate for escalating ones, postmortem for the seven that apply an action, `rca_after_action` for `two_concurrent_faults`); `scripted_model_for` turns one into a model |
+| `src/agentops/graph.py` | `build_state_graph` (uncompiled, used by `dev_server.py`) and `build_graph` (compiled, refuses to build without a checkpointer): `START -> triage -> router -> logs/metrics/deploys -> merge -> rca -> approval -> execute -> verify -> postmortem`, with escalate and the loops back to the router, retry policies and the checkpoint serializer |
+| `src/agentops/nodes/` | `triage.py`, `router.py` (`route_to_sources`), `evidence.py` (parallel logs, metrics, deploys nodes), `merge.py` (budget, loops, `after_merge`), `rca.py`, `approval.py` (`interrupt()`, re-validated edits), `execute.py` (calls the executor), `verify.py` (re-reads the source over the action's runbook window, cleared or not; an unknown effect that did not clear escalates `effect_unknown`), `postmortem.py`, `escalate.py`, shared helpers in `__init__.py` |
+| `src/agentops/actions/` | `runbook.py` (loads and validates the runbook with `yaml.safe_load`), `registry.py` (`has`, `get`, `validate_params`), `preconditions.py` (seven check kinds against the `EvidenceSource`, including `target_named_in_logs`), `audit.py` (append-only JSONL audit log), `executor.py` (registry, parameters, preconditions, idempotency key, ledger check, dry run, apply, audit; an apply that raises is recorded as `applied: null`, `effect: "unknown"` and returns `apply_unknown`) |
+| `runbooks/default.yaml` | The action allowlist: `scale_db_pool`, `rollback_deploy`, `circuit_break_dependency`, `rerun_partition`, `pause_batch_job`; each may set `verify_window_minutes` (default 30) |
+| `src/agentops/sources/` | `EvidenceSource` protocol and value types (`base.py`), `Scenario` (`scenario.py`, combined worlds keyed `a+b`), `SimulatorSource` (`simulator.py`, applied actions kept in a ledger file; a torn last line is skipped, recorded in `torn_ledger_lines` and sealed by a `{"torn_seal": true}` marker line on the next append) |
+| `src/agentops/fakes.py` | `ScriptedChatModel` (with `bind_tools` and a queue of tool-call messages), `scripted_model_for` and `scripted_baseline_model_for`; in the package because the CLI demo and `agentops eval` use it (increment 1 ADR 0001) |
+| `scenarios/*.json` | Eight scenarios with `scripted_outputs` (triage, rca, escalate for escalating ones, postmortem for the seven that apply an action, `rca_after_action` for `two_concurrent_faults`, and `baseline` for the ReAct baseline in every scenario); `scripted_model_for` and `scripted_baseline_model_for` turn one into a model |
+| `src/agentops/evals/` | The measurement harness (increment 4 ADR 0001): `outcome.py` (`RunOutcome`, the grading reference), `evaluators.py` (seven evaluators with the LangSmith signature), `judge.py` (`explanation_quality`, model-graded, not run by `agentops eval`), `dataset.py` (the five/three split, manifest and checksums), `run.py` (runs and grades each system per scenario, renders the table; each graph run uses a `SqliteSaver` in a temporary directory, not `InMemorySaver`, because no module under `src/` may use the in-memory saver), `commands.py` (`agentops eval` and `agentops dataset`) |
+| `evals/held_out/manifest.json`, `evals/checksums.sha256` | The frozen split: the three held-out scenario ids, and the sha256 of the manifest and those three scenario files. Ask-first; checked by `agentops dataset` and before `agentops eval --held-out` |
+| `src/agentops/baseline.py` | The ReAct baseline: `create_agent` over six tools bound to a `SimulatorSource`, with no approval, registry or checkpointer; each tool catches its own errors and returns them to the agent as text; `run_baseline` returns a `BaselineRun` |
+| `src/agentops/tracing.py` | `tracing_status`: LangSmith tracing is on only with a truthy switch and `LANGSMITH_API_KEY`; reads the environment, never imports `langsmith` |
+| `src/agentops/dev_server.py`, `langgraph.json` | `make_graph(config)`, the factory `langgraph dev` loads through `langgraph.json` (`dependencies: ["."]`, no `env` key): the graph for `configurable.scenario_id` with the scripted model, compiled without a checkpointer |
 | `tests/` | pytest, one test per eval case; `conftest.py` clears LangSmith tracing variables |
-| `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.githooks/pre-push`, `scripts/check_test_count.py` | CI with SHA-pinned actions and a test-count floor, Dependabot, the pre-push hook |
+| `.github/workflows/ci.yml`, `.github/dependabot.yml`, `.githooks/pre-push`, `scripts/check_test_count.py` | CI with SHA-pinned actions and a test-count floor (`MIN_TESTS`, see `docs/ci.md`), Dependabot, the pre-push hook. CI installs `langgraph-cli` with the dev requirements and never runs it |
 | `.gitignore` | Tracked. Ignores `.env*` (except `.env.example`), `.venv/`, `*.egg-info/`, `*.db`, `*.sqlite`, `*.sqlite-*` (the SQLite WAL sidecars), `*.sqlite3`, `audit/`, caches and the WorkHorse working folders |
 | `agentops.sqlite` and its `-wal`, `-shm` sidecars | Runtime, not tracked: the checkpoint file the CLI writes in the current directory |
 | `audit/<incident_id>.jsonl`, `audit/<incident_id>.ledger.jsonl` | Runtime, not tracked: the append-only audit log (`proposal`, `approval`, `precondition`, `dry_run`, `apply`, `verify`, `escalation` records) and the simulator's ledger of applied actions |
 | `.workhorse/profile.yml` | The WorkHorse profile; its commands are run on the change branch |
 
-Not yet present: `langgraph.json`, `evals/`, `baseline.py`, `models.py`, the live model.
+Not yet present: `models.py`, the live model, LangSmith dataset upload, the `workflow_dispatch` job for live evals.
+
+Deviation from the design's layout (increment 4 ADR 0001,
+`docs/sdlc/2026-10-02-increment-4-no-spend-measurement-harness/adr/0001-harness-code-under-src-and-data-under-evals.md`):
+design §13 put the harness modules at the top level as `evals/*.py`. The code lives in
+`src/agentops/evals/` instead, because only `src/` is installed and the `agentops` command must
+import it from any directory; `evals/` holds only the pinned data.
 
 ## What the system does
 
@@ -62,7 +74,7 @@ flowchart LR
     EX -->|apply with idempotency key| ES
     G --> CP[(SqliteSaver checkpoints)]
     G -.->|traces| LS[(LangSmith, project agentops)]
-    EV[evals/run.py] --> G
+    EV[src/agentops/evals/run.py] --> G
     EV --> BL[baseline.py create_agent ReAct]
     EV -.-> LS
 ```
@@ -114,11 +126,11 @@ flowchart LR
 ## Planned layout (design §13)
 
 ```
-src/agentops/  state.py graph.py models.py baseline.py cli.py
+src/agentops/  state.py graph.py models.py baseline.py cli.py tracing.py dev_server.py evals/
                nodes/ (10 node modules)  sources/ base.py simulator.py  actions/ runbook.py registry.py executor.py audit.py
 scenarios/     one JSON per scenario (8 in v1), templates/ in week two
 runbooks/      default.yaml
-evals/         dataset.py evaluators.py run.py checksums
+evals/         held_out/manifest.json checksums.sha256 (data only; the code is src/agentops/evals/, ADR 0001)
 tests/         pytest, fixtures/ (the fake model is src/agentops/fakes.py, ADR 0001)
 docs/          discovery.md solution-design.md handover.md eval-methodology.md ci.md superpowers/specs/ sdlc/
 examples/approval_boundary/   (week two, cookbook)
@@ -150,7 +162,7 @@ No storage buckets. No RLS, policies or database functions.
   case runs without an API key (design §11).
 - CI asserts a test-count floor from the JUnit report and a test that parses the workflow and
   asserts SHA-pinned actions and no secrets in the default job (design §13).
-- Live evals (`evals/run.py`) run only from a `workflow_dispatch` job reading `AGENTOPS_TEST_*`
+- Live evals (`src/agentops/evals/run.py`) run only from a `workflow_dispatch` job reading `AGENTOPS_TEST_*`
   secrets and failing if any are missing.
 
 ## Planned CI (design §13)

@@ -13,7 +13,10 @@
 6. Test-count floor: `scripts/check_test_count.py` reads that report
 7. Dependency audit: `pip-audit -r requirements.txt`
 
-No step calls a live model or reads an API key. Every action is pinned to a full commit SHA, with
+No step calls a live model or reads an API key, and no step sets a LangSmith tracing variable.
+The install step brings in `langgraph-cli[inmem]` with the development requirements, but no step
+and no test runs it (it sends usage analytics when it runs; see the README). No step runs
+`agentops eval`, and no test scores the committed held-out split. Every action is pinned to a full commit SHA, with
 its tag in a comment.
 
 ## The test-count floor
@@ -25,10 +28,12 @@ errors) and fails when the count is below `MIN_TESTS`, set in the workflow's `en
 To raise it, change `MIN_TESTS` in `.github/workflows/ci.yml` in the same pull request that adds
 the tests. Lower it only on purpose, saying why in the commit body.
 
-`MIN_TESTS` is 450 as of increment 3. The rule since increment 3: the largest multiple of 10 at
-or below 90 percent of the passing count on the branch, and never below 240. The suite passed
-501 tests (1 skipped) when the floor was set, so 90 percent is 450.9 and the floor is 450. It
-was 80 in increment 2, when the suite had 76 tests at the end of increment 1.
+`MIN_TESTS` is 700 as of increment 4. The rule since increment 3: the largest multiple of 10 at
+or below 90 percent of the passing count on the branch, and never below 240.
+The suite passed 784 tests (1 skipped) when the floor was set, so 90 percent is 705.6 and the
+floor is 700. `tests/test_ci_workflow.py` recomputes the floor from that count. It was 450
+as of increment 3 (501 tests passed), and 80 in increment 2, when the suite had 76 tests at
+the end of increment 1.
 
 ## Re-resolving an action pin
 
@@ -60,7 +65,8 @@ Accepted or deferred on purpose, each recorded when increment 1 was built:
   langgraph and langchain-core pull in float at install time, with no lockfile or hashes. Known
   debt, deferred by the design.
 - `pip-audit` covers `requirements.txt` only. The dev tools that run inside CI (pytest, ruff,
-  pyright, pip-audit, pyyaml) and the `setuptools` build backend are not audited. Deferred.
+  pyright, pip-audit, pyyaml), `langgraph-cli[inmem]` and what it pulls in, and the
+  `setuptools` build backend are not audited. Deferred.
 - The `pyright` package from PyPI is a wrapper that downloads a Node runtime and the npm pyright
   package on first run (believed, not verified). That is a network fetch of executable code that
   no pin in `requirements-dev.txt` controls. Accepted for now.
