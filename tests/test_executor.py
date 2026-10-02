@@ -1083,3 +1083,96 @@ def test_an_audit_record_that_does_not_match_the_approval_does_not_back_it(
     audit.append(state["incident_id"], state["incident_id"], written)
 
     assert executor.unrecorded_approval_problem(state, audit) is not None
+
+
+def test_a_torn_approval_record_then_a_second_approval_applies_once(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    path = AuditLog(tmp_path).path_for(scenario.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"event": "approval", "valid": tr', encoding="utf-8")
+    record_approval(state, tmp_path)
+    calls: list[str] = []
+
+    outcome = run_executor(state, RecordingSource(SimulatorSource(scenario), calls), tmp_path)
+
+    assert outcome.kind != "refused"
+    assert calls.count("apply") == 1
+    applies = [
+        r for r in audit_records_skipping_torn(tmp_path, scenario.id) if r["event"] == "apply"
+    ]
+    assert len(applies) == 1
+
+
+def test_a_torn_approval_with_no_second_approval_is_still_refused(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    path = AuditLog(tmp_path).path_for(scenario.id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('{"event": "approval", "valid": tr', encoding="utf-8")
+
+    problem = executor.unrecorded_approval_problem(state, AuditLog(tmp_path))
+
+    assert problem is not None
+
+
+def audit_records_skipping_torn(directory: Path, incident_id: str) -> list[dict[str, Any]]:
+    return AuditLog(directory).records(incident_id)
+
+
+def test_a_state_reset_on_a_fresh_source_does_not_apply_twice(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    record_approval(state, tmp_path)
+    first = run_executor(state, SimulatorSource(scenario), tmp_path)
+    assert first.kind == "applied"
+    state["execution"] = None
+    calls: list[str] = []
+
+    second = run_executor(state, RecordingSource(SimulatorSource(scenario), calls), tmp_path)
+
+    assert second.kind == "already_applied"
+    assert "apply" not in calls
+    applied = [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"]
+    assert [r["applied"] for r in applied] == [True, False]
+
+
+def test_an_audit_apply_for_a_different_key_does_not_block_a_new_apply(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    record_approval(state, tmp_path)
+    AuditLog(tmp_path).append(
+        scenario.id,
+        scenario.id,
+        {"event": "apply", "idempotency_key": "some-other-key", "applied": True},
+    )
+    calls: list[str] = []
+
+    outcome = run_executor(state, RecordingSource(SimulatorSource(scenario), calls), tmp_path)
+
+    assert outcome.kind == "applied"
+    assert calls.count("apply") == 1
+
+
+def test_an_apply_recorded_by_another_thread_does_not_block_a_fork_on_a_fresh_source(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    record_approval(state, tmp_path, thread_id="fork-1")
+    key = state["approval"].idempotency_key  # type: ignore[union-attr]
+    AuditLog(tmp_path).append(
+        scenario.id, "original", {"event": "apply", "idempotency_key": key, "applied": True}
+    )
+    calls: list[str] = []
+
+    outcome = executor.execute(
+        state,
+        RecordingSource(SimulatorSource(scenario), calls),
+        default_registry(),
+        AuditLog(tmp_path),
+        thread_id="fork-1",
+    )
+
+    assert outcome.kind == "applied"
+    assert calls.count("apply") == 1

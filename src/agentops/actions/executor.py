@@ -219,13 +219,22 @@ def find_recorded_execution(
         else:
             write_recovered_apply_record(context, remediation, key)
         return already_applied(context, remediation, key, "found in the source's ledger")
+    # Scoped to this thread: a fork shares the incident id and audit file but has its own
+    # source, and applies for itself.
+    if audit_shows_apply(context, key, this_thread_only=True):
+        write_repeat_record(context, remediation, key)
+        return already_applied(context, remediation, key, "found in the audit log")
     return None
 
 
-def audit_shows_apply(context: ExecutionContext, key: str) -> bool:
-    """True when the incident's audit file has an `apply` record for `key` with `applied: true`."""
+def audit_shows_apply(
+    context: ExecutionContext, key: str, *, this_thread_only: bool = False
+) -> bool:
+    """True when the incident's audit file has an `apply` record for `key` with `applied: true`,
+    written by this thread only when `this_thread_only` is set."""
     return any(
-        record.get("event") == "apply"
+        (not this_thread_only or record.get("thread_id") == context.thread_id)
+        and record.get("event") == "apply"
         and record.get("idempotency_key") == key
         and record.get("applied") is True
         for record in context.audit.records(context.state["incident_id"])
