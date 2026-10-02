@@ -76,3 +76,20 @@ Findings outside scope (re-check):
 Not verified (re-check):
 - R1 end to end: `langgraph dev` was not started and no browser was tested. Local network access behaviour is believed.
 - I did not re-run the full test suite; the verifier owns it. AgentShield: n/a, because the fix diff touches no agent configuration.
+
+## Re-check (G4 rejection fix da5a079)
+
+Re-check verdict: copied-thread approval forgery and double apply closed. 0 new findings.
+
+| Path | Status | Evidence |
+|---|---|---|
+| Approval recorded by thread A admits execute on a copy in thread B | closed | executor.py:134 requires `record["thread_id"] == thread_id`; execute.py:41-42 passes `run_thread_id(config)`. Probe (fresh source, `update_state(as_node="approval")`, `execution=None`): copy ends `escalated`, `action_not_allowed`, no apply. tests/test_cli_lifecycle.py E49 asserts the same, with ledger and audit read-back (confirmed). |
+| thread_id spoofed by the caller | closed | The id comes only from `configurable`, which the checkpointer also keys state on, so the state executed and the id checked belong to one thread. The dev server merges the path thread id last, over any caller `configurable.thread_id` (langgraph_runtime_inmem/ops.py:2690-2700, confirmed). |
+| Audit record thread_id forged in a record body | closed | audit.py:21,102-104 rejects a caller record that sets `thread_id`; append stamps it from the node's config (confirmed). |
+| Same thread id reused (thread deleted and recreated) | closed by 17d6b56, not this commit | Probe: new saver, same id `p1`, fresh source, `execution=None`: result `already_applied`, exactly one `applied: true` record (confirmed). |
+| Legitimate fork | admitted | E50: a CLI fork before approval records its own approval and applies once for itself (test passes). |
+
+Commands: `.venv/Scripts/python -m pytest -q tests/test_cli_lifecycle.py tests/test_executor.py tests/test_approval.py`: 76 passed. `ruff check` on the four changed files: exit 0. Diff secret grep: no matches.
+
+Findings outside scope (re-check 2): a fork taken at a checkpoint after approval and before execute has no interrupt of its own, so it is refused and escalates instead of re-asking. Fails closed; operator UX only (believed from the code path, not run).
+Not verified (re-check 2): live `langgraph dev` not started; dev-server behaviour rests on the InMemorySaver probe and the runtime source above. Two state databases sharing one audit directory and one thread name would share approvals (believed; needs local file write, outside the threat model).

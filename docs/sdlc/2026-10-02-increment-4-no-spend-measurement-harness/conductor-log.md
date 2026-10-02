@@ -40,3 +40,7 @@
 2026-10-02T21:46:20.444Z | review | wh-shipper | ship.md 147 lines, PR #10 ready, CI green at cc60384 (runs 37068574675, 37068576303)
 2026-10-02T21:46:20.515Z | review | conductor | G4 Ship presented
 2026-10-02T21:46:23.787Z | review | conductor | G4 Ship posted to https://github.com/muhibm1/agentops/pull/10
+2026-10-02T21:47:26.187Z | review | conductor | resumed at review after G4 rejected (R2b thread binding)
+2026-10-02T21:53:04.781Z | review | wh-fixer | R2b fixed in da5a079; E49 adversarial and E50 golden added; 878 passed
+2026-10-02T21:54:36.005Z | verify | wh.js verify | checks green at da5a079 (4 defined)
+2026-10-02T21:57:07.017Z | verify | conductor | verifier green 878 passed; bug and security re-check closed R2b

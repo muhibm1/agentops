@@ -58,3 +58,17 @@ New finding (code 17d6b56 changed):
 Findings outside scope (re-check 2): executor.py:217 (unchanged line) checks the audit for any thread, so a fork that crashed between its own apply and the audit write gets a repeat record instead of a recovered `applied: true` one; it needs a crash at that exact point (believed, not probed).
 
 Re-check 2 not verified: the dev-server HTTP path for writing a new thread's state (probed with the Python graph API only). `python -m pytest -q -p no:cacheprovider`: 876 passed, 1 skipped, exit 0 (run by this reviewer).
+
+## Re-check 3 (fix da5a079)
+
+Verdict: R2b closed; 0 new findings. Earlier low (outcome.py:200) still open, unchanged.
+
+| Finding | Status | Evidence |
+|---|---|---|
+| R2b low executor.py:124 approval gate not bound to the thread | closed | executor.py:134 adds `record.get("thread_id") == thread_id`; execute.py:42 passes the same `run_thread_id(config)` value the approval node stamps at approval.py:54/66 (confirmed by reading). E49 (test_cli_lifecycle.py) is the re-check 2 probe: copied state on p1-x is refused, escalates, no apply on either ledger. E50: a CLI fork records its own approval and applies (fork writes `as_node="triage"`, cli.py:240, so it always passes the approval node, which interrupts unconditionally, approval.py:57) (confirmed) |
+
+New findings in code da5a079 changed: none. Only caller of `unrecorded_approval_problem` is execute.py:42 (confirmed by grep); crash-after-apply resume and the two-approval loop stay on one thread, so their records still match (confirmed by reading).
+
+Findings outside scope: executor.py:217 any-thread apply lookup, as stated by the caller (known).
+
+Re-check 3 not verified: that E49 fails on the pre-fix code (believed, it reproduces the re-check 2 probe that applied on p1-x). `.venv/Scripts/python -m pytest -q -p no:cacheprovider`: 878 passed, 1 skipped, no failures (run by this reviewer); E49 and E50 alone: 2 passed.

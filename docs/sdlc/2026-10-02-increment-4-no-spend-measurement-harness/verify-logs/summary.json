@@ -1,6 +1,6 @@
 {
-  "commit": "17d6b569e0b11418f7fe0dd2a1220f436b9832fe",
-  "at": "2026-10-02T21:35:38.179Z",
+  "commit": "da5a079dc6277f02f8b44ff83c79f7777bc8c7b3",
+  "at": "2026-10-02T21:54:35.978Z",
   "branch": "wh/2026-10-02-increment-4-no-spend-measurement-harness",
   "checks_green": true,
   "defined": 4,
@@ -35,10 +35,10 @@
       "check": "test",
       "command": ".venv/Scripts/python.exe -m pytest -q",
       "exit": 0,
-      "seconds": 58.1,
+      "seconds": 57.3,
       "log": "verify-logs/test.log",
       "status": "passed",
-      "measured": "Test suite: 876 passed, 0 failed, 1 skipped (`.venv/Scripts/python.exe -m pytest -q`).",
+      "measured": "Test suite: 878 passed, 0 failed, 1 skipped (`.venv/Scripts/python.exe -m pytest -q`).",
       "first_error": null
     },
     {
@@ -53,7 +53,7 @@
       "check": "security_audit",
       "command": ".venv/Scripts/python.exe -m pip_audit -r requirements.txt",
       "exit": 0,
-      "seconds": 25.2,
+      "seconds": 26.8,
       "log": "verify-logs/security_audit.log",
       "status": "passed",
       "measured": "Dependency audit: 0 known vulnerabilities (`.venv/Scripts/python.exe -m pip_audit -r requirements.txt`).",
