@@ -490,7 +490,9 @@ def test_every_apply_record_carries_an_effect_matching_its_applied_value(tmp_pat
         risk="low",
         rollback="Resume it.",
     )
-    run_executor(approved_state(refusing, remediation=pause), SimulatorSource(refusing), refused_dir)
+    run_executor(
+        approved_state(refusing, remediation=pause), SimulatorSource(refusing), refused_dir
+    )
     red_herring = scenario_named("deploy_red_herring_db")
     raising = RaisingApplySource(red_herring, applies_first=True)
     run_executor(approved_state(red_herring), raising, raised_dir)
@@ -925,9 +927,9 @@ def test_a_crash_between_apply_and_its_record_resumes_as_possibly_applied(
 
     assert final["execution"].result == "already_applied"
     assert final["execution"].applied is True
-    assert [(r["applied"], r["effect"], r["detail"]) for r in apply_records(tmp_path, scenario.id)] == [
-        (True, "applied", executor.RECOVERED_DETAIL)
-    ]
+    assert [
+        (r["applied"], r["effect"], r["detail"]) for r in apply_records(tmp_path, scenario.id)
+    ] == [(True, "applied", executor.RECOVERED_DETAIL)]
     assert len(ledger_file.read_text(encoding="utf-8").splitlines()) == 1
     verdicts = [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "verify"]
     assert [r["cleared"] for r in verdicts] == [True]
