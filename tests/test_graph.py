@@ -1,6 +1,7 @@
 """E1, E4, E8, E25 to E28 and E35: the graph's topology, source failures, budget exhaustion,
 citation retries and prompt hygiene (R1, R3, R4, R5, R11). E49 and E56: nothing reaches `execute`
 except through `approval`, and the graph cannot be built without a checkpointer (R12, R14).
+Increment 4's E27: `build_state_graph` returns the same graph uncompiled (R16).
 
 These tests stop at the first approval interrupt (brief D20).
 """
@@ -18,13 +19,19 @@ from typing import Any
 import pytest
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agentops import fakes
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import default_registry
 from agentops.fakes import ScriptedChatModel, scripted_model_for
-from agentops.graph import MODEL_NODE_RETRY, build_graph, checkpoint_serializer
+from agentops.graph import (
+    MODEL_NODE_RETRY,
+    build_graph,
+    build_state_graph,
+    checkpoint_serializer,
+)
 from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN, neutralise_delimiters
 from agentops.nodes.evidence import SOURCE_READ_TOOLS
 from agentops.sources.base import LogLine, Window
@@ -66,6 +73,19 @@ APPROVAL_PATH_MODULES = [
 ]
 ENVIRONMENT_READERS = ("os.environ", "getenv", "dotenv")
 THREAD: RunnableConfig = {"configurable": {"thread_id": "graph-test"}}
+GRAPH_NODE_NAMES = {
+    "triage",
+    "logs",
+    "metrics",
+    "deploys",
+    "merge",
+    "rca",
+    "approval",
+    "execute",
+    "verify",
+    "postmortem",
+    "escalate",
+}
 
 
 def incident_for(scenario: Scenario) -> IncidentState:
@@ -513,5 +533,21 @@ def test_build_graph_refuses_to_build_without_a_checkpointer(
 
     with pytest.raises(TypeError, match="checkpointer"):
         build_graph(source, scripted_model, registry, audit)  # type: ignore[call-arg]
+    with pytest.raises(ValueError, match="checkpointer"):
+        build_graph(source, scripted_model, registry, audit, None)  # type: ignore[arg-type]
+
+
+# E27 (increment 4, R16): the uncompiled graph is exposed; compiling still needs a checkpointer.
+@pytest.mark.parametrize("scenario", [CLEAN_BAD_DEPLOY], indirect=True)
+def test_build_state_graph_returns_the_uncompiled_graph_and_build_graph_still_needs_a_checkpointer(
+    source: SimulatorSource, scripted_model: ScriptedChatModel, tmp_path: Path
+) -> None:
+    registry = default_registry()
+    audit = AuditLog(tmp_path)
+
+    graph = build_state_graph(source, scripted_model, registry, audit)
+
+    assert isinstance(graph, StateGraph)
+    assert set(graph.nodes) == GRAPH_NODE_NAMES
     with pytest.raises(ValueError, match="checkpointer"):
         build_graph(source, scripted_model, registry, audit, None)  # type: ignore[arg-type]

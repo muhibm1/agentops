@@ -1,4 +1,5 @@
-"""E16, E26, E27, E42, E58, E63: the verify rule (ADR 0003) and the postmortem with its fallback.
+"""E16, E26, E27, E42, E58, E63 and increment 4's E22: the verify rule (ADR 0003) and the
+postmortem with its fallback.
 
 Verify is called on a source whose ledger already holds the applied action, as the execute node
 leaves it, and its audit record is read back. The postmortem is driven by a scripted model.
@@ -15,7 +16,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 
 from agentops.actions.audit import AuditLog
-from agentops.actions.registry import default_registry, idempotency_key
+from agentops.actions.registry import Registry, default_registry, idempotency_key
 from agentops.fakes import ScriptedChatModel, scripted_model_for
 from agentops.graph import build_graph, checkpoint_serializer
 from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN
@@ -36,7 +37,15 @@ from agentops.nodes.verify import (
     read_post_action_signals,
     verify,
 )
-from agentops.sources.base import ActionRequest, ActionResult, LogLine, Point, Series
+from agentops.sources.base import (
+    VERIFY_WINDOW,
+    ActionRequest,
+    ActionResult,
+    LogLine,
+    Point,
+    Series,
+    Window,
+)
 from agentops.sources.scenario import Scenario, load_scenario
 from agentops.sources.simulator import SimulatorSource, ledger_path_for
 from agentops.state import (
@@ -127,9 +136,18 @@ def verify_records(audit_dir: Path, incident_id: str) -> list[dict[str, Any]]:
 
 
 def run_verify(
-    state: IncidentState, source: SimulatorSource, audit_dir: Path
+    state: IncidentState,
+    source: SimulatorSource,
+    audit_dir: Path,
+    registry: Registry | None = None,
 ) -> tuple[IncidentState, dict[str, Any]]:
-    update = verify(state, thread_config(state), source=source, audit=AuditLog(audit_dir))
+    update = verify(
+        state,
+        thread_config(state),
+        source=source,
+        audit=AuditLog(audit_dir),
+        registry=registry or default_registry(),
+    )
     [record] = verify_records(audit_dir, state["incident_id"])
     return merged(state, update), record
 
@@ -334,10 +352,68 @@ def test_a_point_or_line_exactly_at_the_opening_is_not_a_post_action_signal() ->
     ]
     state = executed_state(scenario, SimulatorSource(scenario), apply=False)
 
-    series, lines, _ = read_post_action_signals(state, SimulatorSource(scenario))
+    series, lines, _ = read_post_action_signals(state, SimulatorSource(scenario), VERIFY_WINDOW)
 
     assert [point.value for point in series[0].points] == [0.001]
     assert lines == []
+
+
+class WindowRecordingSource(SimulatorSource):
+    """The scenario's source, except that metrics are one healthy point at +75 minutes and every
+    window verify asks for is recorded."""
+
+    def __init__(self, scenario: Scenario) -> None:
+        super().__init__(scenario)
+        self.healthy_at = scenario.incident_time + timedelta(minutes=75)
+        self.windows: list[Window] = []
+
+    def get_metrics(self, service: str, names: list[str], window: Window) -> list[Series]:
+        self.windows.append(window)
+        healthy = series_of("error_rate", [(self.healthy_at, 0.001)])
+        return [healthy] if window.contains(self.healthy_at) else []
+
+    def get_logs(self, service: str, window: Window, query: str | None) -> list[LogLine]:
+        self.windows.append(window)
+        return []
+
+
+def registry_with_window(action: str, minutes: int) -> Registry:
+    entries = [
+        entry.model_copy(update={"verify_window_minutes": minutes})
+        if entry.action == action
+        else entry
+        for entry in (default_registry().get(name) for name in default_registry().names())
+    ]
+    return Registry(entries)
+
+
+# E22 (increment 4, R5): verify reads as far as the executed action's runbook window.
+def test_verify_reads_the_window_the_runbook_declares_for_the_action(tmp_path: Path) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    recording = WindowRecordingSource(scenario)
+    registry = registry_with_window("rollback_deploy", 90)
+
+    after, record = run_verify(state, recording, tmp_path, registry)
+
+    opened = scenario.incident_time
+    assert recording.windows
+    assert {window.end for window in recording.windows} == {opened + timedelta(minutes=90)}
+    assert record["cleared"] is True
+    assert after["status"] == "verifying"
+
+
+def test_verify_with_the_default_window_does_not_see_a_point_at_seventy_five_minutes(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = executed_state(scenario, SimulatorSource(scenario), apply=False)
+    recording = WindowRecordingSource(scenario)
+
+    _, record = run_verify(state, recording, tmp_path)
+
+    assert {window.end for window in recording.windows} == {scenario.incident_time + VERIFY_WINDOW}
+    assert record["cleared"] is False
 
 
 # E16: the scripted postmortem cites ids in state and resolves the incident.

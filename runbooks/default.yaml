@@ -1,6 +1,8 @@
 # The action allowlist. Only the actions declared here can ever be proposed to an operator or
 # applied; the registry rejects every other name, whatever the model says.
 # `target_pattern` is a full-match regular expression for the names an action may be aimed at.
+# `verify_window_minutes` (1 to 1440, default 30 when absent) is how long after the incident
+# opened verify and the metric preconditions read signals for that action (ADR 0003).
 # Each entry is validated at startup by src/agentops/actions/runbook.py; unknown keys fail.
 # Changing this file is an ask-first change (CLAUDE.md, Protected).
 
@@ -48,12 +50,13 @@
 
 - action: rerun_partition
   target_kind: job
-  target_pattern: "^[a-z0-9_]{1,64}$"
+  target_pattern: "^[a-z][a-z0-9]*(_[a-z0-9]+)*_(rollup|aggregate|partition|export)$"
   params:
     partition: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", required: true }
   risk: low
   preconditions:
     - { check: metric_below, metric: rows_written, value: 1 }
+    - { check: target_named_in_logs }
   dry_run: describe
   rollback:
     description: Nothing to undo; a rerun rewrites the partition in place.
@@ -61,11 +64,12 @@
 
 - action: pause_batch_job
   target_kind: job
-  target_pattern: "^[a-z0-9-]{1,64}$"
+  target_pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*-job(-[a-z0-9]+)*$"
   params: {}
   risk: low
   preconditions:
     - { check: config_true, key: batch_jobs_enabled }
+    - { check: target_named_in_logs }
   dry_run: describe
   rollback:
     description: Resume the job once the incident is closed.
