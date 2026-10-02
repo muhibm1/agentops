@@ -186,6 +186,8 @@ class SimulatorSource:
         lines = complete_lines if final_line is None else [*complete_lines, final_line]
         torn_run: list[int] = []
         for line_number, line in enumerate(lines, start=1):
+            if not line.strip():
+                continue
             if is_seal_marker(line):
                 if not torn_run:
                     raise LedgerError(
@@ -284,7 +286,9 @@ def append_ledger_line(ledger_path: Path, entry: AppliedAction) -> None:
     newline gets only the newline, and no marker."""
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     separator = repair_separator(ledger_path)
-    with ledger_path.open("a", encoding="utf-8") as ledger_file:
+    # An explicit LF stops Windows text mode writing CRLF, so a write cut at the CR cannot
+    # make the next append "CR CR LF".
+    with ledger_path.open("a", encoding="utf-8", newline="\n") as ledger_file:
         ledger_file.write(separator + entry.model_dump_json() + "\n")
         ledger_file.flush()
         os.fsync(ledger_file.fileno())
