@@ -111,7 +111,8 @@ def outcome_from_state(
     if state["scenario_id"] is None:
         raise ValueError("Only a run started from a scenario can be graded; scenario_id is None.")
     registry = registry or default_registry()
-    outcome, failure = run_result(state)
+    applies = apply_attempts_of(state, registry)
+    outcome, failure = run_result(state, applies)
     actions = state["actions"]
     return RunOutcome(
         system="graph",
@@ -123,7 +124,7 @@ def outcome_from_state(
         failure=failure,
         evidence_ids_before_proposal=list(evidence_ids_before_proposal),
         proposed_actions=proposed_actions_of(state),
-        applies=apply_attempts_of(state, registry),
+        applies=applies,
         tool_calls=sum(1 for action in actions if action.tool != MODEL_TOOL),
         model_calls=sum(1 for action in actions if action.tool == MODEL_TOOL),
         input_tokens=sum(action.input_tokens for action in actions),
@@ -133,10 +134,15 @@ def outcome_from_state(
     )
 
 
-def run_result(state: IncidentState) -> tuple[RunResult, str | None]:
+def run_result(
+    state: IncidentState, applies: Sequence[ApplyAttempt]
+) -> tuple[RunResult, str | None]:
+    """The run's result. A resolved run is `looped_then_remediated` only when a remediation was
+    applied and a second one had to follow; `loops` alone cannot say so, because the merge node
+    and a failed precondition also count a loop when they only go back for more evidence."""
     status = state["status"]
     if status == "resolved":
-        return ("looped_then_remediated" if state["loops"] > 0 else "remediated"), None
+        return ("looped_then_remediated" if len(applies) >= 2 else "remediated"), None
     if status == "escalated":
         return "escalated", None
     return "failed", f"the run stopped in status {status}"
