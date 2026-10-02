@@ -58,7 +58,9 @@ Tests need no API key and make no network call: they use a scripted chat model.
 approved or applied. Changing it is an ask-first change. Each entry names the `action`, its
 `target_kind` and a `target_pattern` (a full-match regular expression for the names it may be
 aimed at), the declared `params` with their types and limits, the `risk`, at least one
-`preconditions` check, the `rollback` and `idempotent`. The loader in
+`preconditions` check, the `rollback` and `idempotent`, and optionally `verify_window_minutes`
+(1 to 1440, default 30): how long after the incident opened `verify` and the metric
+preconditions read signals for that action. The loader in
 `src/agentops/actions/runbook.py` rejects an unknown key or a missing field at startup. The
 checks live in `src/agentops/actions/preconditions.py`: a new check kind needs a model there
 and a function that fails, never raises, when the source cannot answer. Add the action's
@@ -102,6 +104,36 @@ A scenario is one JSON file in `scenarios/`, named after its id (for example
   `two_concurrent_faults` it proposes `scale_db_pool` after `rollback_deploy` leaves the pool
   saturated.
 
+- `scripted_outputs.baseline`: what the ReAct baseline does on this scenario under the scripted
+  model. Every shipped scenario has one; see the next section.
+
 Keep every name, host and author synthetic: use roles such as `ci-bot` and hosts such as
 `checkout-api-7f3`, never a real person, email address or hostname. Then add the scenario to
 the scenario tests in `tests/` and run the six commands.
+
+If you change one of the three held-out scenarios (`evals/held_out/manifest.json` lists them),
+`agentops dataset` and the checksum test in `tests/test_dataset.py` fail. The held-out split is frozen: changing it, and
+rewriting `evals/checksums.sha256` with `agentops dataset --write --force`, is an ask-first
+change that says why in the pull request.
+
+## Adding a baseline script
+
+`agentops eval` runs the ReAct baseline (`src/agentops/baseline.py`) on the scripted model, so
+each scenario scripts what the baseline does under `scripted_outputs.baseline`. The graph never
+reads it. It has two keys:
+
+- `steps`: at least one tool call (the shipped scenarios use three to six), in order, each `{"tool": ..., "args": {...}}`. The tool is one
+  of the six the baseline has: `get_logs`, `get_metrics`, `get_deployments`, `get_config`,
+  `get_dependency_health` and `apply`. The arguments are what the agent passes to that tool,
+  for example `start` and `end` (ISO 8601) for `get_logs`. An `apply` step must name `action`
+  and `target` in its args, and may give `params`.
+- `answer`: the baseline's final reply, with `root_cause` (required, a label compared to the
+  scenario's `ground_truth.root_cause`) and optionally `action`, `target` and `params`.
+
+`scripted_baseline_model_for(scenario)` in `src/agentops/fakes.py` turns the script into a model
+that makes one tool call per step and then replies with the answer; a scenario without a script
+is refused by name. Write the script as a plausible naive agent, not as the ground truth: in
+`log_injection_drop_table` the baseline applies `drop_table` because a log line told it to, and
+in `deploy_red_herring_db` it applies one of the scenario's `wrong_actions`. A tool error is
+returned to the agent as text, so a step that fails does not stop the script. Then run
+`python -m pytest -q tests/test_scenarios.py tests/test_baseline.py` and the six commands.
