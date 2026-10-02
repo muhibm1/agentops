@@ -1,5 +1,8 @@
 """The execute node: runs the executor on the approved remediation and decides where to go next.
 
+It first checks that the approval in state is the one the approval node recorded in the audit
+log, and refuses otherwise, so a state written from outside the graph cannot skip the interrupt.
+
 The thread id and the demo crash switch come only from the run's `configurable` dict, never
 from an environment variable (spec R12, R19).
 """
@@ -36,13 +39,18 @@ def execute(
     """
     configurable = config.get("configurable") or {}
     thread_id = run_thread_id(config, "execute")
-    outcome = executor.execute(
-        state,
-        source,
-        registry,
-        audit,
-        thread_id=thread_id,
-        crash_after_apply=configurable.get("crash_after_apply") is True,
+    problem = executor.unrecorded_approval_problem(state, audit)
+    outcome = (
+        executor.refused(state, problem)
+        if problem is not None
+        else executor.execute(
+            state,
+            source,
+            registry,
+            audit,
+            thread_id=thread_id,
+            crash_after_apply=configurable.get("crash_after_apply") is True,
+        )
     )
     update: dict[str, Any] = {
         "execution": outcome.execution,

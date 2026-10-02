@@ -214,6 +214,23 @@ def merged(state: IncidentState, update: dict[str, Any]) -> IncidentState:
     return result  # type: ignore[return-value]
 
 
+def record_approval(state: IncidentState, directory: Path, thread_id: str | None = None) -> None:
+    """Write the accepted approval record the approval node leaves in the audit file, which the
+    execute node demands before it runs anything."""
+    approval = state["approval"]
+    assert approval is not None
+    AuditLog(directory).append(
+        state["incident_id"],
+        thread_id or state["incident_id"],
+        {
+            "event": "approval",
+            "valid": True,
+            "decision": approval.decision,
+            "idempotency_key": approval.idempotency_key,
+        },
+    )
+
+
 def thread_config(state: IncidentState, **extra: Any) -> RunnableConfig:
     return {"configurable": {"thread_id": state["incident_id"], **extra}}
 
@@ -620,6 +637,7 @@ def test_a_source_refusal_is_apply_failed_and_escalates(tmp_path: Path) -> None:
         rollback="Resume it.",
     )
     state = approved_state(scenario, remediation=pause)
+    record_approval(state, tmp_path)
 
     update = execute_node(
         state,
@@ -656,6 +674,7 @@ def test_a_job_target_absent_from_the_logs_stops_at_precondition_failed(tmp_path
         rollback="Resume it.",
     )
     state = approved_state(scenario, remediation=pause)
+    record_approval(state, tmp_path)
 
     update = execute_node(
         state,
@@ -695,6 +714,7 @@ def test_a_failed_precondition_routes_to_the_router_then_escalates(tmp_path: Pat
                 point.value = 0.4
     source = SimulatorSource(scenario)
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
     approval = state["approval"]
     audit = AuditLog(tmp_path)
 
@@ -738,6 +758,7 @@ def test_a_failed_precondition_routes_to_the_router_then_escalates(tmp_path: Pat
 def test_an_applied_execution_routes_to_verify(tmp_path: Path) -> None:
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
 
     update = execute_node(
         state,
@@ -779,6 +800,7 @@ def test_crash_after_apply_exits_after_the_apply_record(
     monkeypatch.setattr(executor, "exit_process", fake_exit)
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
     source = SimulatorSource(scenario)
 
     with pytest.raises(ProcessExit):
@@ -803,6 +825,7 @@ def test_the_crash_switch_needs_exactly_true_in_configurable(
     monkeypatch.setattr(executor, "exit_process", fake_exit)
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path)
 
     update = execute_node(
         state,
@@ -818,6 +841,7 @@ def test_the_crash_switch_needs_exactly_true_in_configurable(
 def test_the_execute_node_reads_the_thread_id_inside_a_compiled_graph(tmp_path: Path) -> None:
     scenario = scenario_named("clean_bad_deploy")
     state = approved_state(scenario)
+    record_approval(state, tmp_path, "thread-one")
     source = SimulatorSource(scenario)
     graph = StateGraph(IncidentState)
     graph.add_node(
@@ -1008,3 +1032,54 @@ def test_a_repeat_of_a_key_applied_earlier_in_the_run_changes_nothing_and_escala
     state = merged(state, {"execution": second.execution, "evidence": second.evidence})
     assert next_step_fields(state, cleared=False) == {"escalation_reason": "symptoms_persist"}
     assert len(source.ledger()) == 1
+
+
+# Security M1: an approval written straight into graph state (as the dev server's state endpoint
+# allows) is not backed by the audit log, so the execute node refuses and applies nothing.
+def test_an_approval_written_into_state_without_an_audit_record_applies_nothing(
+    tmp_path: Path,
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    source = SimulatorSource(scenario)
+
+    update = execute_node(
+        state,
+        thread_config(state),
+        source=source,
+        registry=default_registry(),
+        audit=AuditLog(tmp_path),
+    )
+
+    assert update["escalation_reason"] == "action_not_allowed"
+    assert update["evidence"][0].payload["outcome"] == "refused"
+    assert source.ledger() == []
+    assert [r for r in audit_records(tmp_path, scenario.id) if r["event"] == "apply"] == []
+
+
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"valid": False},
+        {"idempotency_key": "0" * 64},
+        {"decision": "reject"},
+        {"event": "proposal"},
+    ],
+)
+def test_an_audit_record_that_does_not_match_the_approval_does_not_back_it(
+    tmp_path: Path, record: dict[str, Any]
+) -> None:
+    scenario = scenario_named("clean_bad_deploy")
+    state = approved_state(scenario)
+    approval = state["approval"]
+    assert approval is not None
+    written: dict[str, Any] = {
+        "event": "approval",
+        "valid": True,
+        "decision": approval.decision,
+        "idempotency_key": approval.idempotency_key,
+    } | record
+    audit = AuditLog(tmp_path)
+    audit.append(state["incident_id"], state["incident_id"], written)
+
+    assert executor.unrecorded_approval_problem(state, audit) is not None
