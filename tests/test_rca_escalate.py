@@ -314,6 +314,67 @@ def test_rca_prompt_names_actions_already_applied_and_skips_refused_ones() -> No
     assert "Actions already applied: rollback_deploy\n" in prompt
 
 
+def unknown_effect_evidence(evidence_id: str, action: str) -> Evidence:
+    """Action evidence the executor writes when the source raised inside apply."""
+    return Evidence(
+        id=evidence_id,
+        source="apply",
+        kind="action",
+        payload={"id": evidence_id, "action": action, "applied": None, "effect": "unknown"},
+        collected_at=OPENED_AT,
+    )
+
+
+def prompt_lines_starting(prompt: str, prefix: str) -> list[str]:
+    return [line for line in prompt.splitlines() if line.startswith(prefix)]
+
+
+# E4 (increment 4, R3): an unknown effect is named as possibly applied, on its own line.
+def test_rca_prompt_lists_possibly_applied_actions_on_their_own_line() -> None:
+    state = triaged_state()
+    state["evidence"] = [
+        *state["evidence"],
+        action_evidence("action-1", "rollback_deploy", applied=True),
+        unknown_effect_evidence("action-2", "scale_db_pool"),
+    ]
+
+    prompt = rca_prompt_for(state)
+
+    assert prompt_lines_starting(prompt, "Actions already applied:") == [
+        "Actions already applied: rollback_deploy"
+    ]
+    assert prompt_lines_starting(prompt, "Actions possibly applied:") == [
+        "Actions possibly applied: scale_db_pool"
+    ]
+
+
+def test_rca_prompt_has_no_possibly_applied_line_for_applied_or_refused_actions() -> None:
+    state = triaged_state()
+    state["evidence"] = [
+        *state["evidence"],
+        action_evidence("action-1", "rollback_deploy", applied=True),
+        action_evidence("action-2", "scale_db_pool", applied=False),
+    ]
+
+    prompt = rca_prompt_for(state)
+
+    assert "Actions possibly applied:" not in prompt
+
+
+def test_an_unknown_effect_later_confirmed_applied_is_listed_only_as_applied() -> None:
+    state = triaged_state()
+    state["evidence"] = [
+        *state["evidence"],
+        unknown_effect_evidence("action-1", "rollback_deploy"),
+        action_evidence("action-2", "rollback_deploy", applied=True),
+    ]
+
+    prompt = rca_prompt_for(state)
+
+    assert "Actions possibly applied:" not in prompt
+    assert "Actions already applied: rollback_deploy\n" in prompt
+
+
 def test_rca_prompt_has_no_action_or_outage_line_when_there_is_nothing_to_say() -> None:
     prompt = rca_prompt_for(triaged_state())
 
