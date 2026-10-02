@@ -96,9 +96,15 @@ In detail:
 
 Appended by retro after each change. Newest first.
 
+- Rate a finding by the claim it breaks, not by how hard it is to reach: an approval or
+  idempotency record must be bound to its thread and action, and a replay through a copied thread
+  is a blocker (increment 4, R2b).
+- When gates are approved on a standing instruction without the owner reading them, list the open
+  lows and accepted risks in the approval note so they are not lost.
+
 - After a review fix to a matching or validation rule, add negative cases in the same commit and
-  expect a second round; the increment 3 crash-after-apply fix introduced a repeat-key regression
-  found only at re-check.
+  expect a second round; seen in increments 2, 3 and 4 (the increment 3 crash-after-apply fix
+  introduced a repeat-key regression found only at re-check).
 
 - Merging the pull request to `main` is the release, and the owner does it. Stop at the Ship gate;
   never dispatch the shipper in deploy mode to merge (the permission classifier denies it every
