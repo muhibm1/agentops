@@ -32,6 +32,9 @@ REQUEST_TIMEOUT_SECONDS = 120
 MAX_RETRIES = 2
 MAX_OUTPUT_TOKENS = 4096
 CACHE_TTL = "5m"
+REDACTED = "[redacted]"
+# Shorter values are not real keys (tests use "fake"); redacting them would blank ordinary words.
+MIN_REDACTED_KEY_LENGTH = 8
 
 
 class MissingApiKeyError(RuntimeError):
@@ -69,6 +72,16 @@ def require_api_key(environ: Mapping[str, str]) -> str:
     if not key:
         raise MissingApiKeyError()
     return key
+
+
+def redact_api_key(text: str, environ: Mapping[str, str] | None = None) -> str:
+    """`text` with the value of `ANTHROPIC_API_KEY` replaced, so an SDK error that quotes the
+    key never reaches the terminal."""
+    environ = os.environ if environ is None else environ
+    key = environ.get(API_KEY_VARIABLE, "").strip()
+    if len(key) < MIN_REDACTED_KEY_LENGTH:
+        return text
+    return text.replace(key, REDACTED)
 
 
 class ModelFactory(Protocol):
