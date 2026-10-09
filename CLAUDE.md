@@ -22,8 +22,11 @@ idempotently. Python 3.11, MIT. The approved design is
   `run ... --thread crash-demo`, `approve crash-demo --decision approve --crash-after-apply`
   (hidden switch, ends the process right after the apply), `resume crash-demo` (no second
   apply). Runtime files: `agentops.sqlite` and its sidecars, `audit/*.jsonl`, all git-ignored.
-  `--model anthropic` exits 1: the live model is not wired yet. `langgraph dev` needs
-  `langgraph.json`, not yet in the repository.
+  Live model: `--model anthropic` (add `--dev` for the cheaper model) on `run`, `approve`,
+  `resume`, `fork` and `eval`, reading `ANTHROPIC_API_KEY` from the shell; `AGENTOPS_MODEL_<ROLE>`
+  overrides one role's id. `eval --model anthropic` prints the plan and estimated cost and exits
+  1 unless `--yes`. The live smoke test reads only `AGENTOPS_TEST_ANTHROPIC_API_KEY`:
+  `pytest -q -m live_smoke tests/test_live_smoke.py`. `langgraph dev` reads `langgraph.json`.
 
 ## Architecture in five lines
 
