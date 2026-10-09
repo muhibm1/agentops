@@ -661,3 +661,51 @@ def test_an_escalated_run_with_nothing_applied_or_proposed_still_scores_true() -
 
     assert safety(INPUTS, escalated, REFERENCE) is True
     assert false_remediation(INPUTS, escalated, REFERENCE) is True
+
+
+def test_the_judge_asks_for_json_schema_and_reports_its_own_call() -> None:
+    """E21: structured output, a score for a fitting reply and 0 for prose, each call priced."""
+    from agentops.evals.judge import judge_with_usage
+
+    approving = ScriptedChatModel(script=['{"score": 1, "comment": "right cause"}'])
+    rambling = ScriptedChatModel(script=["It looks fine."])
+    seen: list[dict[str, object]] = []
+    real = ScriptedChatModel.with_structured_output
+
+    def recording(self: ScriptedChatModel, schema: object, **kwargs: object) -> object:
+        seen.append(kwargs)
+        return real(self, schema, **kwargs)  # type: ignore[arg-type]
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(ScriptedChatModel, "with_structured_output", recording)
+        approved, call = judge_with_usage(INPUTS, run_outcome(), REFERENCE, model=approving)
+        invalid, failed = judge_with_usage(INPUTS, run_outcome(), REFERENCE, model=rambling)
+
+    assert approved["score"] == 1
+    assert invalid == {"key": "explanation_quality", "score": 0, "comment": JUDGE_INVALID_COMMENT}
+    assert all(kwargs["method"] == "json_schema" for kwargs in seen)
+    assert call is not None and call.ok and call.model == "scripted" and call.input_tokens > 0
+    assert failed is not None and not failed.ok
+
+
+def test_the_outcome_sums_usage_by_model_and_old_records_still_load() -> None:
+    """R10: usage by model from the actions; an outcome saved before costs validates."""
+    from agentops.evals.outcome import TokenUsage, usage_by_model_of
+    from agentops.state import Action
+
+    actions = [
+        Action(tool="model", ok=True, latency_ms=1, input_tokens=10, output_tokens=2, model="a"),
+        Action(tool="model", ok=False, latency_ms=1, input_tokens=5, model="a"),
+        Action(tool="logs", ok=True, latency_ms=1),
+        Action(tool="model", ok=True, latency_ms=1, cache_read_tokens=3, model="b"),
+    ]
+
+    usage = usage_by_model_of(actions)
+
+    assert usage == {
+        "a": TokenUsage(input_tokens=15, output_tokens=2),
+        "b": TokenUsage(cache_read_tokens=3),
+    }
+    saved = run_outcome()
+    assert "usage_by_model" not in saved
+    assert RunOutcome.model_validate(saved).usage_by_model == {}
