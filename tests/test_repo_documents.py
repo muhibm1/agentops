@@ -108,7 +108,7 @@ def test_licence_contributing_readme_ci_doc_and_profile_match_the_built_repo() -
     assert "escalated" in readme
     claude_document = read_document("CLAUDE.md")
     assert "arrives in increment 2" not in claude_document
-    assert "not wired yet" in claude_document
+    assert "--model anthropic" in claude_document
     assert "the owner performs it and no agent deploys or merges" in profile["notes"]
     assert "scripted_model_for" in read_document("docs/sdlc/codebase-map.md")
     assert "MIN_TESTS" in ci_doc
@@ -164,3 +164,46 @@ def test_documents_describe_the_increment_4_eval_commands_and_tracing() -> None:
     assert f"`MIN_TESTS` is {floor} as of increment 4" in ci_doc
     for path in INCREMENT_4_MAP_PATHS:
         assert path in codebase_map, f"the codebase map does not name {path!r}"
+
+
+LIVE_MODEL_NAMES = (
+    "--model anthropic",
+    "--dev",
+    "--yes",
+    "ANTHROPIC_API_KEY",
+    "AGENTOPS_TEST_ANTHROPIC_API_KEY",
+    "AGENTOPS_MODEL_",
+)
+HOSTED_CONFIG_FIELDS = (
+    "AGENTOPS_TEST_ANTHROPIC_API_KEY",
+    "workspace",
+    "spend limit",
+    "owner",
+    "rotation",
+)
+
+
+# E30 of the live-model change (R3, R16): the documents describe the live model, its variables,
+# the spend guard and the test workspace, and none says the live model is not wired.
+def test_documents_describe_the_live_model_its_variables_and_the_test_workspace() -> None:
+    readme = read_document("README.md")
+    claude = read_document("CLAUDE.md")
+    ci_doc = read_document("docs/ci.md")
+    hosted = read_document("docs/hosted-config.md")
+    codebase_map = read_document("docs/sdlc/codebase-map.md")
+
+    for name in LIVE_MODEL_NAMES:
+        assert name in readme, f"the README does not name {name!r}"
+        assert name in claude, f"CLAUDE.md does not name {name!r}"
+    assert "separate Anthropic workspace" in readme
+    assert "the app key must not be reused" in readme
+    assert "sent to the model provider" in readme
+    assert "cost_usd" in readme
+    workspace_section = markdown_section(hosted, "## Anthropic test workspace")
+    for field_name in HOSTED_CONFIG_FIELDS:
+        assert field_name in workspace_section, f"hosted-config does not name {field_name!r}"
+    assert "live-smoke.yml" in ci_doc
+    for path in ("models.py", "pricing.py", "live-smoke.yml", "hosted-config.md"):
+        assert path in codebase_map, f"the codebase map does not name {path!r}"
+    for document in (readme, claude, ci_doc, codebase_map):
+        assert "not wired yet" not in document
