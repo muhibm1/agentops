@@ -21,6 +21,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from agentops import fakes
 from agentops.actions.audit import AuditLog
@@ -551,3 +552,33 @@ def test_build_state_graph_returns_the_uncompiled_graph_and_build_graph_still_ne
     assert set(graph.nodes) == GRAPH_NODE_NAMES
     with pytest.raises(ValueError, match="checkpointer"):
         build_graph(source, scripted_model, registry, audit, None)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("scenario", ["clean_bad_deploy"], indirect=True)
+def test_each_node_asks_the_model_of_its_own_role(
+    scenario: Scenario, source: SimulatorSource, tmp_path: Path
+) -> None:
+    """R1: a mapping of four models routes triage, rca, postmortem and escalate to their own."""
+    from agentops.fakes import scripted_model_for as model_for
+    from agentops.graph import GRAPH_ROLES, models_by_role
+
+    models = {role: model_for(scenario) for role in GRAPH_ROLES}
+    graph = build_graph(
+        source,
+        models,  # type: ignore[arg-type]
+        default_registry(),
+        AuditLog(tmp_path),
+        InMemorySaver(serde=checkpoint_serializer()),
+    )
+    config: RunnableConfig = {"configurable": {"thread_id": "roles"}, "recursion_limit": 60}
+    result = graph.invoke(
+        new_incident(scenario.service, scenario.symptoms, opened_at=scenario.incident_time), config
+    )
+    result = graph.invoke(Command(resume={"decision": "approve", "operator": "on-call"}), config)
+
+    assert result["status"] == "resolved"
+    for role in ("triage", "rca", "postmortem"):
+        assert models[role].calls, role
+    assert not models["escalate"].calls
+    single = model_for(scenario)
+    assert all(routed is single for routed in models_by_role(single).values())

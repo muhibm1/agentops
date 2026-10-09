@@ -18,6 +18,8 @@ from agentops.sources.scenario import Scenario
 
 ModelRole = Literal["triage", "rca", "postmortem", "escalate", "baseline", "judge"]
 ROLES: tuple[ModelRole, ...] = get_args(ModelRole)
+# The roles of the graph's four model nodes; the baseline and the judge are the other two.
+GRAPH_ROLES: tuple[ModelRole, ...] = ("triage", "rca", "postmortem", "escalate")
 ModelName = Literal["scripted", "anthropic"]
 
 API_KEY_VARIABLE = "ANTHROPIC_API_KEY"
@@ -98,7 +100,7 @@ class ScriptedModels:
 
     def graph_models(self, scenario: Scenario) -> dict[ModelRole, BaseChatModel]:
         model = scripted_model_for(scenario)
-        return dict.fromkeys(("triage", "rca", "postmortem", "escalate"), model)  # type: ignore[return-value]
+        return dict.fromkeys(GRAPH_ROLES, model)  # type: ignore[return-value]
 
     def baseline_model(self, scenario: Scenario) -> BaseChatModel:
         return scripted_baseline_model_for(scenario)
@@ -132,7 +134,7 @@ class LiveModels:
             raise MissingApiKeyError()
 
     def graph_models(self, scenario: Scenario) -> dict[ModelRole, BaseChatModel]:
-        return {role: self.client(role) for role in ("triage", "rca", "postmortem", "escalate")}
+        return {role: self.client(role) for role in GRAPH_ROLES}
 
     def baseline_model(self, scenario: Scenario) -> BaseChatModel:
         return self.client("baseline")

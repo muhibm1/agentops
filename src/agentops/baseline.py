@@ -15,7 +15,7 @@ agent as text, which keeps the loop going.
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -26,7 +26,14 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from agentops.actions.registry import Registry, default_registry
-from agentops.evals.outcome import UNDETERMINED_LABEL, ApplyAttempt, remediation_label
+from agentops.evals.outcome import (
+    UNDETERMINED_LABEL,
+    ApplyAttempt,
+    TokenUsage,
+    remediation_label,
+    usage_by_model_of,
+)
+from agentops.nodes import configured_model_id, usage_action
 from agentops.sources.base import ActionRequest, ActionResult, EvidenceSource, Window
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
@@ -85,6 +92,8 @@ class BaselineRun(StrictModel):
     model_calls: int = Field(ge=0)
     input_tokens: int = Field(ge=0)
     output_tokens: int = Field(ge=0)
+    # Tokens by the model id that answered each reply, for pricing (R10).
+    usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
 
 
 @dataclass
@@ -181,9 +190,11 @@ def run_baseline(
     *,
     incident_id: str,
     source: EvidenceSource | None = None,
+    middleware: Sequence[Any] = (),
 ) -> BaselineRun:
     """Runs the ReAct baseline once over `source` (a fresh `SimulatorSource` of `scenario`
-    when none is given) and returns what it did.
+    when none is given) and returns what it did. `middleware` goes to `create_agent` as it is:
+    the live models pass prompt caching, the scripted ones nothing.
 
     Raises `TypeError` when `source` is not a `SimulatorSource` (D19), before the model or the
     source is called. An exception from the model or the agent loop propagates.
@@ -191,10 +202,10 @@ def run_baseline(
     simulator = require_simulator(source) if source is not None else SimulatorSource(scenario)
     trace = BaselineTrace()
     tools = baseline_tools(simulator, scenario.service, incident_id, trace)
-    agent = create_agent(model, tools, system_prompt=BASELINE_PROMPT)
+    agent = create_agent(model, tools, system_prompt=BASELINE_PROMPT, middleware=tuple(middleware))
     result = agent.invoke({"messages": [HumanMessage(incident_report(scenario))]})
     messages: list[BaseMessage] = result["messages"]
-    return baseline_run(scenario, trace, messages)
+    return baseline_run(scenario, trace, messages, configured_model_id(model))
 
 
 def require_simulator(source: EvidenceSource) -> SimulatorSource:
@@ -272,7 +283,10 @@ def incident_report(scenario: Scenario) -> str:
 
 
 def baseline_run(
-    scenario: Scenario, trace: BaselineTrace, messages: list[BaseMessage]
+    scenario: Scenario,
+    trace: BaselineTrace,
+    messages: list[BaseMessage],
+    configured_model: str | None = None,
 ) -> BaselineRun:
     replies = [message for message in messages if isinstance(message, AIMessage)]
     answer, failure = parse_answer(messages[-1])
@@ -294,6 +308,9 @@ def baseline_run(
         model_calls=len(replies),
         input_tokens=sum(usage_of(reply, "input_tokens") for reply in replies),
         output_tokens=sum(usage_of(reply, "output_tokens") for reply in replies),
+        usage_by_model=usage_by_model_of(
+            usage_action(reply, 0.0, configured_model) for reply in replies
+        ),
     )
 
 
