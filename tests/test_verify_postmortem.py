@@ -17,7 +17,7 @@ from langgraph.types import Command
 
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import Registry, default_registry, idempotency_key
-from agentops.fakes import ScriptedChatModel, scripted_model_for
+from agentops.fakes import ScriptedChatModel, message_text, scripted_model_for
 from agentops.graph import build_graph, checkpoint_serializer
 from agentops.nodes import CLOSING_MARKER_PATTERN, OPENING_MARKER_PATTERN
 from agentops.nodes.escalate import escalate
@@ -589,14 +589,16 @@ def prompt_nonces(model: ScriptedChatModel) -> list[str]:
     """For each prompt the model saw, the nonce its single opening and closing markers carry."""
     nonces = []
     for system, human in model.calls:
-        assert isinstance(human.content, str) and isinstance(system.content, str)
+        # The system message is two text blocks since the cache split (ADR 0004); read its text.
+        assert isinstance(human.content, str) and isinstance(system.content, list)
+        system_text = message_text(system)
         openings = OPENING_MARKER_PATTERN.findall(human.content)
         closings = CLOSING_MARKER_PATTERN.findall(human.content)
         assert len(openings) == 1
         assert len(closings) == 1
         nonce = openings[0][-19:-3]
         assert closings[0][-19:-3] == nonce
-        assert nonce in system.content
+        assert nonce in system_text
         nonces.append(nonce)
     return nonces
 

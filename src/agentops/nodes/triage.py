@@ -7,12 +7,14 @@ from langchain_core.language_models import BaseChatModel
 from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
 from agentops.state import IncidentState, Triage, assert_cited
 
-TRIAGE_SYSTEM_PROMPT = (
+# Stable, so it is the cached system block; triage fences no evidence and has no nonce.
+TRIAGE_INSTRUCTIONS = (
     "You are the triage step of an incident investigation. From the affected service and its "
     "symptoms, list the plausible causes as hypotheses, each with a score between 0 and 1. "
     "Cite an evidence id only if it was shown to you; none has been collected yet. "
     + UNTRUSTED_DATA_RULE
 )
+TRIAGE_SYSTEM_PROMPT = TRIAGE_INSTRUCTIONS
 
 
 def triage(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
@@ -20,7 +22,7 @@ def triage(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
     symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
     human_prompt = f"Service: {neutralise_delimiters(state['service'])}\nSymptoms:\n{symptoms}"
 
-    result, action = ask_model(model, Triage, TRIAGE_SYSTEM_PROMPT, human_prompt)
+    result, action = ask_model(model, Triage, TRIAGE_INSTRUCTIONS, human_prompt)
 
     for hypothesis in result.hypotheses:
         cited = [*hypothesis.supporting_evidence, *hypothesis.contradicting_evidence]

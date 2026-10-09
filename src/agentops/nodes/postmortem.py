@@ -16,6 +16,7 @@ from agentops.nodes import (
     fence_rule,
     neutralise_delimiters,
     new_fence_nonce,
+    rejected_attempt,
 )
 from agentops.nodes.rca import render_evidence
 from agentops.state import Action, CitationError, IncidentState, Postmortem, assert_cited
@@ -31,34 +32,37 @@ POSTMORTEM_INSTRUCTIONS = (
 )
 
 
+def postmortem_stable_instructions() -> str:
+    """The postmortem instructions and the untrusted-data rule: the cached system block,
+    the same for every prompt."""
+    return f"{POSTMORTEM_INSTRUCTIONS}{UNTRUSTED_DATA_RULE}"
+
+
 def postmortem_system_prompt(nonce: str) -> str:
     """The postmortem instructions plus the description of this prompt's evidence fence."""
-    return f"{POSTMORTEM_INSTRUCTIONS}{fence_rule(nonce)} {UNTRUSTED_DATA_RULE}"
+    return f"{postmortem_stable_instructions()} {fence_rule(nonce)}"
 
 
 def postmortem(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
     """Ask for a cited postmortem, falling back to one written by code; resolve the incident."""
     nonce = new_fence_nonce()
-    system_prompt = postmortem_system_prompt(nonce)
     human_prompt = postmortem_human_prompt(state, nonce)
 
     actions: list[Action] = []
     result = fallback_postmortem(state)
     for attempt in range(1, POSTMORTEM_ATTEMPTS + 1):
         try:
-            candidate, action = ask_model(model, Postmortem, system_prompt, human_prompt)
+            candidate, action = ask_model(
+                model,
+                Postmortem,
+                postmortem_stable_instructions(),
+                human_prompt,
+                fence_sentence=fence_rule(nonce),
+            )
             assert_cited(candidate.evidence_ids, state["evidence"])
         except (CitationError, ValidationError) as error:
             # Only the class name: the message can quote model output or evidence text.
-            actions.append(
-                Action(
-                    tool="model",
-                    ok=False,
-                    latency_ms=0.0,
-                    detail=type(error).__name__,
-                    attempt=attempt,
-                )
-            )
+            actions.append(rejected_attempt(error, attempt))
             continue
         result = candidate
         actions.append(action.model_copy(update={"attempt": attempt}))

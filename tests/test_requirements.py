@@ -92,3 +92,11 @@ def test_the_dev_server_packages_are_pinned_with_their_licence(pin: str) -> None
 
     assert pin in dev_lines
     assert pin not in runtime_lines
+
+
+def test_runtime_requirements_pin_the_live_model_client() -> None:
+    """E30: both live-client packages pinned exactly with their licence."""
+    lines = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8").splitlines()
+
+    assert "langchain-anthropic==1.7.5  # MIT" in lines
+    assert "anthropic==1.12.1  # MIT" in lines

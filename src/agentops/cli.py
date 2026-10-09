@@ -13,8 +13,8 @@ ReAct baseline offline; they live in `agentops.evals.commands`.
 
 Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
 problem (unknown scenario or thread, malformed thread id, thread not waiting, bad decision,
-a decision the approval node refused, unknown hypothesis, model not available); 2 when the
-run fails or the state file cannot be used.
+a decision the approval node refused, unknown hypothesis, unknown model, `--model anthropic`
+without `ANTHROPIC_API_KEY`); 2 when the run fails or the state file cannot be used.
 Every failure prints one sentence to stderr naming the cause, and every string a model or a
 scenario wrote is escaped before it is printed.
 """
@@ -40,8 +40,14 @@ from agentops import __version__
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import default_registry
 from agentops.evals.commands import dataset_command, eval_command
-from agentops.fakes import scripted_model_for
 from agentops.graph import build_graph, checkpoint_serializer
+from agentops.models import (
+    MissingApiKeyError,
+    ModelFactory,
+    ModelName,
+    model_factory,
+    redact_api_key,
+)
 from agentops.nodes.verify import verify_rounds
 from agentops.sources.base import SIGNAL_ID_PATTERN
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
@@ -70,7 +76,15 @@ OPERATOR_ROLES: tuple[str, ...] = get_args(OperatorRole)
 HISTORY_TOP_HYPOTHESES = 2
 
 ModelOption = Annotated[
-    str, typer.Option("--model", help=f"{SCRIPTED_MODEL} (no API key) or {LIVE_MODEL}.")
+    str,
+    typer.Option(
+        "--model",
+        help=f"{SCRIPTED_MODEL} (no API key) or {LIVE_MODEL} (reads ANTHROPIC_API_KEY).",
+    ),
+]
+DevOption = Annotated[
+    bool,
+    typer.Option("--dev", help="With --model anthropic, run every role on the cheaper dev model."),
 ]
 StateDbOption = Annotated[Path, typer.Option("--state-db", help="The SQLite checkpoint file.")]
 AuditDirOption = Annotated[
@@ -113,6 +127,7 @@ def run(
         str, typer.Option("--scenario", help="Scenario id: a file stem in the scenarios directory.")
     ],
     model: ModelOption,
+    dev: DevOption = False,
     thread: Annotated[
         str | None,
         typer.Option("--thread", help="Thread id for the new incident; generated when absent."),
@@ -122,7 +137,7 @@ def run(
     audit_dir: AuditDirOption = AUDIT_DIR,
 ) -> None:
     """Investigate one scenario until the approval pause or an escalation."""
-    check_model_is_available(model)
+    models = models_for(model, dev)
     if thread is not None:
         check_thread_id(thread)
     loaded = load_named_scenario(scenario, scenarios_dir)
@@ -134,7 +149,7 @@ def run(
         scenario_id=loaded.id,
     )
     with open_checkpoints(state_db) as saver:
-        thread_run = ThreadRun.start(loaded, incident["incident_id"], saver, audit_dir)
+        thread_run = ThreadRun.start(loaded, incident["incident_id"], saver, audit_dir, models)
         if thread_run.exists():
             fail(USAGE_ERROR, f"Thread {thread_run.thread_id!r} already exists; choose another.")
         thread_run.invoke(incident)
@@ -168,14 +183,15 @@ def approve(
         ),
     ] = False,
     model: ModelOption = SCRIPTED_MODEL,
+    dev: DevOption = False,
     scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
 ) -> None:
     """Record an operator's decision on the pending proposal and continue the thread."""
-    check_model_is_available(model)
+    models = models_for(model, dev)
     answer = operator_answer(decision, reason, remediation_file, operator)
-    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir, models) as thread_run:
         if not thread_run.snapshot().interrupts:
             fail(USAGE_ERROR, f"Thread {thread!r} is not waiting for approval.")
         # The crash switch reaches the executor only through this run's configurable (ADR 0002).
@@ -191,13 +207,14 @@ def approve(
 def resume(
     thread: ThreadArgument,
     model: ModelOption = SCRIPTED_MODEL,
+    dev: DevOption = False,
     scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
 ) -> None:
     """Continue a thread that stopped before its end; a thread waiting for a decision is shown."""
-    check_model_is_available(model)
-    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+    models = models_for(model, dev)
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir, models) as thread_run:
         snapshot = thread_run.snapshot()
         if snapshot.next and not snapshot.interrupts:
             thread_run.invoke(None)
@@ -211,8 +228,10 @@ def history(
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
 ) -> None:
-    """Print one line per checkpoint of the thread, newest first."""
-    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+    """Print one line per checkpoint of the thread, newest first. No model is called, so the
+    scripted models stand in."""
+    models = models_for(SCRIPTED_MODEL, dev=False)
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir, models) as thread_run:
         for snapshot in thread_run.graph.get_state_history(thread_run.config()):
             typer.echo(history_line(snapshot))
 
@@ -225,14 +244,15 @@ def fork(
         list[str], typer.Option("--set", help="hypothesis=score, from 0 to 1; repeatable.")
     ],
     model: ModelOption = SCRIPTED_MODEL,
+    dev: DevOption = False,
     scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
 ) -> None:
     """Start a new thread from a past checkpoint with changed scores, and continue it."""
-    check_model_is_available(model)
+    models = models_for(model, dev)
     requested = parse_scores(scores)
-    with opened_thread(thread, state_db, audit_dir, scenarios_dir) as thread_run:
+    with opened_thread(thread, state_db, audit_dir, scenarios_dir, models) as thread_run:
         snapshot = checkpoint_named(thread_run, at)
         hypotheses = rescored(snapshot.values.get("hypotheses", []), requested, at)
         fork_run = thread_run.next_fork()
@@ -254,10 +274,16 @@ class ThreadRun:
     scenario: Scenario
     thread_id: str
     audit_dir: Path
+    models: ModelFactory
 
     @classmethod
     def start(
-        cls, scenario: Scenario, thread_id: str, saver: SqliteSaver, audit_dir: Path
+        cls,
+        scenario: Scenario,
+        thread_id: str,
+        saver: SqliteSaver,
+        audit_dir: Path,
+        models: ModelFactory,
     ) -> "ThreadRun":
         """The graph for `scenario`, its simulator remembering applied actions in the ledger
         file of `thread_id`: a fork has its own ledger and never inherits the original's applied
@@ -275,10 +301,19 @@ class ThreadRun:
                 err=True,
             )
         graph = build_graph(
-            source, scripted_model_for(scenario), default_registry(), AuditLog(audit_dir), saver
+            source,
+            models.graph_models(scenario),  # type: ignore[arg-type]
+            default_registry(),
+            AuditLog(audit_dir),
+            saver,
         )
         return cls(
-            graph=graph, saver=saver, scenario=scenario, thread_id=thread_id, audit_dir=audit_dir
+            graph=graph,
+            saver=saver,
+            scenario=scenario,
+            thread_id=thread_id,
+            audit_dir=audit_dir,
+            models=models,
         )
 
     def config(self, **switches: bool) -> RunnableConfig:
@@ -310,9 +345,8 @@ class ThreadRun:
         number = 1
         while replace(self, thread_id=f"{self.thread_id}-fork-{number}").exists():
             number += 1
-        return ThreadRun.start(
-            self.scenario, f"{self.thread_id}-fork-{number}", self.saver, self.audit_dir
-        )
+        fork_id = f"{self.thread_id}-fork-{number}"
+        return ThreadRun.start(self.scenario, fork_id, self.saver, self.audit_dir, self.models)
 
     def print_outcome(self) -> None:
         snapshot = self.snapshot()
@@ -345,7 +379,7 @@ def open_checkpoints(state_db: Path) -> Iterator[SqliteSaver]:
 
 @contextmanager
 def opened_thread(
-    thread_id: str, state_db: Path, audit_dir: Path, scenarios_dir: Path
+    thread_id: str, state_db: Path, audit_dir: Path, scenarios_dir: Path, models: ModelFactory
 ) -> Iterator[ThreadRun]:
     """An existing thread, rebuilt from the scenario named in its latest checkpoint.
 
@@ -365,7 +399,7 @@ def opened_thread(
                 USAGE_ERROR, f"Thread {thread_id!r} has no usable checkpoint: it names no scenario."
             )
         scenario = load_named_scenario(scenario_id, scenarios_dir)
-        yield ThreadRun.start(scenario, thread_id, saver, audit_dir)
+        yield ThreadRun.start(scenario, thread_id, saver, audit_dir, models)
 
 
 def check_thread_id(thread_id: str) -> None:
@@ -377,12 +411,23 @@ def check_thread_id(thread_id: str) -> None:
         )
 
 
-def check_model_is_available(model: str) -> None:
+def check_model_name(model: str) -> ModelName:
+    """`model` as a model name; exits 1 for any other value."""
     if model == SCRIPTED_MODEL:
-        return
+        return "scripted"
     if model == LIVE_MODEL:
-        fail(USAGE_ERROR, "The live Anthropic model is not wired yet; use --model scripted.")
+        return "anthropic"
     fail(USAGE_ERROR, f"Unknown model {model!r}; choose {SCRIPTED_MODEL} or {LIVE_MODEL}.")
+
+
+def models_for(model: str, dev: bool) -> ModelFactory:
+    """The models behind `--model` and `--dev`. Exits 1 naming `ANTHROPIC_API_KEY`, never its
+    value, when the live model is asked for without a key; nothing is built or written first."""
+    name = check_model_name(model)
+    try:
+        return model_factory(name, dev)
+    except MissingApiKeyError as error:
+        fail(USAGE_ERROR, str(error))
 
 
 def load_named_scenario(scenario_id: str, scenarios_dir: Path) -> Scenario:
@@ -483,14 +528,15 @@ def rescored(
 
 
 def escape_for_terminal(text: str) -> str:
-    """Show control characters (newline, ESC and the like) as visible escapes.
+    """Show control characters (newline, ESC and the like) as visible escapes, and replace the
+    API key's value wherever it appears.
 
     Applied to every string a model wrote before it is printed, so model output cannot start a
-    fake line or send terminal control sequences.
+    fake line or send terminal control sequences, and an SDK error quoting the key prints none.
     """
     return "".join(
         char if char.isprintable() else char.encode("unicode_escape").decode("ascii")
-        for char in text
+        for char in redact_api_key(text)
     )
 
 

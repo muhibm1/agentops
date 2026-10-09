@@ -145,6 +145,11 @@ class Action(StrictModel):
     latency_ms: float = Field(ge=0.0)
     input_tokens: int = Field(default=0, ge=0)
     output_tokens: int = Field(default=0, ge=0)
+    # Part of `input_tokens` read from, and written to, the prompt cache; priced differently.
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+    # The model id that answered a model call, so its cost can be priced; None for a tool call.
+    model: str | None = None
     detail: str | None = None
     # Which try of a retried node this record belongs to, so cost accounting sees every attempt.
     attempt: int = Field(default=1, ge=1)

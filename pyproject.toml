@@ -43,3 +43,7 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "live_smoke: calls the live model; runs only when AGENTOPS_TEST_ANTHROPIC_API_KEY is set",
+]

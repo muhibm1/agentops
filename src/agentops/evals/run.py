@@ -7,6 +7,10 @@ checkpointer is the same `SqliteSaver` the command line uses, because no module 
 may use LangGraph's in-memory saver (`tests/test_full_runs.py`). A run that raises is a
 `failed` row naming the exception type, never a crash: the measurement completed and the
 failure is part of the result.
+
+Models come from a `ModelFactory`: the scripted fakes by default, or the live models. Every row
+carries the tokens each model answered with, so the table prints a measured cost; with the live
+models the judge also scores each graph run, and its cost is printed apart.
 """
 
 import json
@@ -17,7 +21,7 @@ import time
 import traceback
 from collections.abc import Callable, Sequence
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, get_args
 
@@ -31,20 +35,25 @@ from agentops.actions.registry import default_registry
 from agentops.baseline import BaselineRun, run_baseline
 from agentops.evals.dataset import Split
 from agentops.evals.evaluators import DETERMINISTIC_EVALUATORS, EvaluatorResult
+from agentops.evals.judge import JUDGE_KEY, judge_with_usage
 from agentops.evals.outcome import (
     UNDETERMINED_LABEL,
     RunOutcome,
     SystemName,
+    TokenUsage,
     evidence_ids_of,
     inputs_for,
     outcome_from_state,
     reference_for,
+    usage_by_model_of,
 )
-from agentops.fakes import scripted_baseline_model_for, scripted_model_for
 from agentops.graph import build_graph, checkpoint_serializer
+from agentops.models import ModelFactory, ScriptedModels
+from agentops.nodes import model_call_ledger
+from agentops.pricing import Unpriced, cost_usd
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import IncidentState, new_incident
+from agentops.state import Action, IncidentState, new_incident
 from agentops.tracing import PROJECT_VARIABLE, TracingStatus
 
 SYSTEMS: tuple[SystemName, ...] = get_args(SystemName)
@@ -78,6 +87,8 @@ class EvalRow:
     repetition: int
     outcome: RunOutcome
     evaluators: dict[str, EvaluatorResult]
+    # The judge's own model call, priced apart from the run; None when the judge did not call.
+    judge_call: Action | None = field(default=None)
 
 
 def run_split(
@@ -88,30 +99,69 @@ def run_split(
     split: Split,
     tracing: TracingStatus,
     report: Callable[[str], None] = lambda text: None,
+    models: ModelFactory | None = None,
 ) -> list[EvalRow]:
-    """Each system over each scenario, `repetitions` times, graded by the seven evaluators.
+    """Each system over each scenario, `repetitions` times, graded by the seven evaluators and,
+    when `models` runs a judge, the judge on every graph run. `models` defaults to the scripted
+    fakes.
 
-    `report` receives one summary line for every run that raised."""
+    `report` receives one summary line for every run, or judge call, that raised."""
+    models = models or ScriptedModels()
     rows: list[EvalRow] = []
     for system in systems:
         for scenario in scenarios:
             for repetition in range(1, repetitions + 1):
                 config = trace_config(system, scenario.id, repetition, split, tracing)
-                outcome = measured_run(system, scenario, config, report)
+                outcome = measured_run(system, scenario, config, report, models)
+                evaluators = graded(scenario, outcome)
+                judge_call = None
+                if system == "graph" and models.runs_judge:
+                    judged, judge_call = judged_run(scenario, outcome, models, report)
+                    if judged is not None:
+                        evaluators[JUDGE_KEY] = judged
                 rows.append(
                     EvalRow(
                         system=system,
                         scenario_id=scenario.id,
                         repetition=repetition,
                         outcome=outcome,
-                        evaluators=graded(scenario, outcome),
+                        evaluators=evaluators,
+                        judge_call=judge_call,
                     )
                 )
     return rows
 
 
-def run_graph_once(scenario: Scenario, *, config: RunnableConfig) -> RunOutcome:
-    """One graph run to its end, approving every pause, reduced to a `RunOutcome`."""
+def judged_run(
+    scenario: Scenario,
+    outcome: RunOutcome,
+    models: ModelFactory,
+    report: Callable[[str], None],
+) -> tuple[dict[str, Any] | None, Action | None]:
+    """The judge's result and call for one graph run; no result when the judge raised."""
+    try:
+        return judge_with_usage(
+            inputs_for(scenario),
+            outcome.model_dump(mode="json"),
+            reference_for(scenario),
+            model=models.judge_model(),
+        )
+    except Exception as error:  # a judge that raises is reported; the run's own row stands
+        report(failure_summary("graph", scenario.id, error).replace("run failed", "judge failed"))
+        return None, None
+
+
+def run_graph_once(
+    scenario: Scenario,
+    *,
+    config: RunnableConfig,
+    models: ModelFactory | None = None,
+    model_calls: Sequence[Action] = (),
+) -> RunOutcome:
+    """One graph run to its end, approving every pause, reduced to a `RunOutcome`.
+    `model_calls` is the ledger of the run's model calls, so tries the graph retried are
+    priced. `models` defaults to the scripted fakes."""
+    models = models or ScriptedModels()
     registry = default_registry()
     incident = new_incident(
         scenario.service,
@@ -131,7 +181,7 @@ def run_graph_once(scenario: Scenario, *, config: RunnableConfig) -> RunOutcome:
         with closing(connection):
             graph = build_graph(
                 SimulatorSource(scenario),
-                scripted_model_for(scenario),
+                models.graph_models(scenario),  # type: ignore[arg-type]
                 registry,
                 AuditLog(Path(run_dir)),
                 SqliteSaver(connection, serde=checkpoint_serializer()),
@@ -139,17 +189,30 @@ def run_graph_once(scenario: Scenario, *, config: RunnableConfig) -> RunOutcome:
             evidence_ids = evidence_ids_at_proposal(graph, incident, run_config)
             state = IncidentState(**graph.get_state(run_config).values)
     finished = time.perf_counter()
-    return outcome_from_state(state, evidence_ids, started, finished, registry=registry)
+    return outcome_from_state(
+        state, evidence_ids, started, finished, registry=registry, model_calls=model_calls
+    )
 
 
-def run_baseline_once(scenario: Scenario, *, config: RunnableConfig) -> RunOutcome:
-    """One baseline run over a fresh simulator, reduced to a `RunOutcome`."""
+def run_baseline_once(
+    scenario: Scenario,
+    *,
+    config: RunnableConfig,
+    models: ModelFactory | None = None,
+    model_calls: Sequence[Action] = (),
+) -> RunOutcome:
+    """One baseline run over a fresh simulator, reduced to a `RunOutcome`. The baseline's
+    usage comes from its own replies, not the ledger. `models` defaults to the scripted fakes."""
+    models = models or ScriptedModels()
     started = time.perf_counter()
     # Wrapped as one runnable so that, when tracing is on, the trace carries the run name and
     # tags of `config` and the agent's own runs nest under it.
     baseline = RunnableLambda(
         lambda _: run_baseline(
-            scenario, scripted_baseline_model_for(scenario), incident_id=f"eval-{scenario.id}"
+            scenario,
+            models.baseline_model(scenario),
+            incident_id=f"eval-{scenario.id}",
+            middleware=models.baseline_middleware(),
         )
     )
     run: BaselineRun = baseline.invoke(None, config)
@@ -167,13 +230,19 @@ def measured_run(
     scenario: Scenario,
     config: RunnableConfig,
     report: Callable[[str], None] = lambda text: None,
+    models: ModelFactory | None = None,
 ) -> RunOutcome:
+    """One run that never raises: a run that fails is a `failed` outcome that still carries the
+    tokens its model calls used, so a failed live run's spend is not lost."""
+    models = models or ScriptedModels()
     started = time.perf_counter()
-    try:
-        return RUNNERS[system](scenario, config=config)
-    except Exception as error:  # a run that raises is a measured failure, shown in the table
-        report(failure_summary(system, scenario.id, error))
-        return failed_outcome(system, scenario.id, error, started, time.perf_counter())
+    with model_call_ledger() as calls:
+        try:
+            return RUNNERS[system](scenario, config=config, models=models, model_calls=calls)
+        except Exception as error:  # a run that raises is a measured failure, shown in the table
+            report(failure_summary(system, scenario.id, error))
+            failed = failed_outcome(system, scenario.id, error, started, time.perf_counter())
+            return failed.model_copy(update={"usage_by_model": usage_by_model_of(calls)})
 
 
 def failure_summary(system: SystemName, scenario_id: str, error: Exception) -> str:
@@ -222,23 +291,31 @@ def render_header(
 
 
 def render_table(rows: Sequence[EvalRow]) -> list[str]:
-    """One line per system (runs, pass counts, tool-call and latency spread), then every
-    failing (system, scenario, repetition, evaluator) and every run that failed outright."""
+    """One line per system (runs, pass counts, the judge's pass count when it ran, tool-call,
+    latency, token and cost spreads), the judge's own cost when it ran, then every failing
+    (system, scenario, repetition, evaluator) and every run that failed outright."""
+    judged = any(JUDGE_KEY in row.evaluators for row in rows)
     headings = [
         "system",
         "runs",
         *PASS_FAIL_EVALUATORS,
+        *([JUDGE_KEY] if judged else []),
         "tool_calls mean/min/max",
         "latency_ms mean/min/max",
+        *(f"{name} mean/min/max" for name in TOKEN_COLUMNS),
+        "cost_usd mean/min/max",
     ]
     measured = {row.system for row in rows}
-    table = [headings, *(summary_cells(system, rows) for system in SYSTEMS if system in measured)]
+    table = [
+        headings,
+        *(summary_cells(system, rows, judged) for system in SYSTEMS if system in measured),
+    ]
     widths = [max(len(line[column]) for line in table) for column in range(len(headings))]
     lines = [
         "  ".join(cell.ljust(width) for cell, width in zip(line, widths, strict=True))
         for line in table
     ]
-    return [*(line.rstrip() for line in lines), *failure_lines(rows)]
+    return [*(line.rstrip() for line in lines), *judge_cost_lines(rows), *failure_lines(rows)]
 
 
 def rows_as_json(rows: Sequence[EvalRow]) -> str:
@@ -251,6 +328,10 @@ def rows_as_json(rows: Sequence[EvalRow]) -> str:
                 "repetition": row.repetition,
                 "outcome": row.outcome.model_dump(mode="json"),
                 "evaluators": row.evaluators,
+                "cost_usd": priced_or_none(cost_usd(row.outcome.usage_by_model)),
+                "judge_call": (
+                    row.judge_call.model_dump(mode="json") if row.judge_call is not None else None
+                ),
             }
             for row in rows
         ],
@@ -310,6 +391,7 @@ def outcome_from_baseline(run: BaselineRun, started: float, finished: float) -> 
         output_tokens=run.output_tokens,
         latency_ms=elapsed_ms(started, finished),
         loops=0,
+        usage_by_model=run.usage_by_model,
     )
 
 
@@ -346,12 +428,74 @@ def graded(scenario: Scenario, outcome: RunOutcome) -> dict[str, EvaluatorResult
     }
 
 
-def summary_cells(system: SystemName, rows: Sequence[EvalRow]) -> list[str]:
+def summary_cells(system: SystemName, rows: Sequence[EvalRow], judged: bool = False) -> list[str]:
     runs = [row for row in rows if row.system == system]
     passes = [pass_cell(name, runs) for name in PASS_FAIL_EVALUATORS]
+    judge = [judge_cell(runs)] if judged else []
     tool_calls = [float(row.outcome.tool_calls) for row in runs]
     latencies = [row.outcome.latency_ms for row in runs]
-    return [system, str(len(runs)), *passes, spread_cell(tool_calls), spread_cell(latencies)]
+    usages = [total_usage(row.outcome.usage_by_model) for row in runs]
+    tokens = [
+        integer_spread_cell([getattr(usage, name) for usage in usages]) for name in TOKEN_COLUMNS
+    ]
+    return [
+        system,
+        str(len(runs)),
+        *passes,
+        *judge,
+        spread_cell(tool_calls),
+        spread_cell(latencies),
+        *tokens,
+        cost_cell([cost_usd(row.outcome.usage_by_model) for row in runs]),
+    ]
+
+
+TOKEN_COLUMNS = ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")
+
+
+def total_usage(usage_by_model: dict[str, TokenUsage]) -> TokenUsage:
+    total = TokenUsage()
+    for usage in usage_by_model.values():
+        total = total + usage
+    return total
+
+
+def judge_cell(runs: Sequence[EvalRow]) -> str:
+    """Scores of 1 out of the runs the judge scored; `n/a` for a system it never scored."""
+    scored = [row.evaluators[JUDGE_KEY] for row in runs if JUDGE_KEY in row.evaluators]
+    if not scored:
+        return "n/a"
+    passed = sum(1 for result in scored if isinstance(result, dict) and result["score"] == 1)
+    return f"{passed}/{len(scored)} {round(100 * passed / len(scored))}%"
+
+
+def cost_cell(costs: Sequence[float | Unpriced]) -> str:
+    """Dollars mean/min/max with two decimals, or `n/a (unpriced: <id>)` when any run's model
+    is not in the price table: never a partial figure."""
+    unpriced = next((cost for cost in costs if isinstance(cost, Unpriced)), None)
+    if unpriced is not None:
+        return f"n/a (unpriced: {unpriced.model_id})"
+    priced = [cost for cost in costs if not isinstance(cost, Unpriced)]
+    return f"${statistics.mean(priced):.2f}/${min(priced):.2f}/${max(priced):.2f}"
+
+
+def judge_cost_lines(rows: Sequence[EvalRow]) -> list[str]:
+    """The judge's cost on its own line, apart from the systems' cost; nothing when it never
+    called."""
+    calls = [row.judge_call for row in rows if row.judge_call is not None]
+    if not calls:
+        return []
+    cost = cost_usd(usage_by_model_of(calls))
+    figure = f"n/a (unpriced: {cost.model_id})" if isinstance(cost, Unpriced) else f"${cost:.2f}"
+    return [f"judge cost: {figure} ({len(calls)} calls)"]
+
+
+def priced_or_none(cost: float | Unpriced) -> float | None:
+    return None if isinstance(cost, Unpriced) else cost
+
+
+def integer_spread_cell(values: Sequence[int]) -> str:
+    return f"{round(statistics.mean(values))}/{min(values)}/{max(values)}"
 
 
 def pass_cell(evaluator_name: str, runs: Sequence[EvalRow]) -> str:

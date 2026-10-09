@@ -282,3 +282,39 @@ def test_the_remediation_label_counts_accepted_applies(
     ]
 
     assert remediation_label(attempts) == label
+
+
+@pytest.mark.parametrize("scenario", ["clean_bad_deploy"], indirect=True)
+def test_the_baseline_sums_its_usage_by_the_model_that_answered(scenario: Scenario) -> None:
+    """E19: every reply's stamp, summed under `scripted`; the totals keep their meaning."""
+    run = run_baseline(scenario, scripted_baseline_model_for(scenario), incident_id="e19")
+
+    assert set(run.usage_by_model) == {"scripted"}
+    usage = run.usage_by_model["scripted"]
+    assert usage.input_tokens == run.input_tokens > 0
+    assert usage.output_tokens == run.output_tokens > 0
+
+
+@pytest.mark.parametrize("scenario", ["clean_bad_deploy"], indirect=True)
+def test_the_middleware_reaches_create_agent_and_defaults_to_none(
+    scenario: Scenario, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """E20."""
+    import agentops.baseline as baseline_module
+
+    seen: list[tuple[object, ...]] = []
+    real_create_agent = baseline_module.create_agent
+
+    def recording_create_agent(*args: object, **kwargs: object) -> object:
+        seen.append(tuple(kwargs["middleware"]))  # type: ignore[arg-type]
+        return real_create_agent(*args, **{**kwargs, "middleware": ()})  # type: ignore[arg-type]
+
+    monkeypatch.setattr(baseline_module, "create_agent", recording_create_agent)
+    sentinel = object()
+
+    run_baseline(
+        scenario, scripted_baseline_model_for(scenario), incident_id="a", middleware=[sentinel]
+    )
+    run_baseline(scenario, scripted_baseline_model_for(scenario), incident_id="b")
+
+    assert seen == [(sentinel,), ()]

@@ -3,7 +3,8 @@
 Exit codes follow the rest of the command line: 0 when the command completed (failed runs are
 rows of the table, not a failed command); 1 when every run failed, or for a usage problem
 (unknown model or system, repetitions outside 1 to 10, a tracing problem, a checksum mismatch,
-a write without `--force`); 2 when the scenarios directory, a scenario file or the dataset files
+a write without `--force`, `--model anthropic` without `ANTHROPIC_API_KEY` or without `--yes`);
+2 when the scenarios directory, a scenario file or the dataset files
 cannot be read.
 """
 
@@ -30,6 +31,8 @@ from agentops.evals.run import (
     rows_as_json,
     run_split,
 )
+from agentops.models import ModelFactory
+from agentops.pricing import PRICES_AS_OF, Unpriced, estimated_cost
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
 from agentops.tracing import tracing_status
 
@@ -69,10 +72,19 @@ def eval_command(
     ] = None,
     scenarios_dir: ScenariosDirOption = Path("scenarios"),
     evals_dir: EvalsDirOption = Path("evals"),
+    dev: Annotated[
+        bool,
+        typer.Option("--dev", help="With --model anthropic, run every role on the dev model."),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Spend the estimated cost of a --model anthropic run."),
+    ] = False,
 ) -> None:
-    """Score the graph and the ReAct baseline over the dev split, offline."""
+    """Score the graph and the ReAct baseline over the dev split: offline on the scripted
+    models, or on the live model after the spend guard."""
     cli = command_line()
-    cli.check_model_is_available(model)
+    cli.check_model_name(model)
     if not MIN_REPETITIONS <= repetitions <= MAX_REPETITIONS:
         stop(USAGE_ERROR, f"--repetitions must be {MIN_REPETITIONS} to {MAX_REPETITIONS}.")
     systems = systems_named(system)
@@ -83,6 +95,9 @@ def eval_command(
     split: Split = "held_out" if held_out else "dev"
     require_matching_checksums(scenarios_dir, evals_dir)
     scenarios = load_split(split, scenarios_dir, evals_dir)
+    models = cli.models_for(model, dev)
+    if models.label == "anthropic":
+        guard_spend(models, systems, len(scenarios), repetitions, yes=yes)
 
     os.environ.update(project_environment(tracing))
     rows = run_split(
@@ -92,6 +107,7 @@ def eval_command(
         split=split,
         tracing=tracing,
         report=lambda text: typer.echo(cli.escape_for_terminal(text), err=True),
+        models=models,
     )
     header = render_header(
         model=model,
@@ -106,6 +122,47 @@ def eval_command(
         write_json(json_path, rows_as_json(rows))
     if rows and all(row.outcome.outcome == "failed" for row in rows):
         stop(USAGE_ERROR, "Every run failed; the lines above say why.")
+
+
+def guard_spend(
+    models: ModelFactory,
+    systems: list[SystemName],
+    scenario_count: int,
+    repetitions: int,
+    *,
+    yes: bool,
+) -> None:
+    """Print the planned runs and their estimated cost, then exit 1 unless `yes`. Nothing has
+    called a model yet: the factory builds its clients only when a run asks for them."""
+    for line in spend_plan(models, systems, scenario_count, repetitions):
+        typer.echo(line)
+    if not yes:
+        typer.echo("Re-run with --yes to spend this.")
+        raise typer.Exit(code=USAGE_ERROR)
+
+
+def spend_plan(
+    models: ModelFactory, systems: list[SystemName], scenario_count: int, repetitions: int
+) -> list[str]:
+    """The `planned:` and `estimated cost:` lines. An unpriced id prints `unknown`, never a
+    partial or zero figure."""
+    runs_per_system = {system: scenario_count * repetitions for system in systems}
+    judge_calls = runs_per_system.get("graph", 0) if models.runs_judge else 0
+    model_ids = models.model_ids()
+    in_use = sorted(set(model_ids.values()))
+    total_runs = sum(runs_per_system.values())
+    planned = (
+        f"planned: {total_runs} runs ({len(systems)} × {scenario_count} × {repetitions}) "
+        f"plus {judge_calls} judge calls on {', '.join(in_use)}"
+    )
+    cost = estimated_cost(model_ids, runs_per_system, judge_calls)
+    if isinstance(cost, Unpriced):
+        return [planned, f"estimated cost: unknown (unpriced: {cost.model_id})"]
+    return [
+        planned,
+        f"estimated cost: ${cost:.2f} (price table as of {PRICES_AS_OF}; "
+        "per-run estimate from design §11, upper bound)",
+    ]
 
 
 def dataset_command(
