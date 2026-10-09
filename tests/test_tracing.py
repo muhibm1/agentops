@@ -5,6 +5,8 @@ imports a tracing or live-model client.
 """
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -120,17 +122,63 @@ def test_the_truthy_and_falsy_spellings_do_not_overlap() -> None:
     assert not TRUTHY & FALSY
 
 
+# The one module allowed to import the live client, and only inside a function (ADR 0001, E29).
+LIVE_CLIENT_IMPORTERS = {"models.py": frozenset({"langchain_anthropic", "anthropic"})}
+
+
 def test_no_runtime_module_imports_a_tracing_or_live_model_client() -> None:
+    """E29: only models.py imports the live client, only inside a function; langsmith nowhere."""
     modules = sorted(SOURCE_ROOT.rglob("*.py"))
 
-    offenders = {
-        str(path.relative_to(SOURCE_ROOT)): sorted(import_roots(path) & FORBIDDEN_IMPORT_ROOTS)
-        for path in modules
-        if import_roots(path) & FORBIDDEN_IMPORT_ROOTS
-    }
+    offenders = {}
+    for path in modules:
+        name = str(path.relative_to(SOURCE_ROOT))
+        allowed = LIVE_CLIENT_IMPORTERS.get(name, frozenset())
+        found = (import_roots(path) & FORBIDDEN_IMPORT_ROOTS) - allowed
+        found |= module_level_import_roots(path) & allowed
+        if found:
+            offenders[name] = sorted(found)
 
     assert len(modules) > 20
     assert offenders == {}
+
+
+def test_the_models_module_reads_the_key_from_the_environment_only() -> None:
+    """E29, R4: no dotenv and no file read in models.py."""
+    text = (SOURCE_ROOT / "models.py").read_text(encoding="utf-8")
+
+    assert "dotenv" not in text
+    assert "open(" not in text
+
+
+def test_importing_the_command_line_does_not_load_the_live_client() -> None:
+    """E29, R17: run in a fresh interpreter, so an earlier test's import cannot hide it."""
+    probe = "import sys, agentops.cli; print('langchain_anthropic' in sys.modules)"
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip() == "False"
+
+
+def module_level_import_roots(path: Path) -> set[str]:
+    """Import roots of statements outside every function body of the module at `path`."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    nested = {
+        id(inner)
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        for inner in ast.walk(node)
+    }
+    roots: set[str] = set()
+    for node in ast.walk(tree):
+        if id(node) in nested:
+            continue
+        if isinstance(node, ast.Import):
+            roots.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            roots.add(node.module.split(".")[0])
+    return roots
 
 
 @pytest.mark.parametrize(
