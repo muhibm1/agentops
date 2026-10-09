@@ -7,17 +7,14 @@ table does not name is `Unpriced`, never a guess, a partial sum or zero.
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from agentops.models import ModelRole
+from agentops.models import GRAPH_ROLES, ModelRole
 
 TOKENS_PER_PRICE_UNIT = 1_000_000
 PRICES_AS_OF = "2026-10-09"
 PRICES_SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing"
 
-# The four graph roles share a run's model calls; the baseline and the judge are priced apart.
-GRAPH_ROLES: tuple["ModelRole", ...] = ("triage", "rca", "postmortem", "escalate")
 # Design §11 upper bound, believed; replace with the measured mean after the first paid run.
 ESTIMATED_CALLS_PER_RUN = {"graph": 12, "baseline": 12}
 # Design §11 upper bound, believed; replace with the measured mean after the first paid run.
@@ -85,7 +82,7 @@ def cost_usd(usage_by_model: Mapping[str, Usage]) -> float | Unpriced:
 
 
 def estimated_cost(
-    model_ids: Mapping["ModelRole", str], runs_per_system: Mapping[str, int], judge_calls: int
+    model_ids: Mapping[ModelRole, str], runs_per_system: Mapping[str, int], judge_calls: int
 ) -> float | Unpriced:
     """An upper-bound cost for the planned runs, priced role by role with each role's own id.
 
