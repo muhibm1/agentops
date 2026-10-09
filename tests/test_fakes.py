@@ -11,8 +11,13 @@ from pathlib import Path
 import pytest
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 from pydantic import BaseModel, ValidationError
 
+from agentops.actions.audit import AuditLog
+from agentops.actions.registry import default_registry
 from agentops.fakes import (
     DEFAULT_ATTEMPTS,
     ScriptedChatModel,
@@ -20,8 +25,10 @@ from agentops.fakes import (
     scripted_baseline_model_for,
     scripted_model_for,
 )
+from agentops.graph import build_graph, checkpoint_serializer
 from agentops.sources.scenario import Scenario, load_scenario
-from agentops.state import Escalation, Postmortem, RcaOutput, Triage
+from agentops.sources.simulator import SimulatorSource
+from agentops.state import Escalation, Postmortem, RcaOutput, Triage, new_incident
 
 
 class Hypothesis(BaseModel):
@@ -66,11 +73,61 @@ def test_exhausted_or_malformed_script_raises() -> None:
         malformed_model.with_structured_output(TriageStandIn, method="json_schema").invoke(prompt)
 
 
-def test_structured_output_with_raw_message_is_not_supported() -> None:
-    model = ScriptedChatModel(script=[])
+def test_structured_output_with_raw_message_returns_raw_parsed_and_error() -> None:
+    """E10: with include_raw the fake answers as ChatAnthropic does; a bad reply does not raise."""
+    good = {"hypotheses": [{"name": "deploy", "score": 0.9}]}
+    model = ScriptedChatModel(script=[good, {"hypotheses": "no"}])
+    runnable = model.with_structured_output(TriageStandIn, method="json_schema", include_raw=True)
+    prompt = [HumanMessage("checkout is failing")]
 
-    with pytest.raises(NotImplementedError):
-        model.with_structured_output(TriageStandIn, include_raw=True)
+    first = runnable.invoke(prompt)
+    second = runnable.invoke(prompt)
+    assert isinstance(first, dict) and isinstance(second, dict)
+
+    assert set(first) == {"raw", "parsed", "parsing_error"}
+    assert isinstance(first["raw"], AIMessage)
+    assert first["parsed"] == TriageStandIn.model_validate(good)
+    assert first["parsing_error"] is None
+    usage = first["raw"].usage_metadata
+    assert usage is not None and usage["input_tokens"] > 0
+    assert first["raw"].response_metadata["model_name"] == "scripted"
+    assert second["parsed"] is None
+    assert isinstance(second["parsing_error"], ValidationError)
+
+
+def test_every_model_action_of_a_full_run_carries_tokens_and_the_scripted_id(
+    scenario: Scenario, source: SimulatorSource, tmp_path: Path
+) -> None:
+    """E10: a full run on the fake records non-zero tokens and model `scripted` on every call."""
+    graph = build_graph(
+        source,
+        scripted_model_for(scenario),
+        default_registry(),
+        AuditLog(tmp_path),
+        InMemorySaver(serde=checkpoint_serializer()),
+    )
+    config: RunnableConfig = {"configurable": {"thread_id": scenario.id}, "recursion_limit": 60}
+    incident = new_incident(
+        scenario.service,
+        scenario.symptoms,
+        opened_at=scenario.incident_time,
+        incident_id=scenario.id,
+        scenario_id=scenario.id,
+    )
+    result = graph.invoke(incident, config)
+    for _ in range(4):
+        if "__interrupt__" not in result:
+            break
+        result = graph.invoke(
+            Command(resume={"decision": "approve", "operator": "on-call"}), config
+        )
+
+    calls = [action for action in result["actions"] if action.tool == "model" and action.ok]
+    assert calls
+    for action in calls:
+        assert action.input_tokens > 0
+        assert action.output_tokens > 0
+        assert action.model == "scripted"
 
 
 def test_scripted_model_can_stand_in_wherever_a_chat_model_is_expected() -> None:

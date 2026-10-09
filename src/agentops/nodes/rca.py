@@ -48,9 +48,15 @@ RCA_INSTRUCTIONS = (
 )
 
 
+def rca_stable_instructions() -> str:
+    """The rca instructions and the untrusted-data rule: the cached system block,
+    the same for every prompt."""
+    return f"{RCA_INSTRUCTIONS}{UNTRUSTED_DATA_RULE}"
+
+
 def rca_system_prompt(nonce: str) -> str:
     """The rca instructions plus the description of this prompt's evidence fence."""
-    return f"{RCA_INSTRUCTIONS}{fence_rule(nonce)} {UNTRUSTED_DATA_RULE}"
+    return f"{rca_stable_instructions()} {fence_rule(nonce)}"
 
 
 class RcaConsistencyError(CitationError):
@@ -81,7 +87,13 @@ def rca(
     nonce = new_fence_nonce()
     human_prompt = rca_human_prompt(state, nonce)
 
-    result, action = ask_model(model, RcaOutput, rca_system_prompt(nonce), human_prompt)
+    result, action = ask_model(
+        model,
+        RcaOutput,
+        rca_stable_instructions(),
+        human_prompt,
+        fence_sentence=fence_rule(nonce),
+    )
 
     check_citations(result, state["evidence"])
     check_consistent_with_triage(result, state)
