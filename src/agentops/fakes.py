@@ -5,6 +5,7 @@ It reads no environment variable and opens no socket: every answer comes from th
 
 import builtins
 import json
+import math
 from collections.abc import Callable, Sequence
 from typing import Any
 
@@ -15,7 +16,7 @@ from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.runnables import Runnable, RunnableLambda
 from langchain_core.tools import BaseTool
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from pydantic import BaseModel, Field, PrivateAttr, SkipValidation
+from pydantic import BaseModel, Field, PrivateAttr, SkipValidation, ValidationError
 
 from agentops.sources.scenario import Scenario
 from agentops.state import Escalation, Postmortem, RcaOutput, Triage
@@ -24,6 +25,10 @@ from agentops.state import Escalation, Postmortem, RcaOutput, Triage
 DEFAULT_ATTEMPTS = 3
 # The rca prompt line that lists actions already applied; it selects `rca_after_action`.
 ACTIONS_APPLIED_MARKER = "Actions already applied:"
+# The model id the fake reports on every reply; the price table has no entry for it.
+SCRIPTED_MODEL_ID = "scripted"
+# Characters per token in the fake's usage stamp: deterministic and non-zero, not a tokenizer.
+CHARACTERS_PER_TOKEN = 4
 
 ScriptEntry = BaseModel | dict[str, Any] | str
 
@@ -61,6 +66,8 @@ class ScriptedChatModel(BaseChatModel):
     # The names of the tools passed to `bind_tools`, in order, for tests to read.
     bound_tools: list[str] = Field(default_factory=list)
     calls: list[list[BaseMessage]] = Field(default_factory=list)
+    # The configured id, read like ChatAnthropic's `model` when an `Action` names who answered.
+    model: str = SCRIPTED_MODEL_ID
     _pending_messages: list[AIMessage] = PrivateAttr(default_factory=list)
     _pending_outputs: list[str] = PrivateAttr(default_factory=list)
     _pending_by_schema: dict[type, list[str]] = PrivateAttr(default_factory=dict)
@@ -95,7 +102,7 @@ class ScriptedChatModel(BaseChatModel):
     ) -> ChatResult:
         self.calls.append(list(messages))
         if self._pending_messages:
-            reply = self._pending_messages.pop(0)
+            reply = with_usage(self._pending_messages.pop(0), messages)
             return ChatResult(generations=[ChatGeneration(message=reply)])
         if not self._pending_outputs:
             raise ScriptExhausted(
@@ -103,7 +110,8 @@ class ScriptedChatModel(BaseChatModel):
                 f"{len(self.messages)} messages and {len(self.script)} script entries."
             )
         content = self._pending_outputs.pop(0)
-        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=content))])
+        reply = with_usage(AIMessage(content=content), messages)
+        return ChatResult(generations=[ChatGeneration(message=reply)])
 
     def bind_tools(
         self,
@@ -126,28 +134,39 @@ class ScriptedChatModel(BaseChatModel):
     ) -> Runnable[LanguageModelInput, builtins.dict[str, Any] | BaseModel]:
         """Returns a runnable that calls this model and validates its reply against `schema`.
 
-        Raises `pydantic.ValidationError` when the scripted reply does not fit `schema`.
+        Raises `pydantic.ValidationError` when the scripted reply does not fit `schema`. With
+        `include_raw=True` it returns `{"raw", "parsed", "parsing_error"}` instead, as
+        ChatAnthropic does: a reply that does not fit leaves `parsed` None and nothing raises.
         """
-        if include_raw:
-            raise NotImplementedError("The scripted model does not return raw messages.")
         if not (isinstance(schema, type) and issubclass(schema, BaseModel)):
             raise TypeError("The scripted model needs a Pydantic model class as its schema.")
         output_schema = schema
 
-        def call_model_and_validate(prompt: LanguageModelInput) -> BaseModel:
+        def next_reply(prompt: LanguageModelInput) -> AIMessage:
             messages = self._convert_input(prompt).to_messages()
             marker = self._marker_in(output_schema, messages)
             if marker is not None:
-                return output_schema.model_validate_json(
-                    self._next_for_marker(output_schema, marker, messages)
-                )
+                text = self._next_for_marker(output_schema, marker, messages)
+                return with_usage(AIMessage(content=text), messages)
             if output_schema in self._pending_by_schema:
-                return output_schema.model_validate_json(
-                    self._next_for_schema(output_schema, prompt)
-                )
+                text = self._next_for_schema(output_schema, prompt)
+                return with_usage(AIMessage(content=text), messages)
             reply = self.invoke(prompt)
-            return output_schema.model_validate_json(reply_text(reply))
+            return with_usage(AIMessage(content=reply_text(reply)), messages)
 
+        def call_model_and_validate(prompt: LanguageModelInput) -> BaseModel:
+            return output_schema.model_validate_json(reply_text(next_reply(prompt)))
+
+        def call_model_with_raw(prompt: LanguageModelInput) -> builtins.dict[str, Any]:
+            raw = next_reply(prompt)
+            try:
+                parsed = output_schema.model_validate_json(reply_text(raw))
+            except ValidationError as error:
+                return {"raw": raw, "parsed": None, "parsing_error": error}
+            return {"raw": raw, "parsed": parsed, "parsing_error": None}
+
+        if include_raw:
+            return RunnableLambda(call_model_with_raw)
         return RunnableLambda(call_model_and_validate)
 
     def _next_for_schema(self, schema: type, prompt: LanguageModelInput) -> str:
@@ -229,12 +248,38 @@ def scripted_baseline_model_for(scenario: Scenario) -> ScriptedChatModel:
 
 
 def prompt_lines(messages: list[BaseMessage]) -> list[str]:
-    return [
-        line.strip()
-        for message in messages
-        if isinstance(message.content, str)
-        for line in message.content.splitlines()
-    ]
+    """Every line of every message, whether its content is text or a list of text blocks."""
+    return [line.strip() for message in messages for line in message_text(message).splitlines()]
+
+
+def message_text(message: BaseMessage) -> str:
+    """The text of a message whose content is a string or a list of text blocks, blocks joined
+    by a newline; a non-text block contributes nothing."""
+    if isinstance(message.content, str):
+        return message.content
+    return "\n".join(
+        block["text"] if isinstance(block, dict) and isinstance(block.get("text"), str) else ""
+        for block in message.content
+        if isinstance(block, (dict, str))
+    )
+
+
+def with_usage(reply: AIMessage, prompt: list[BaseMessage]) -> AIMessage:
+    """`reply` stamped with the fake's usage, about four characters to a token and never zero,
+    and the model id `scripted`, as a live reply carries its own."""
+    prompt_characters = sum(len(message_text(message)) for message in prompt)
+    reply_characters = len(message_text(reply)) + len(json.dumps(reply.tool_calls))
+    return reply.model_copy(
+        update={
+            "usage_metadata": {
+                "input_tokens": max(1, math.ceil(prompt_characters / CHARACTERS_PER_TOKEN)),
+                "output_tokens": max(1, math.ceil(reply_characters / CHARACTERS_PER_TOKEN)),
+                "total_tokens": 0,
+                "input_token_details": {"cache_read": 0, "cache_creation": 0},
+            },
+            "response_metadata": {"model_name": SCRIPTED_MODEL_ID},
+        }
+    )
 
 
 def entry_as_json_text(entry: ScriptEntry) -> str:

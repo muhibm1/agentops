@@ -5,9 +5,10 @@ failure, proposes a remediation backed by cited evidence, stops for a human appr
 executes only allowlisted actions, each one exactly once. The model recommends; the graph
 enforces every edge, budget, retry and side effect in code.
 
-Status: increment 4, the no-spend measurement harness. `agentops eval` scores the graph against
-a ReAct baseline offline with the scripted model (see [Measuring it](#measuring-it)); the paid
-comparison against a live model is a later change. The graph runs triage, parallel evidence
+Status: increment 4, the measurement harness, plus the live model path. `agentops eval` scores
+the graph against a ReAct baseline, offline with the scripted model or on a live Anthropic model
+behind a spend guard (see [Measuring it](#measuring-it)); the first paid comparison has not been
+run yet. The graph runs triage, parallel evidence
 collection (logs, metrics, deploys), a merge step with an investigation budget, root-cause
 analysis, a human approval, execution of an allowlisted action, verification and a postmortem,
 with an escalation path, over eight simulated scenarios with a scripted model, so no API key is
@@ -17,8 +18,8 @@ needed: `clean_bad_deploy`, `deploy_red_herring_db`, `dependency_timeout_noisy_n
 `awaiting_approval` (a root cause and a remediation, citing evidence) or ends `escalated` (a
 hand-off summary and the reason, such as `budget_exhausted`, `ambiguous`, `no_evidence` or
 `action_not_allowed`). After an approval the action is applied once, the symptoms are checked
-again, and the thread ends `resolved` with a postmortem or goes back to investigate. The live
-model arrives in a later increment.
+again, and the thread ends `resolved` with a postmortem or goes back to investigate. Every
+command that calls a model also takes `--model anthropic`; see [The live model](#the-live-model).
 
 To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md). The five thread commands, run from
 the repository root (`agentops eval` and `agentops dataset` are described in
@@ -68,11 +69,13 @@ Read it literally. The scripted model replays answers written into each scenario
 graph and for the baseline alike (the baseline's answers are `scripted_outputs.baseline`, written
 as a plausible naive agent, so it takes the bait in the trap scenarios). The table shows that
 the measurement runs end to end and what each evaluator rewards; it says nothing about how well
-a model diagnoses incidents. That comparison needs the live model, which is a later change.
+a model diagnoses incidents. That comparison needs the live model; see
+[The live model](#the-live-model).
 
 The table has one row per system: runs, then pass count and percentage for
 `root_cause_accuracy`, `correct_outcome`, `evidence_sufficiency`, `false_remediation` and
-`safety`, then the mean, minimum and maximum of tool calls and latency. Every failing system,
+`safety`, then the mean, minimum and maximum of tool calls, latency, input, output, cache-read
+and cache-write tokens, and `cost_usd` (the measured dollar cost per run). Every failing system,
 scenario, repetition and evaluator is listed after it, so the failures are part of the result.
 One is known and expected: the graph fails `root_cause_accuracy` on `two_concurrent_faults`,
 because that scenario needs two actions, the graph's final diagnosis is the second fault
@@ -88,10 +91,64 @@ Options: `--system graph|baseline|both` (default `both`), `--repetitions` (1 to 
 split's manifest and checksums are read). Each run gets a fresh simulator, an audit log and a
 SQLite checkpoint file in a temporary directory that is removed afterwards, and an automatic
 approval by the role `operator`; apart from the `--json` file, nothing is written under the
-working directory. `--model anthropic` exits 1 before any run: the live model is not wired yet.
+working directory. With `--model anthropic` the spend guard runs first; see
+[The live model](#the-live-model).
 Exit codes: 0 when the measurement completed, even with failing rows; 1 for a usage problem
 (including a tracing problem or a checksum mismatch); 2 when a scenario or dataset file cannot
 be read.
+
+### The live model
+
+`--model anthropic` runs the graph's four model nodes, the baseline and the judge on Claude
+through `langchain-anthropic`. It works on `run`, `approve`, `resume`, `fork` and `eval`:
+
+```
+export ANTHROPIC_API_KEY=...        # read from this shell only, never from a file
+agentops run --scenario clean_bad_deploy --model anthropic --dev
+agentops eval --model anthropic --dev            # prints the plan and the estimate, exits 1
+agentops eval --model anthropic --dev --yes      # spends it
+```
+
+The variables:
+
+- `ANTHROPIC_API_KEY`: the key, read from the process environment and passed to the client
+  explicitly. Without it every live command exits 1 naming the variable, before any file is
+  written. The key's value is replaced by `[redacted]` in anything the command line prints.
+- `AGENTOPS_MODEL_<ROLE>`: overrides one role's model id, for `TRIAGE`, `RCA`, `POSTMORTEM`,
+  `ESCALATE`, `BASELINE` or `JUDGE`. A blank value counts as unset.
+- `AGENTOPS_TEST_ANTHROPIC_API_KEY`: read only by the live smoke test (below), never by the
+  command line.
+
+Every role uses `claude-sonnet-5-5` by default; `--dev` puts every role on the cheaper
+`claude-haiku-4-5-20251001`. The API address is fixed in code, so a stray `ANTHROPIC_BASE_URL`
+cannot send the key elsewhere.
+
+The spend guard: `agentops eval --model anthropic` first runs every usual check (repetitions,
+systems, tracing, scenarios, checksums), then prints `planned: <n> runs ... plus <m> judge calls
+on <ids>` and `estimated cost: $<x.xx>`, an upper bound priced role by role from the price table
+in `src/agentops/pricing.py`, and exits 1 unless `--yes` is given. When any role's id is not in
+the price table it prints `estimated cost: unknown (unpriced: <id>)` instead, never a partial
+figure, and `--yes` is still required. Nothing has called a model when the guard stops. The
+prices were transcribed from Anthropic's pricing page as of 2026-10-09 (`PRICES_AS_OF`); check
+them there before trusting a figure. With the live model the judge also scores every graph run
+for `explanation_quality`: its pass count is a column of the table, and its own cost is a
+`judge cost:` line under it, apart from the systems' cost. A model id the price table does not
+name prints `n/a (unpriced: <id>)` in the `cost_usd` column, never a guess; on the scripted
+model that is always `n/a (unpriced: scripted)`.
+
+Nothing in the tests or in CI's default job calls a model: the test suite blocks every
+non-loopback network connection, and CI sets no key. One test, marked `live_smoke`, makes a
+single triage call on the dev model when `AGENTOPS_TEST_ANTHROPIC_API_KEY` is set, and is
+skipped otherwise. Run it with
+`pytest -q -m live_smoke tests/test_live_smoke.py`, or by hand in GitHub Actions through
+`.github/workflows/live-smoke.yml`. `AGENTOPS_TEST_ANTHROPIC_API_KEY` must come from a
+separate Anthropic workspace with its own monthly spend limit, recorded in
+`docs/hosted-config.md`; the app key must not be reused for tests.
+
+What leaves the machine on a live run: the prompts, which hold the incident's symptoms and the
+evidence the simulator returns, go to Anthropic. So do a reject reason or an edited remediation
+typed at the approval step: on a live run, anything typed at approval is
+sent to the model provider with the next prompt, so never type a secret there.
 
 ### The frozen split
 

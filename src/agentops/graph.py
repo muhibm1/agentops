@@ -14,6 +14,7 @@ is reachable only from `approval`, and the graph cannot be built without a check
 `approval` pauses the run with `interrupt()` (spec R12, R14).
 """
 
+from collections.abc import Mapping
 from functools import partial
 
 from langchain_core.language_models import BaseChatModel
@@ -27,6 +28,7 @@ from pydantic import ValidationError
 from agentops import state as state_models
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import Registry
+from agentops.models import GRAPH_ROLES, ModelRole
 from agentops.nodes.approval import after_approval, approval
 from agentops.nodes.escalate import escalate
 from agentops.nodes.evidence import deploys, logs, metrics
@@ -50,6 +52,8 @@ MODEL_NODE_RETRY = RetryPolicy(max_attempts=3, retry_on=(CitationError, Validati
 EVIDENCE_NODES = ("logs", "metrics", "deploys")
 # Where an edge goes when it sends the run back to investigate: the router's own targets.
 INVESTIGATE_AGAIN = (*EVIDENCE_NODES, "merge")
+# One chat model for every node, or one per role (`agentops.models`).
+GraphModels = BaseChatModel | Mapping[ModelRole, BaseChatModel]
 # The state's own models, the only application types a checkpoint may bring back to life.
 CHECKPOINT_MODEL_TYPES = (
     state_models.Hypothesis,
@@ -66,7 +70,7 @@ CHECKPOINT_MODEL_TYPES = (
 
 def build_graph(
     source: EvidenceSource,
-    model: BaseChatModel,
+    model: GraphModels,
     registry: Registry,
     audit: AuditLog,
     checkpointer: BaseCheckpointSaver,
@@ -87,7 +91,7 @@ def build_graph(
 
 def build_state_graph(
     source: EvidenceSource,
-    model: BaseChatModel,
+    model: GraphModels,
     registry: Registry,
     audit: AuditLog,
 ) -> StateGraph:
@@ -131,30 +135,31 @@ def checkpoint_serializer() -> JsonPlusSerializer:
 def add_investigation_nodes(
     graph: StateGraph,
     source: EvidenceSource,
-    model: BaseChatModel,
+    model: GraphModels,
     registry: Registry,
     audit: AuditLog,
 ) -> None:
     """Triage, the three evidence nodes, merge, rca and escalate."""
-    graph.add_node("triage", partial(triage, model=model), retry_policy=MODEL_NODE_RETRY)
+    models = models_by_role(model)
+    graph.add_node("triage", partial(triage, model=models["triage"]), retry_policy=MODEL_NODE_RETRY)
     graph.add_node("logs", partial(logs, source=source))
     graph.add_node("metrics", partial(metrics, source=source))
     graph.add_node("deploys", partial(deploys, source=source))
     graph.add_node("merge", merge)
     graph.add_node(
         "rca",
-        partial(rca, model=model, registry=registry, audit=audit),
+        partial(rca, model=models["rca"], registry=registry, audit=audit),
         retry_policy=MODEL_NODE_RETRY,
     )
     # Escalate and postmortem retry inside the node and fall back to a text written by code, so a
     # run never ends without a hand-off or a postmortem.
-    graph.add_node("escalate", partial(escalate, model=model, audit=audit))
+    graph.add_node("escalate", partial(escalate, model=models["escalate"], audit=audit))
 
 
 def add_action_nodes(
     graph: StateGraph,
     source: EvidenceSource,
-    model: BaseChatModel,
+    model: GraphModels,
     registry: Registry,
     audit: AuditLog,
 ) -> None:
@@ -162,4 +167,12 @@ def add_action_nodes(
     graph.add_node("approval", partial(approval, registry=registry, audit=audit))
     graph.add_node("execute", partial(execute, source=source, registry=registry, audit=audit))
     graph.add_node("verify", partial(verify, source=source, audit=audit, registry=registry))
-    graph.add_node("postmortem", partial(postmortem, model=model))
+    graph.add_node("postmortem", partial(postmortem, model=models_by_role(model)["postmortem"]))
+
+
+def models_by_role(model: GraphModels) -> dict[ModelRole, BaseChatModel]:
+    """The model each graph node uses: one model fans out to every role. Raises KeyError naming
+    the first graph role a mapping leaves out."""
+    if isinstance(model, BaseChatModel):
+        return dict.fromkeys(GRAPH_ROLES, model)
+    return {role: model[role] for role in GRAPH_ROLES}

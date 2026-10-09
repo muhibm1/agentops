@@ -4,14 +4,14 @@ The graph and the baseline both reduce a run to a `RunOutcome`; the evaluators r
 so the two systems are scored by the same rules.
 """
 
-from collections.abc import Sequence
-from typing import Any, Literal
+from collections.abc import Iterable, Sequence
+from typing import Any, Literal, Self
 
 from pydantic import Field
 
 from agentops.actions.registry import Registry, default_registry
 from agentops.sources.scenario import Scenario
-from agentops.state import IncidentState, StrictModel
+from agentops.state import Action, IncidentState, StrictModel
 
 UNDETERMINED_LABEL = "undetermined"
 MODEL_TOOL = "model"
@@ -32,6 +32,41 @@ class ApplyAttempt(StrictModel):
     approved: bool
     in_registry: bool
     ok: bool
+
+
+class TokenUsage(StrictModel):
+    """Tokens one model answered with, summed over calls. `input_tokens` includes the cache reads
+    and writes, which are priced apart (`agentops.pricing.cost_usd`)."""
+
+    input_tokens: int = Field(default=0, ge=0)
+    output_tokens: int = Field(default=0, ge=0)
+    cache_read_tokens: int = Field(default=0, ge=0)
+    cache_write_tokens: int = Field(default=0, ge=0)
+
+    def __add__(self, other: Self) -> Self:
+        return type(self)(
+            input_tokens=self.input_tokens + other.input_tokens,
+            output_tokens=self.output_tokens + other.output_tokens,
+            cache_read_tokens=self.cache_read_tokens + other.cache_read_tokens,
+            cache_write_tokens=self.cache_write_tokens + other.cache_write_tokens,
+        )
+
+
+def usage_by_model_of(actions: Iterable[Action]) -> dict[str, TokenUsage]:
+    """The tokens of every model call in `actions`, failed replies included, summed by the model
+    id that answered. A call with no id cannot be priced and is filed under `unknown`."""
+    usage: dict[str, TokenUsage] = {}
+    for action in actions:
+        if action.tool != MODEL_TOOL:
+            continue
+        model = action.model or "unknown"
+        usage[model] = usage.get(model, TokenUsage()) + TokenUsage(
+            input_tokens=action.input_tokens,
+            output_tokens=action.output_tokens,
+            cache_read_tokens=action.cache_read_tokens,
+            cache_write_tokens=action.cache_write_tokens,
+        )
+    return usage
 
 
 class RunOutcome(StrictModel):
@@ -55,6 +90,8 @@ class RunOutcome(StrictModel):
     output_tokens: int = Field(ge=0)
     latency_ms: float = Field(ge=0.0, allow_inf_nan=False)
     loops: int = Field(ge=0)
+    # Tokens by the model id that answered; empty in records written before costs were measured.
+    usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
 
 
 class GradingReference(StrictModel):
@@ -100,12 +137,15 @@ def outcome_from_state(
     finished: float,
     *,
     registry: Registry | None = None,
+    model_calls: Sequence[Action] | None = None,
 ) -> RunOutcome:
     """Reduce a graph run's final state to a `RunOutcome`.
 
     `started` and `finished` are `time.perf_counter()` readings in seconds. `registry` decides
     `in_registry` for each apply and defaults to the shipped runbook. A run that stopped in any
-    status other than `resolved` or `escalated` is `failed`, naming the status. Raises
+    status other than `resolved` or `escalated` is `failed`, naming the status. `model_calls` is
+    every model call the run made, failed tries of a node the graph retried included; without it
+    the usage is read from the state's own actions. Raises
     `ValueError` for a state with no `scenario_id`, because its outcome could not be graded.
     """
     if state["scenario_id"] is None:
@@ -131,6 +171,7 @@ def outcome_from_state(
         output_tokens=sum(action.output_tokens for action in actions),
         latency_ms=max(finished - started, 0.0) * 1000,
         loops=state["loops"],
+        usage_by_model=usage_by_model_of(actions if model_calls is None else model_calls),
     )
 
 

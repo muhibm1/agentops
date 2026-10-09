@@ -19,6 +19,24 @@ and no test runs it (it sends usage analytics when it runs; see the README). No 
 `agentops eval`, and no test scores the committed held-out split. Every action is pinned to a full commit SHA, with
 its tag in a comment.
 
+## The live smoke job
+
+`.github/workflows/live-smoke.yml` is a second workflow that runs only when started by hand
+(`workflow_dispatch`), never on a push or a pull request. It has the same read-only token and
+SHA-pinned actions as `ci.yml`, and reads one secret, `AGENTOPS_TEST_ANTHROPIC_API_KEY`: a key
+from a separate Anthropic test workspace with its own monthly spend limit
+(`docs/hosted-config.md`), never the app key. It first fails with a sentence naming the secret
+when it is not set (add it under Settings > Secrets and variables > Actions), then installs the
+requirements and runs `pytest -q -m live_smoke tests/test_live_smoke.py`, one triage call on the
+dev model, and checks that exactly one test passed. `ci.yml` reads no secret and is unchanged by
+the live model; in it the live smoke test is skipped and the network guard in
+`tests/conftest.py` blocks every non-loopback connection.
+
+The live model added two direct pins, `langchain-anthropic==1.7.5` and `anthropic==1.12.1`, both
+MIT. What `anthropic` 1.12.1 pulls in, from `pip show anthropic` on 2026-10-09: anyio,
+docstring-parser, httpx2, jiter, pydantic, sniffio, typing-extensions. These float like the other
+transitive packages (see Known gaps).
+
 ## The test-count floor
 
 A suite that silently skips or collects nothing still exits 0. The floor turns that into a red

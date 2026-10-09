@@ -15,6 +15,7 @@ from agentops.nodes import (
     fence_rule,
     neutralise_delimiters,
     new_fence_nonce,
+    rejected_attempt,
     run_thread_id,
 )
 from agentops.nodes.merge import decide_next_step, reason_for_escalating_before_rca
@@ -42,9 +43,15 @@ ESCALATE_INSTRUCTIONS = (
 )
 
 
+def escalate_stable_instructions() -> str:
+    """The escalate instructions and the untrusted-data rule: the cached system block,
+    the same for every prompt."""
+    return f"{ESCALATE_INSTRUCTIONS}{UNTRUSTED_DATA_RULE}"
+
+
 def escalate_system_prompt(nonce: str) -> str:
     """The hand-off instructions plus the description of this prompt's evidence fence."""
-    return f"{ESCALATE_INSTRUCTIONS}{fence_rule(nonce)} {UNTRUSTED_DATA_RULE}"
+    return f"{escalate_stable_instructions()} {fence_rule(nonce)}"
 
 
 def escalate(
@@ -78,7 +85,6 @@ def hand_off_summary(state: IncidentState, model: BaseChatModel) -> tuple[Escala
         f"- {neutralise_delimiters(item.name)}: {item.score}" for item in state["hypotheses"]
     )
     nonce = new_fence_nonce()
-    system_prompt = escalate_system_prompt(nonce)
     human_prompt = (
         f"Service: {neutralise_delimiters(state['service'])}\nHypotheses:\n{hypotheses}\n\n"
         f"{render_evidence(state['evidence'], nonce)}"
@@ -88,20 +94,19 @@ def hand_off_summary(state: IncidentState, model: BaseChatModel) -> tuple[Escala
     result = fallback_escalation(state)
     for attempt in range(1, ESCALATE_ATTEMPTS + 1):
         try:
-            candidate, action = ask_model(model, Escalation, system_prompt, human_prompt)
+            candidate, action = ask_model(
+                model,
+                Escalation,
+                escalate_stable_instructions(),
+                human_prompt,
+                fence_sentence=fence_rule(nonce),
+            )
             # The summary may rely on no evidence; anything it does cite must exist.
             if candidate.evidence_ids:
                 assert_cited(candidate.evidence_ids, state["evidence"])
         except (CitationError, ValidationError) as error:
             # Only the class name: the message can quote model output or evidence text.
-            rejected = Action(
-                tool="model",
-                ok=False,
-                latency_ms=0.0,
-                detail=type(error).__name__,
-                attempt=attempt,
-            )
-            actions.append(rejected)
+            actions.append(rejected_attempt(error, attempt))
             continue
         result = candidate
         actions.append(action.model_copy(update={"attempt": attempt}))

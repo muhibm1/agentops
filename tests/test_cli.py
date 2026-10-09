@@ -124,8 +124,8 @@ def test_usage_errors_exit_one_with_a_named_cause(tmp_path: Path) -> None:
     assert "clean_bad_deploy" in unknown.stderr
     assert "deploy_red_herring_db" in unknown.stderr
     assert live_model.exit_code == 1
-    assert "not wired yet" in live_model.stderr
-    assert "--model scripted" in live_model.stderr
+    assert "ANTHROPIC_API_KEY" in live_model.stderr
+    assert live_model.stdout == ""
     assert no_directory.exit_code == 1
     assert str(missing_dir) in no_directory.stderr
 

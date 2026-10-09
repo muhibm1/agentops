@@ -205,7 +205,8 @@ def test_run_then_approve_resolves_scenario_one(workspace: Workspace) -> None:
     assert "execution: applied" in approved.stdout
     assert len(workspace.ledger("incident-1")) == 1
     assert live_model.exit_code == 1
-    assert "not wired yet" in live_model.stderr
+    assert "ANTHROPIC_API_KEY" in live_model.stderr
+    assert live_model.stdout == ""
 
 
 # E29: one line per checkpoint, newest first; the newest waits for approval.

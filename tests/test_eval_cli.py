@@ -237,12 +237,13 @@ def test_a_run_that_raises_becomes_a_failed_row_not_a_crash(tmp_path: Path) -> N
     assert "CitationError" in run.result.stdout
 
 
-# A6 (R17): the live model is still a stub, refused before any run.
-def test_the_live_model_is_still_a_stub_for_eval(tmp_path: Path) -> None:
+# A6 (R17), changed by the live-model change's E25: without ANTHROPIC_API_KEY the live model is
+# refused before any run, naming the variable.
+def test_the_live_model_without_a_key_is_refused_before_any_run(tmp_path: Path) -> None:
     result = runner.invoke(app, ["eval", "--model", "anthropic", *REPOSITORY_DATA])
 
     assert result.exit_code == 1
-    assert "not wired yet" in result.stderr
+    assert "ANTHROPIC_API_KEY" in result.stderr
     assert result.stdout == ""
 
 
