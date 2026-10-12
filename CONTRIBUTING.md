@@ -76,7 +76,8 @@ A scenario is one JSON file in `scenarios/`, named after its id (for example
 - `id`, `service`, `symptoms` (at least one) and `incident_time` (ISO 8601 with a UTC offset).
 - `signals`: the only part the agent sees, as `logs`, `metrics`, `deployments`, `dependencies`
   and `config`. Every signal carries an `id` that is unique within the scenario.
-- `ground_truth` (`root_cause` and `correct_action`), `required_evidence` (signal ids the
+- `ground_truth` (`root_cause`, a label from `CAUSE_LABELS` in `src/agentops/state.py` or
+  `undetermined`, and `correct_action`), `required_evidence` (signal ids the
   investigation must collect), `wrong_actions`, `expected_outcome` (`remediate`, `escalate` or
   `loop`) and `post_action_world` (what the signals become after each action is applied). The
   agent never sees these.
@@ -88,7 +89,7 @@ A scenario is one JSON file in `scenarios/`, named after its id (for example
   action names come from `runbooks/default.yaml`; an action not in the runbook can never be
   applied.
 - `scripted_outputs`: the `triage` and `rca` answers the scripted chat model returns for this
-  scenario, so the scenario runs in tests without a live model. Each answer must be valid
+  scenario, with every hypothesis name taken from `CAUSE_LABELS` (`tests/test_cause_labels.py`), so the scenario runs in tests without a live model. Each answer must be valid
   against its output schema and cite only signal ids that exist in the scenario. A scenario
   that ends in an escalation also needs an `escalate` answer (`summary` and `evidence_ids`),
   because the graph asks the model for the hand-off summary. The reason is never scripted:
