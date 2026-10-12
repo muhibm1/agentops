@@ -20,7 +20,8 @@ TRIAGE_INSTRUCTIONS = (
     f"Name each hypothesis with one label from this list: {', '.join(CAUSE_LABELS)}. Only if "
     "none fits, use another short snake_case label of at most "
     f"{HYPOTHESIS_NAME_MAX_LENGTH} characters. Later steps refer to it by that exact name. "
-    "Cite an evidence id only if it was shown to you; none has been collected yet. "
+    "No evidence has been collected yet, so leave supporting_evidence and "
+    "contradicting_evidence empty: they hold evidence ids, never a description of a symptom. "
     + UNTRUSTED_DATA_RULE
 )
 TRIAGE_SYSTEM_PROMPT = TRIAGE_INSTRUCTIONS

@@ -25,7 +25,7 @@ from langgraph.types import Command
 
 from agentops import fakes
 from agentops.actions.audit import AuditLog
-from agentops.actions.registry import default_registry
+from agentops.actions.registry import default_registry, describe_actions
 from agentops.fakes import ScriptedChatModel, scripted_model_for
 from agentops.graph import (
     MODEL_NODE_RETRY,
@@ -418,8 +418,11 @@ def assert_prompts_hide_the_grading_key_and_fence_the_evidence(
     # prompts; the triage prompt, built before any model output, must not hold it outside the
     # shared cause catalogue, which is the same for every scenario (owner's decision, 2026-10-12).
     assert scenario.ground_truth.root_cause not in prompts[0].replace(", ".join(CAUSE_LABELS), "")
+    # The runbook's action list is the same for every scenario too, so the correct action may
+    # appear inside it and nowhere else (decided 2026-10-12, after the traced live run).
+    without_runbook = all_prompts.replace(describe_actions(default_registry()), "")
     for hidden in [*HIDDEN_SECTION_NAMES, scenario.ground_truth.correct_action, scenario.id]:
-        assert hidden not in all_prompts
+        assert hidden not in without_runbook
     assert UNTRUSTED_DATA_PHRASE in all_prompts
     fenced_prompts = [prompt for prompt in prompts if is_fenced(prompt)]
     assert len(fenced_prompts) >= 1

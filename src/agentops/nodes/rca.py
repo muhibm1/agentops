@@ -12,7 +12,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
 from agentops.actions.audit import AuditLog
-from agentops.actions.registry import Registry, idempotency_key
+from agentops.actions.registry import Registry, describe_actions, idempotency_key
 from agentops.nodes import (
     UNTRUSTED_DATA_RULE,
     ask_model,
@@ -86,7 +86,7 @@ def rca(
     """
     thread_id = run_thread_id(config, "rca")
     nonce = new_fence_nonce()
-    human_prompt = rca_human_prompt(state, nonce)
+    human_prompt = rca_human_prompt(state, nonce, registry)
 
     result, action = ask_model(
         model,
@@ -250,9 +250,10 @@ def after_rca(state: IncidentState) -> str:
     return "approval" if stop_reason is None else "escalate"
 
 
-def rca_human_prompt(state: IncidentState, nonce: str) -> str:
-    """The service, symptoms, hypotheses, what is known about sources and actions, then the
-    fenced evidence. The two context lines appear only when they have something to say."""
+def rca_human_prompt(state: IncidentState, nonce: str, registry: Registry | None = None) -> str:
+    """The service, symptoms, hypotheses, the runbook's actions when `registry` is given, what is
+    known about sources and actions, then the fenced evidence. The context lines about sources and
+    actions appear only when they have something to say."""
     symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
     triage_names = ", ".join(neutralise_delimiters(item.name) for item in state["hypotheses"])
     lines = [
@@ -260,6 +261,10 @@ def rca_human_prompt(state: IncidentState, nonce: str) -> str:
         f"Symptoms:\n{symptoms}",
         f"Hypotheses to re-score: {triage_names}",
     ]
+    if registry is not None:
+        # Without it the live run on 2026-10-12 found the right cause in clean_bad_deploy and
+        # proposed `rollback_deployment`, which the runbook does not declare, so it escalated.
+        lines.append(describe_actions(registry))
     if state["unreachable_sources"]:
         lines.append(f"Unreachable sources: {', '.join(state['unreachable_sources'])}")
     applied = applied_action_names(state["evidence"])
