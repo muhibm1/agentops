@@ -93,6 +93,9 @@ class RunOutcome(StrictModel):
     # Why the graph escalated, so a reader of the run records need not infer it; None for the
     # baseline, a run that did not escalate, and records written before it was kept.
     escalation_reason: str | None = None
+    # Each failed runbook check, as `check on target`, so a precondition_failed escalation can
+    # be explained from the run record; empty for the baseline and for records written before.
+    failed_preconditions: list[str] = Field(default_factory=list)
     # Tokens by the model id that answered; empty in records written before costs were measured.
     usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
 
@@ -175,6 +178,7 @@ def outcome_from_state(
         latency_ms=max(finished - started, 0.0) * 1000,
         loops=state["loops"],
         escalation_reason=state["escalation_reason"] if state["status"] == "escalated" else None,
+        failed_preconditions=failed_preconditions_of(state),
         usage_by_model=usage_by_model_of(actions if model_calls is None else model_calls),
     )
 
@@ -218,6 +222,15 @@ def cited_ids_of(state: IncidentState) -> list[str]:
     if state["escalation"] is not None:
         return list(state["escalation"].evidence_ids)
     return []
+
+
+def failed_preconditions_of(state: IncidentState) -> list[str]:
+    """`check on target` for every precondition the executor recorded as failed, in order."""
+    return [
+        f"{item.payload.get('check')} on {item.payload.get('target')}"
+        for item in state["evidence"]
+        if item.kind == "precondition" and item.payload.get("passed") is False
+    ]
 
 
 def proposed_actions_of(state: IncidentState) -> list[str]:
