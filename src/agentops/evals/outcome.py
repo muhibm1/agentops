@@ -96,6 +96,9 @@ class RunOutcome(StrictModel):
     # Each failed runbook check, as `check on target`, so a precondition_failed escalation can
     # be explained from the run record; empty for the baseline and for records written before.
     failed_preconditions: list[str] = Field(default_factory=list)
+    # The final hypothesis scores by name, so an `ambiguous` escalation can be read against the
+    # margin; empty for the baseline and for records written before.
+    hypothesis_scores: dict[str, float] = Field(default_factory=dict)
     # Tokens by the model id that answered; empty in records written before costs were measured.
     usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
 
@@ -179,6 +182,7 @@ def outcome_from_state(
         loops=state["loops"],
         escalation_reason=state["escalation_reason"] if state["status"] == "escalated" else None,
         failed_preconditions=failed_preconditions_of(state),
+        hypothesis_scores={item.name: item.score for item in state["hypotheses"]},
         usage_by_model=usage_by_model_of(actions if model_calls is None else model_calls),
     )
 

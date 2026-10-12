@@ -6,18 +6,18 @@ from langchain_core.language_models import BaseChatModel
 
 from agentops.nodes import UNTRUSTED_DATA_RULE, ask_model, neutralise_delimiters
 from agentops.state import (
-    CAUSE_LABELS,
     HYPOTHESIS_NAME_MAX_LENGTH,
     IncidentState,
     Triage,
     assert_cited,
+    cause_catalogue,
 )
 
 # Stable, so it is the cached system block; triage fences no evidence and has no nonce.
 TRIAGE_INSTRUCTIONS = (
     "You are the triage step of an incident investigation. From the affected service and its "
     "symptoms, list the plausible causes as hypotheses, each with a score between 0 and 1. "
-    f"Name each hypothesis with one label from this list: {', '.join(CAUSE_LABELS)}. Only if "
+    f"Name each hypothesis with one label from this list: {cause_catalogue()}. Only if "
     "none fits, use another short snake_case label of at most "
     f"{HYPOTHESIS_NAME_MAX_LENGTH} characters. Later steps refer to it by that exact name. "
     "No evidence has been collected yet, so leave supporting_evidence and "

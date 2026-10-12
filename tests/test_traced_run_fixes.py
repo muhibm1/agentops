@@ -181,9 +181,9 @@ def test_malformed_parameter_pairs_are_refused(pairs: list[object]) -> None:
 
 def test_the_rca_prompt_lists_the_catalogue_and_the_rules_for_adding_and_targets() -> None:
     from agentops.nodes.rca import RCA_INSTRUCTIONS
-    from agentops.state import CAUSE_LABELS
+    from agentops.state import cause_catalogue
 
-    assert ", ".join(CAUSE_LABELS) in RCA_INSTRUCTIONS
+    assert cause_catalogue() in RCA_INSTRUCTIONS
     assert "began first" in RCA_INSTRUCTIONS
     assert "copied exactly from the evidence" in RCA_INSTRUCTIONS
 

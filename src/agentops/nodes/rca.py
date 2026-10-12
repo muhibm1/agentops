@@ -38,6 +38,7 @@ from agentops.state import (
     RcaOutput,
     Remediation,
     assert_cited,
+    cause_catalogue,
 )
 
 # The two best hypotheses must differ by at least this much, or the cause is ambiguous
@@ -49,9 +50,11 @@ RCA_INSTRUCTIONS = (
     "were given between 0 and 1 in light of the evidence, keeping each name exactly as it is and "
     "citing the evidence ids that support or contradict it. The hypotheses were named from the "
     "symptoms alone, before any evidence: if the evidence shows a cause they do not name, add it "
-    f"as a hypothesis with one of these labels, citing that evidence: {', '.join(CAUSE_LABELS)}. "
-    "When more than one cause is real, the root cause is the one that began first or that the "
-    "others follow from; score it highest, and the rest is handled after its fix is verified. "
+    f"as a hypothesis with one of these labels, citing that evidence: {cause_catalogue()}. "
+    "A score ranks what to act on first; it is not the chance that a cause is real. When more "
+    "than one cause is real, the root cause is the one that began first or that the others "
+    "follow from: score it at least 0.2 above every other, and score a fault that follows from "
+    "it low, since it is handled after the root cause's fix is verified. "
     "If one cause stands out, set its "
     "label to the name of the highest-scored hypothesis, copied exactly, and propose one "
     "remediation whose target is a name copied exactly from the evidence; "
