@@ -435,3 +435,28 @@ def test_three_bad_citations_still_hand_off_with_a_summary_built_by_code() -> No
     assert len(rejected) == 3
     assert all(action.tool == "model" for action in rejected)
     assert all(action.detail == "CitationError" for action in rejected)
+
+
+# rca may add a hypothesis triage did not name, when it is a catalogue label citing evidence
+# (2026-10-12: the live runs could never name disk_saturation from "latency" and "timeouts").
+def test_rca_may_add_a_catalogue_hypothesis_that_cites_evidence() -> None:
+    reply = rca_reply(scores=(0.2, 0.1), label="disk_saturation")
+    reply["hypotheses"].append(hypothesis("disk_saturation", 0.9, ["deploy-001"]))
+
+    update = run_rca(reply)
+
+    assert update["status"] == "awaiting_approval"
+    assert update["root_cause"].label == "disk_saturation"
+    assert [item.name for item in update["hypotheses"]][-1] == "disk_saturation"
+
+
+def test_an_added_hypothesis_must_cite_evidence_and_be_a_catalogue_label() -> None:
+    uncited = rca_reply(label=None)
+    uncited["hypotheses"].append(hypothesis("disk_saturation", 0.9))
+    with pytest.raises(RcaConsistencyError, match="Uncited: \\['disk_saturation'\\]"):
+        run_rca(uncited)
+
+    invented = rca_reply(label=None)
+    invented["hypotheses"].append(hypothesis("cosmic_rays", 0.9, ["log-001"]))
+    with pytest.raises(RcaConsistencyError, match="outside the catalogue: \\['cosmic_rays'\\]"):
+        run_rca(invented)
