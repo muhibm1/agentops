@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Any, Literal, Self, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, WithJsonSchema, model_validator
 
 SNAKE_CASE_NAME = r"^[a-z0-9_]+$"
 # A remediation target names a service, deployment or config key; it is never free text.
@@ -81,11 +81,22 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# In the JSON schema the model answers to: the live run on 2026-10-12 filled these lists with
+# sentences describing the symptoms.
+EVIDENCE_IDS_DESCRIPTION = (
+    "Ids of evidence items shown to you, such as log-003 or metric-error_rate. Never free text."
+)
+
+
 class Hypothesis(StrictModel):
     name: str = Field(min_length=1, max_length=HYPOTHESIS_NAME_MAX_LENGTH)
     score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
-    supporting_evidence: list[str] = Field(default_factory=list)
-    contradicting_evidence: list[str] = Field(default_factory=list)
+    supporting_evidence: list[str] = Field(
+        default_factory=list, description=EVIDENCE_IDS_DESCRIPTION
+    )
+    contradicting_evidence: list[str] = Field(
+        default_factory=list, description=EVIDENCE_IDS_DESCRIPTION
+    )
 
 
 class Triage(StrictModel):
@@ -108,10 +119,53 @@ class RCA(StrictModel):
     evidence_ids: list[str] = Field(min_length=1)
 
 
+ParamValue = str | int | float | bool
+PARAMETER_PAIRS_SCHEMA: dict[str, Any] = {
+    "type": "array",
+    "description": "The action's parameters, one name and value per item.",
+    "items": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string"},
+            "value": {"anyOf": [{"type": t} for t in ("string", "integer", "number", "boolean")]},
+        },
+        "required": ["name", "value"],
+        "additionalProperties": False,
+    },
+}
+
+
+def parameters_from_pairs(value: Any) -> Any:
+    """A list of `{name, value}` pairs as a mapping; anything else unchanged for the dict check.
+    A repeated name is refused rather than silently keeping one value."""
+    if not isinstance(value, list):
+        return value
+    params: dict[str, Any] = {}
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"name", "value"}:
+            raise ValueError("Each parameter must be an object with exactly a name and a value.")
+        if item["name"] in params:
+            raise ValueError("A parameter name is repeated.")
+        params[item["name"]] = item["value"]
+    return params
+
+
+# A mapping in Python, in state and in every file; a list of name and value pairs in the JSON
+# schema a model answers to. Anthropic's structured output closes every object schema, so an
+# open mapping reached the model as an object that may hold no keys at all: the live runs of
+# 2026-10-12 proposed `circuit_break_dependency` and `rerun_partition` with no parameters every
+# time, and the runbook refused both (confirmed with `anthropic.transform_schema`).
+RemediationParams = Annotated[
+    dict[str, ParamValue],
+    BeforeValidator(parameters_from_pairs),
+    WithJsonSchema(PARAMETER_PAIRS_SCHEMA),
+]
+
+
 class Remediation(StrictModel):
     action: str = Field(pattern=SNAKE_CASE_NAME)
     target: str = Field(pattern=TARGET_NAME, max_length=TARGET_MAX_LENGTH)
-    params: dict[str, str | int | float | bool] = Field(default_factory=dict)
+    params: RemediationParams = Field(default_factory=dict)
     reason: str = Field(min_length=1)
     evidence_ids: list[str] = Field(min_length=1)
     risk: Literal["low", "medium", "high"]

@@ -85,6 +85,38 @@ def default_registry() -> Registry:
     return Registry(load_runbook(DEFAULT_RUNBOOK_PATH))
 
 
+def describe_actions(registry: Registry) -> str:
+    """One prompt line naming every action the runbook declares, with its target pattern and
+    parameters, so a model proposes a name the registry will accept. The runbook is the same for
+    every incident, so the line tells a model nothing about which action is right."""
+    actions = []
+    for name in registry.names():
+        entry = registry.get(name)
+        params = ", ".join(
+            f"{key} ({describe_parameter(spec)})" for key, spec in entry.params.items()
+        )
+        actions.append(
+            f"{name} (target matching {entry.target_pattern}; params: {params or 'none'})"
+        )
+    return "A remediation must name one of these runbook actions, spelled exactly: " + "; ".join(
+        actions
+    )
+
+
+def describe_parameter(spec: ParameterSpec) -> str:
+    """The type and every constraint `parameter_problem` checks, in prompt words."""
+    parts = [spec.type]
+    if spec.required:
+        parts.append("required")
+    if spec.pattern is not None:
+        parts.append(f"matching {spec.pattern}")
+    if spec.min is not None:
+        parts.append(f"at least {spec.min:g}")
+    if spec.max is not None:
+        parts.append(f"at most {spec.max:g}")
+    return ", ".join(parts)
+
+
 def idempotency_key(incident_id: str, remediation: Remediation) -> str:
     """sha256 of the incident id followed by the sorted-key JSON of action, target and params.
 
