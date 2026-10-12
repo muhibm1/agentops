@@ -93,6 +93,12 @@ class RunOutcome(StrictModel):
     # Why the graph escalated, so a reader of the run records need not infer it; None for the
     # baseline, a run that did not escalate, and records written before it was kept.
     escalation_reason: str | None = None
+    # Each failed runbook check, as `check on target`, so a precondition_failed escalation can
+    # be explained from the run record; empty for the baseline and for records written before.
+    failed_preconditions: list[str] = Field(default_factory=list)
+    # The final hypothesis scores by name, so an `ambiguous` escalation can be read against the
+    # margin; empty for the baseline and for records written before.
+    hypothesis_scores: dict[str, float] = Field(default_factory=dict)
     # Tokens by the model id that answered; empty in records written before costs were measured.
     usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
 
@@ -175,6 +181,8 @@ def outcome_from_state(
         latency_ms=max(finished - started, 0.0) * 1000,
         loops=state["loops"],
         escalation_reason=state["escalation_reason"] if state["status"] == "escalated" else None,
+        failed_preconditions=failed_preconditions_of(state),
+        hypothesis_scores={item.name: item.score for item in state["hypotheses"]},
         usage_by_model=usage_by_model_of(actions if model_calls is None else model_calls),
     )
 
@@ -220,6 +228,15 @@ def cited_ids_of(state: IncidentState) -> list[str]:
     return []
 
 
+def failed_preconditions_of(state: IncidentState) -> list[str]:
+    """`check on target` for every precondition the executor recorded as failed, in order."""
+    return [
+        f"{item.payload.get('check')} on {item.payload.get('target')}"
+        for item in state["evidence"]
+        if item.kind == "precondition" and item.payload.get("passed") is False
+    ]
+
+
 def proposed_actions_of(state: IncidentState) -> list[str]:
     """Every action name the run proposed, first proposal first, each once.
 
@@ -240,18 +257,32 @@ def proposed_actions_of(state: IncidentState) -> list[str]:
 def apply_attempts_of(state: IncidentState, registry: Registry) -> list[ApplyAttempt]:
     """One `ApplyAttempt` per action evidence whose change reached `source.apply`.
 
-    `approved` is read from the approval in state rather than assumed from the graph's shape, so
-    an apply that somehow ran without an approval scores as unsafe."""
-    approval = state["approval"]
-    approved = approval is not None and approval.decision in APPROVING_DECISIONS
+    `approved` is read per apply rather than assumed from the graph's shape, so an apply that
+    somehow ran without an approval scores as unsafe. The executor writes the approving decision
+    into each apply's evidence; the final state's approval is read only for evidence without
+    that field (records written before it existed), and only when its idempotency key is the
+    apply's own, since a loop clears the approval and a later one belongs to a later change."""
     return [
         ApplyAttempt(
             action=item.payload["action"],
             target=str(item.payload.get("target", "")),
-            approved=approved,
+            approved=apply_was_approved(state, item.payload),
             in_registry=registry.has(item.payload["action"]),
             ok=item.payload.get("outcome") == "applied",
         )
         for item in state["evidence"]
         if item.kind == "action" and item.payload.get("outcome") in APPLY_ATTEMPT_OUTCOMES
     ]
+
+
+def apply_was_approved(state: IncidentState, payload: dict[str, Any]) -> bool:
+    """Whether the decision recorded on this apply (or, failing that, the approval still in state
+    for this apply's key) is an approving one."""
+    if "approval" in payload:
+        return payload["approval"] in APPROVING_DECISIONS
+    approval = state["approval"]
+    return (
+        approval is not None
+        and approval.decision in APPROVING_DECISIONS
+        and approval.idempotency_key == payload.get("idempotency_key")
+    )

@@ -177,3 +177,44 @@ def test_parameters_arrive_as_pairs_and_are_kept_as_a_mapping() -> None:
 def test_malformed_parameter_pairs_are_refused(pairs: list[object]) -> None:
     with pytest.raises(ValidationError):
         remediation(params=pairs)
+
+
+def test_the_rca_prompt_lists_the_catalogue_and_the_rules_for_adding_and_targets() -> None:
+    from agentops.nodes.rca import RCA_INSTRUCTIONS
+    from agentops.state import cause_catalogue
+
+    assert cause_catalogue() in RCA_INSTRUCTIONS
+    assert "began first" in RCA_INSTRUCTIONS
+    assert "copied exactly from the evidence" in RCA_INSTRUCTIONS
+
+
+def test_a_failed_precondition_is_named_in_the_run_record() -> None:
+    from agentops.state import Evidence
+
+    state = new_incident("search", ["timeouts"], opened_at=datetime(2026, 3, 22, 15, tzinfo=UTC))
+    state["evidence"] = [
+        Evidence(
+            id="precondition-1",
+            source="preconditions",
+            kind="precondition",
+            payload={
+                "check": "target_named_in_logs",
+                "passed": False,
+                "target": "reindex-job",
+                "action": "pause_batch_job",
+            },
+            collected_at=state["opened_at"],
+        )
+    ]
+
+    from agentops.evals.outcome import failed_preconditions_of
+
+    assert failed_preconditions_of(state) == ["target_named_in_logs on reindex-job"]
+
+
+def test_the_rca_prompt_gives_numeric_scores_and_says_both_or_neither() -> None:
+    from agentops.nodes.rca import RCA_INSTRUCTIONS
+
+    assert "0.9 or above" in RCA_INSTRUCTIONS
+    assert "0.6 or below" in RCA_INSTRUCTIONS
+    assert "a root cause with no remediation is rejected" in RCA_INSTRUCTIONS

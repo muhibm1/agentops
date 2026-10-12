@@ -54,3 +54,14 @@ def test_triage_and_the_baseline_are_shown_every_label() -> None:
     for label in CAUSE_LABELS:
         assert label in TRIAGE_INSTRUCTIONS
         assert label in BASELINE_PROMPT
+
+
+def test_every_label_has_a_definition_and_the_catalogue_sentence_carries_both() -> None:
+    from agentops.state import CAUSE_LABEL_DEFINITIONS, cause_catalogue
+
+    assert set(CAUSE_LABEL_DEFINITIONS) == set(CAUSE_LABELS)
+    sentence = cause_catalogue()
+    for label, definition in CAUSE_LABEL_DEFINITIONS.items():
+        assert f"{label} ({definition})" in sentence
+    assert sentence in TRIAGE_INSTRUCTIONS
+    assert sentence in BASELINE_PROMPT

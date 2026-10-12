@@ -40,6 +40,7 @@ from agentops import __version__
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import default_registry
 from agentops.evals.commands import dataset_command, eval_command
+from agentops.evals.compare import compare_command
 from agentops.graph import build_graph, checkpoint_serializer
 from agentops.models import (
     MissingApiKeyError,
@@ -99,6 +100,7 @@ ThreadArgument = Annotated[str, typer.Argument(help="The thread id `run` printed
 app = typer.Typer(help="Investigate a simulated production incident with cited evidence.")
 app.command("eval")(eval_command)
 app.command("dataset")(dataset_command)
+app.command("compare")(compare_command)
 
 
 def print_version_and_exit(is_requested: bool) -> None:

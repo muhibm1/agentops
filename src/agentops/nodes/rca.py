@@ -29,6 +29,7 @@ from agentops.nodes import (
 )
 from agentops.nodes.router import OPEN_HYPOTHESIS_MIN_SCORE, deciding_sources
 from agentops.state import (
+    CAUSE_LABELS,
     CitationError,
     EscalationReason,
     Evidence,
@@ -37,6 +38,7 @@ from agentops.state import (
     RcaOutput,
     Remediation,
     assert_cited,
+    cause_catalogue,
 )
 
 # The two best hypotheses must differ by at least this much, or the cause is ambiguous
@@ -46,11 +48,21 @@ AMBIGUITY_MARGIN = 0.15
 RCA_INSTRUCTIONS = (
     "You are the root-cause step of an incident investigation. Re-score every hypothesis you "
     "were given between 0 and 1 in light of the evidence, keeping each name exactly as it is and "
-    "citing the evidence ids that support or contradict it. If one cause stands out, set its "
+    "citing the evidence ids that support or contradict it. The hypotheses were named from the "
+    "symptoms alone, before any evidence: if the evidence shows a cause they do not name, add it "
+    f"as a hypothesis with one of these labels, citing that evidence: {cause_catalogue()}. "
+    "A score ranks what to act on first; it is not the chance that a cause is real. When more "
+    "than one cause is real, the root cause is the one that began first or that the others "
+    "follow from: score it 0.9 or above and score every fault that follows from it 0.6 or "
+    "below, since those are handled after the root cause's fix is verified. Two scores within "
+    "0.15 of each other mean you cannot tell which is the cause, and the incident is handed to "
+    "a person instead. "
+    "If one cause stands out, set its "
     "label to the name of the highest-scored hypothesis, copied exactly, and propose one "
-    "remediation; "
-    "both must cite the ids of the evidence items that support them, and only those ids. If no "
-    "cause stands out, return both as null. "
+    "remediation whose target is a name copied exactly from the evidence; "
+    "both must cite the ids of the evidence items that support them, and only those ids. "
+    "root_cause and remediation come together: give both, or give both as null when no cause "
+    "stands out; a root cause with no remediation is rejected. "
 )
 
 
@@ -185,23 +197,30 @@ def check_citations(output: RcaOutput, evidence: list[Evidence]) -> None:
 
 
 def check_consistent_with_triage(output: RcaOutput, state: IncidentState) -> None:
-    """Raise `RcaConsistencyError` unless the re-scored names equal the triage names, each listed
-    once, and the root cause label, when present, is a highest-scored name."""
+    """Raise `RcaConsistencyError` unless the re-scored names keep every triage name, each listed
+    once, any added name is a catalogue label citing supporting evidence, and the root cause
+    label, when present, is a highest-scored name. Added names are allowed because triage names
+    hypotheses from the symptoms alone: on the 2026-10-12 live runs the real cause of two
+    scenarios was never on the list, so no amount of evidence could make rca name it."""
     triage_names = {item.name for item in state["hypotheses"]}
-    rescored_names = {item.name for item in output.hypotheses}
-    if len(output.hypotheses) != len(state["hypotheses"]) and rescored_names == triage_names:
-        names = [item.name for item in output.hypotheses]
-        repeated = sorted({name for name in names if names.count(name) > 1})
+    names = [item.name for item in output.hypotheses]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
         raise RcaConsistencyError(
-            f"The re-scored hypotheses must list each triage name exactly once. Repeated: "
-            f"{repeated}."
+            f"The re-scored hypotheses must list each name exactly once. Repeated: {repeated}."
         )
-    if rescored_names != triage_names:
-        dropped = sorted(triage_names - rescored_names)
-        added = sorted(rescored_names - triage_names)
+    dropped = sorted(triage_names - set(names))
+    added = [item for item in output.hypotheses if item.name not in triage_names]
+    invented = sorted(item.name for item in added if item.name not in CAUSE_LABELS)
+    if dropped or invented:
         raise RcaConsistencyError(
-            f"The re-scored hypotheses must keep the triage names. Dropped: {dropped}. "
-            f"Added: {added}."
+            "The re-scored hypotheses must keep the triage names and add only catalogue labels. "
+            f"Dropped: {dropped}. Added outside the catalogue: {invented}."
+        )
+    uncited = sorted(item.name for item in added if not item.supporting_evidence)
+    if uncited:
+        raise RcaConsistencyError(
+            f"An added hypothesis must cite the evidence that supports it. Uncited: {uncited}."
         )
     if output.root_cause is None:
         return
