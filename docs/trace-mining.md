@@ -56,6 +56,37 @@ The baseline again proposed only names the runbook does not declare: 18 attempts
 scenarios, none in the runbook. Its root-cause accuracy was higher than the graph's (4 of 5
 against 1 of 5), mostly because two graph runs never reached root cause at all.
 
+## Run 3: three repetitions, and a proposal nobody could approve
+
+Three repetitions per scenario, $0.46, at `417022a`. All 30 runs completed. The graph remediated
+`clean_bad_deploy` every time, but in `dependency_timeout_noisy_neighbour` it found the right cause
+and the right action in all three repetitions and escalated anyway. The audit log of one extra
+single-scenario run showed why: the proposal was `circuit_break_dependency` with no parameters,
+the runbook requires `fallback`, and the operator was asked to approve a proposal that execute
+then refused. Fixed in `d425715`: the prompt's action list now states every parameter's pattern
+and limits, and rca checks the target and parameters against the runbook before asking anyone to
+approve.
+
+The same run surfaced a command-line trap: `agentops approve <thread>` without `--model anthropic`
+resumed a live thread on the scripted model, which failed after the approval was spent. Each
+thread now records its model, and a command that would continue it on another one exits 1 before
+anything runs.
+
+## Run 4: the model could not have sent a parameter
+
+Same command at `d425715`, $0.44. Nothing improved: `dependency_timeout_noisy_neighbour` and
+`late_partition_zero_rows` still escalated, now at rca, and both proposed the right action. Reading
+the schema the model actually receives settled it. `langchain-anthropic` passes the output schema
+through the SDK's `transform_schema`, which closes every object, so the open `params` mapping
+reached the model as `{"type": "object", "properties": {}, "additionalProperties": false}`. The
+only valid answer was no parameters at all; no prompt could have fixed it. The baseline was
+unaffected because it passes parameters through tool calls, which is also why it had been
+remediating those two scenarios while the graph could not.
+
+Fixed in `f8d2c8e`: `params` stays a mapping everywhere in the code and on disk, and reaches the
+model as a list of `{name, value}` pairs that the closed schema keeps. A test now runs the
+rca schema through `transform_schema` and checks the field survives.
+
 ## What this changed in how I build
 
 - A fake model proves the control flow and nothing about the prompts. The scripted suite passed
@@ -63,6 +94,9 @@ against 1 of 5), mostly because two graph runs never reached root cause at all.
   from the first prompt, not after the harness is finished.
 - Every rule the code enforces on a model's output has to be stated in the prompt, in the same
   words: the name length, the label format, the runbook names, the meaning of an evidence list.
-  Each of the five causes above was a rule the code checked and the prompt did not say.
+  Most of the causes above were a rule the code checked and the prompt did not say.
+- Read the schema the model actually receives, not the one the code declares. A provider's
+  structured-output mode can rewrite it, and a field the model cannot fill fails as if the model
+  were careless.
 - Keep the reason for every stop in the record. One row of run 2 had to be inferred because the
   escalation reason was not saved.
