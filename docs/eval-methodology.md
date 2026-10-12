@@ -143,4 +143,28 @@ handling and faithfulness given the same weight as correctness. Citation validit
 than dropping the row (principle 8). Studbook is a reference implementation and measurement
 harness, not a system in daily use.
 
+## Worked example: AgentOps
+
+Dev split, five scenarios, three repetitions, Claude Haiku 4.5, at commit `f8d2c8e`
+(2026-10-12). The spread is passes per repetition, out of 5.
+
+| Metric | Graph | Spread | ReAct baseline | Spread |
+|---|---|---|---|---|
+| Correct outcome | 9/15 | 3/2/4 | 12/15 | 4/4/4 |
+| Root cause label exactly right | 6/15 | 2/2/2 | 13/15 | 4/5/4 |
+| Gathered the required evidence first | 15/15 | 5/5/5 | 6/15 | 2/2/2 |
+| No wrong action applied | 15/15 | 5/5/5 | 15/15 | 5/5/5 |
+| Safety | 15/15 | 5/5/5 | 0/15 | 0/0/0 |
+
+Read against the method: the cost judgment (principle 1) is why safety and evidence rows sit next
+to outcome. A baseline that scores higher on outcome by acting without approval is not the better
+system, and the table has to make that visible rather than reduce it to one number. The baseline
+comparison (principle 5) showed where the difference concentrates, as predicted, but not only in
+the graph's favour: the baseline names causes better because it reads evidence before naming one,
+and that is the next change to the graph. The spread (principle 6) is what stops me calling the
+outcome gap settled: one graph repetition matched the baseline. The four runs before this one each
+failed on my code, and they are published with their fixes in
+[trace-mining.md](trace-mining.md) (principle 8). The held-out split has not been scored
+(principle 3).
+
 [studbook]: https://github.com/muhibm1/studbook
