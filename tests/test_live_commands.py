@@ -449,3 +449,46 @@ def test_an_unpriced_id_still_runs_with_yes_and_prints_no_figure(
     assert result.exit_code == 0, result.output
     graph = next(row for row in table_rows(result.stdout) if row.startswith("graph "))
     assert "n/a (unpriced: " in graph
+
+
+# The three-repetition live run (2026-10-12): `approve` without `--model anthropic` resumed a live
+# thread on the scripted model, failed, and spent the approval. Each thread now records its model
+# and a command that would continue it on another one exits 1 before anything runs.
+def thread_command(*arguments: str) -> Result:
+    return runner.invoke(cli.app, [*arguments, "--scenarios-dir", str(SCENARIOS_DIR)])
+
+
+def start_live_thread(thread_id: str) -> None:
+    started = thread_command(
+        "run", "--scenario", "clean_bad_deploy", "--model", "anthropic", "--thread", thread_id
+    )
+    assert started.exit_code == 0, started.output
+
+
+def test_continuing_a_live_thread_on_the_scripted_model_exits_one_and_keeps_the_pause(
+    live_factory: list[LiveLookingModels], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_KEY)
+    start_live_thread("live-1")
+
+    wrong = thread_command("approve", "live-1", "--decision", "approve")
+    resumed = thread_command("resume", "live-1")
+    right = thread_command("approve", "live-1", "--decision", "approve", "--model", "anthropic")
+
+    for refused in (wrong, resumed):
+        assert refused.exit_code == 1
+        assert "runs on --model anthropic; pass --model anthropic" in refused.output
+    assert right.exit_code == 0, right.output
+    assert "resolved" in right.output
+
+
+def test_history_reads_a_live_thread_without_a_model(
+    live_factory: list[LiveLookingModels], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", FAKE_KEY)
+    start_live_thread("live-2")
+
+    shown = thread_command("history", "live-2")
+
+    assert shown.exit_code == 0, shown.output
+    assert "next: approval" in shown.output

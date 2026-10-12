@@ -380,6 +380,11 @@ line says what was reached. Every thread is saved at each step, so stopping is s
 - `agentops eval` or `agentops dataset` exits 2, "could not be read" or "does not exist": a
   scenario file, the scenarios directory or a dataset file cannot be opened. Check the path
   given to `--scenarios-dir` or `--evals-dir` and the file permissions.
+- `approve`, `resume` or `fork` exits 1 with "runs on --model anthropic; pass --model
+  anthropic to continue it": each thread records the model it ran on, and a command that would
+  continue it on another model stops before anything runs, so the pending approval is kept. Add
+  the same `--model` (and `--dev` if the thread used it). `history` calls no model and reads any
+  thread.
 - `approve` exits 1 with "The decision was not recorded": the approval step refused the answer
   (for example an edit naming an action outside the runbook). Nothing was applied and the
   thread still waits; run `approve` again with a valid decision.

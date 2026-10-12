@@ -68,6 +68,7 @@ RECURSION_LIMIT = 60
 ERROR_TEXT_MAX_LENGTH = 200
 SCRIPTED_MODEL = "scripted"
 LIVE_MODEL = "anthropic"
+MODEL_METADATA_KEY = "agentops_model"
 STATE_DB = Path("agentops.sqlite")
 AUDIT_DIR = Path("audit")
 SCENARIOS_DIR = Path("scenarios")
@@ -231,7 +232,9 @@ def history(
     """Print one line per checkpoint of the thread, newest first. No model is called, so the
     scripted models stand in."""
     models = models_for(SCRIPTED_MODEL, dev=False)
-    with opened_thread(thread, state_db, audit_dir, scenarios_dir, models) as thread_run:
+    with opened_thread(
+        thread, state_db, audit_dir, scenarios_dir, models, calls_models=False
+    ) as thread_run:
         for snapshot in thread_run.graph.get_state_history(thread_run.config()):
             typer.echo(history_line(snapshot))
 
@@ -319,6 +322,9 @@ class ThreadRun:
     def config(self, **switches: bool) -> RunnableConfig:
         return {
             "configurable": {"thread_id": self.thread_id, **switches},
+            # Saved in every checkpoint's metadata, so a later command can refuse to continue the
+            # thread on a different model (`check_same_model`).
+            "metadata": {MODEL_METADATA_KEY: self.models.label},
             "recursion_limit": RECURSION_LIMIT,
         }
 
@@ -379,12 +385,19 @@ def open_checkpoints(state_db: Path) -> Iterator[SqliteSaver]:
 
 @contextmanager
 def opened_thread(
-    thread_id: str, state_db: Path, audit_dir: Path, scenarios_dir: Path, models: ModelFactory
+    thread_id: str,
+    state_db: Path,
+    audit_dir: Path,
+    scenarios_dir: Path,
+    models: ModelFactory,
+    *,
+    calls_models: bool = True,
 ) -> Iterator[ThreadRun]:
     """An existing thread, rebuilt from the scenario named in its latest checkpoint.
 
     The thread id is checked before any file is opened, and a missing state file means an
-    unknown thread: neither creates a file.
+    unknown thread: neither creates a file. When the command `calls_models`, it exits 1 unless
+    `models` is the model the thread last ran on, before anything runs.
     """
     check_thread_id(thread_id)
     if not state_db.exists():
@@ -398,8 +411,23 @@ def opened_thread(
             fail(
                 USAGE_ERROR, f"Thread {thread_id!r} has no usable checkpoint: it names no scenario."
             )
+        if calls_models:
+            check_same_model(thread_id, latest.metadata.get(MODEL_METADATA_KEY), models)
         scenario = load_named_scenario(scenario_id, scenarios_dir)
         yield ThreadRun.start(scenario, thread_id, saver, audit_dir, models)
+
+
+def check_same_model(thread_id: str, recorded: object, models: ModelFactory) -> None:
+    """Exit 1 when the thread last ran on another `--model` than `models`. Without this, an
+    `approve` that forgot `--model anthropic` resumed a live thread on the scripted model, which
+    has no answers for it: the run failed after the approval was spent (live run, 2026-10-12).
+    A thread saved before the model was recorded is not checked."""
+    if not isinstance(recorded, str) or recorded == models.label:
+        return
+    fail(
+        USAGE_ERROR,
+        f"Thread {thread_id!r} runs on --model {recorded}; pass --model {recorded} to continue it.",
+    )
 
 
 def check_thread_id(thread_id: str) -> None:
