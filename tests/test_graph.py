@@ -39,6 +39,7 @@ from agentops.sources.base import LogLine, Window
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
 from agentops.state import (
+    CAUSE_LABELS,
     Action,
     CitationError,
     Escalation,
@@ -414,8 +415,9 @@ def assert_prompts_hide_the_grading_key_and_fence_the_evidence(
     prompts = [prompt_text(messages) for messages in model.calls]
     all_prompts = "\n".join(prompts)
     # The ground-truth label is also a hypothesis name, so it legitimately returns in later
-    # prompts; the triage prompt, built before any model output, must not hold it.
-    assert scenario.ground_truth.root_cause not in prompts[0]
+    # prompts; the triage prompt, built before any model output, must not hold it outside the
+    # shared cause catalogue, which is the same for every scenario (owner's decision, 2026-10-12).
+    assert scenario.ground_truth.root_cause not in prompts[0].replace(", ".join(CAUSE_LABELS), "")
     for hidden in [*HIDDEN_SECTION_NAMES, scenario.ground_truth.correct_action, scenario.id]:
         assert hidden not in all_prompts
     assert UNTRUSTED_DATA_PHRASE in all_prompts

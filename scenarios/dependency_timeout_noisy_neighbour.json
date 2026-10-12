@@ -110,7 +110,7 @@
     }
   },
   "ground_truth": {
-    "root_cause": "dependency_timeout_fraud_check",
+    "root_cause": "dependency_timeout",
     "correct_action": "circuit_break_dependency"
   },
   "required_evidence": ["dep-fraud-check", "log-003"],
@@ -144,19 +144,19 @@
     "triage": {
       "hypotheses": [
         {
-          "name": "dependency_timeout_fraud_check",
+          "name": "dependency_timeout",
           "score": 0.5,
           "supporting_evidence": [],
           "contradicting_evidence": []
         },
         {
-          "name": "noisy_neighbour_error_spike",
+          "name": "noisy_neighbour",
           "score": 0.3,
           "supporting_evidence": [],
           "contradicting_evidence": []
         },
         {
-          "name": "rollout_regression",
+          "name": "recent_deploy_regression",
           "score": 0.25,
           "supporting_evidence": [],
           "contradicting_evidence": []
@@ -166,26 +166,26 @@
     "rca": {
       "hypotheses": [
         {
-          "name": "dependency_timeout_fraud_check",
+          "name": "dependency_timeout",
           "score": 0.85,
           "supporting_evidence": ["dep-fraud-check", "metric-dependency_p99_ms", "log-003"],
           "contradicting_evidence": []
         },
         {
-          "name": "noisy_neighbour_error_spike",
+          "name": "noisy_neighbour",
           "score": 0.1,
           "supporting_evidence": [],
           "contradicting_evidence": ["log-005"]
         },
         {
-          "name": "rollout_regression",
+          "name": "recent_deploy_regression",
           "score": 0.05,
           "supporting_evidence": [],
           "contradicting_evidence": ["log-001"]
         }
       ],
       "root_cause": {
-        "label": "dependency_timeout_fraud_check",
+        "label": "dependency_timeout",
         "explanation": "From 15:41 the fraud-check dependency answers in about 2400 ms against a 2000 ms timeout (dep-fraud-check, metric-dependency_p99_ms) and checkout logs a timeout per held order (log-003). The error spike on the co-located worker is on a different request path (log-005), and no deployment landed in the window.",
         "evidence_ids": ["dep-fraud-check", "metric-dependency_p99_ms", "log-003"]
       },
@@ -206,7 +206,7 @@
         "Checkout logs a timeout per held order (log-003).",
         "The circuit breaker was opened after operator approval and the symptoms cleared."
       ],
-      "root_cause": "dependency_timeout_fraud_check",
+      "root_cause": "dependency_timeout",
       "evidence_ids": ["dep-fraud-check", "metric-dependency_p99_ms", "log-003"],
       "follow_ups": [
         "Ask the fraud-check owners why its latency rose at 15:41.",
@@ -248,7 +248,7 @@
         }
       ],
       "answer": {
-        "root_cause": "dependency_timeout_fraud_check",
+        "root_cause": "dependency_timeout",
         "action": "circuit_break_dependency",
         "target": "fraud-check",
         "params": {

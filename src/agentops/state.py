@@ -19,6 +19,27 @@ TARGET_MAX_LENGTH = 64
 INITIAL_INVESTIGATION_BUDGET = 12
 # Caps on model free text that is printed and re-sent in later prompts.
 HYPOTHESIS_NAME_MAX_LENGTH = 80
+# The shared root-cause catalogue (owner's decision, 2026-10-12). Root-cause accuracy is an exact
+# match against a scenario's ground truth, so triage and the baseline are shown this list and every
+# scenario labels its causes from it. Generic incident categories, not scenario answers: it holds
+# causes no scenario uses so the list itself gives nothing away.
+CAUSE_LABELS: tuple[str, ...] = (
+    "recent_deploy_regression",
+    "config_change",
+    "database_saturation",
+    "dependency_timeout",
+    "noisy_neighbour",
+    "traffic_spike",
+    "memory_pressure",
+    "cache_eviction",
+    "disk_saturation",
+    "network_partition",
+    "certificate_expiry",
+    "late_upstream_partition",
+    "upstream_volume_drop",
+    "schema_drift",
+    "ingestion_job_failure",
+)
 ESCALATION_SUMMARY_MAX_LENGTH = 1000
 MODEL_TEXT_MAX_LENGTH = 2000
 # An operator's reject reason reaches the audit file, the checkpoint and the next rca prompt.
