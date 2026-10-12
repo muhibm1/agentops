@@ -5,10 +5,146 @@ failure, proposes a remediation backed by cited evidence, stops for a human appr
 executes only allowlisted actions, each one exactly once. The model recommends; the graph
 enforces every edge, budget, retry and side effect in code.
 
-Status: increment 4, the measurement harness, plus the live model path. `agentops eval` scores
-the graph against a ReAct baseline, offline with the scripted model or on a live Anthropic model
-behind a spend guard (see [Measuring it](#measuring-it)); the first paid comparison has not been
-run yet. The graph runs triage, parallel evidence
+Status: increment 4, the measurement harness, plus the live model path. `agentops eval`
+scores the graph against a ReAct baseline, offline with the scripted model or on a live
+Anthropic model behind a spend guard (see [Measuring it](#measuring-it)). The paid dev runs
+are reported under [Results](#results); the held-out split has not been scored.
+
+## The problem
+
+When production breaks, the on-call engineer's first hour goes on reading logs, metrics and
+deploy history to decide what caused it, then on choosing a fix that does not make it worse. An
+agent can do the reading quickly, but an agent that also applies the fix unsupervised will
+eventually roll back the wrong deploy, or follow an instruction someone left in a log line.
+
+AgentOps keeps the agent for the reading and takes the decisions away from it: the model
+proposes, code enforces every step, and nothing changes in the target system until a person
+approves an action from a fixed allowlist.
+
+## How it works
+
+```mermaid
+flowchart LR
+    START((start)) --> triage
+    triage -->|one Send per useful source| logs & metrics & deploys
+    logs & metrics & deploys --> merge
+    merge -->|budget left, sources worth asking| logs
+    merge -->|enough evidence| rca
+    merge -->|budget spent or nothing found| escalate
+    rca -->|clear cause, allowlisted action| approval
+    rca -->|ambiguous or not allowed| escalate
+    approval -->|approve or valid edit| execute
+    approval -->|reject| logs
+    execute --> verify
+    execute -->|apply failed| escalate
+    verify -->|symptoms cleared| postmortem
+    verify -->|still failing| logs
+    verify -->|effect unknown| escalate
+    postmortem --> END((end))
+    escalate --> END
+```
+
+One typed `IncidentState` flows through the graph and is checkpointed to SQLite after every
+step. It has three kinds of field, and the split is the design:
+
+- **Belief**, written only from validated model output: hypotheses with scores, the root
+  cause, the proposed remediation, the postmortem and the escalation summary.
+- **Evidence**, append-only: every log line, metric series and deploy record read, and every
+  model and tool call with its tokens and latency.
+- **Control**, written only by graph code: status, the investigation budget, the loop count,
+  the approval record and the execution record. No model output schema contains a control field,
+  so a model cannot approve its own action or refill its own budget.
+
+## What is code and what is the model
+
+The model runs in four places: triage (list the plausible causes), root cause (re-score them
+against the evidence and propose one action), the postmortem, and the hand-off summary when the
+graph escalates. Everything else is code: which sources to read next, when the budget is spent,
+when two hypotheses are too close to call, whether an action is on the allowlist, whether its
+preconditions hold, whether it already ran, and whether the symptoms cleared afterwards.
+
+The reason is the cost of being wrong. A model that picks the wrong source wastes a read; a model
+that decides an action is allowed, or that the incident is fixed, can make the incident worse.
+So the model's answers are validated Pydantic objects whose cited evidence ids must exist in
+state, the evidence it reads is fenced behind a random marker and treated as data, and the
+action registry refuses anything not in `runbooks/default.yaml` however convincing the model is.
+
+## The approval boundary
+
+When the graph has a cause and an allowlisted action, it calls LangGraph's `interrupt()` and
+stops. The operator sees the proposed action, its target and parameters, the evidence it cites,
+a dry run of what would change and its idempotency key. They approve, reject with a reason (the
+graph goes back to investigate with that reason in its next prompt) or edit the remediation,
+which is validated again against the runbook before anything runs. No flag, environment variable
+or config can skip this step.
+
+After an approval, the executor checks the action's preconditions against the live evidence,
+writes the dry run to the append-only audit log, checks a ledger for the idempotency key,
+applies the action once, and records it. If the process dies right after the apply, `resume`
+finds the key in the ledger and never applies it twice; the crash demo under
+[When it fails](#when-it-fails) shows it in three commands.
+
+## Replaying a red herring
+
+In `deploy_red_herring_db`, a deploy lands four minutes before the database pool saturates. The
+deploy only changed a log level, but it is the obvious suspect. With the scripted model,
+`agentops history` shows the graph's belief changing as evidence arrives:
+
+```
+next: rca       top: recent_deploy_regression (0.50), database_saturation (0.45)  evidence: 12
+next: approval  top: database_saturation (0.90), recent_deploy_regression (0.10)  evidence: 12
+```
+
+Triage leans towards the deploy; once the pool metric and the deploy record are in, root cause
+flips to the database and proposes scaling the pool, citing the metric. Because every step is a
+checkpoint, `agentops fork <thread> --at <checkpoint> --set recent_deploy_regression=0.9` replays
+the investigation from any point with a belief I choose, under a new thread with its own ledger.
+That is how I debug a run that went wrong: not by re-reading a transcript, but by changing one
+belief at the step where it mattered and watching what the graph does next.
+
+## Results
+
+<!-- RESULTS -->
+
+## Two approaches to gated agents
+
+I built [WorkHorse](https://github.com/muhibm1/workhorse) first: a harness plugin
+that gates software delivery at two human approvals. AgentOps gates an incident response the same
+way, with a different mechanism, and the contrast is the useful part.
+
+| Question | WorkHorse (the harness hooks) | AgentOps (LangGraph) |
+|---|---|---|
+| Where is state? | Files and gate documents on disk, control state under `.git/workhorse/` | Typed state in a SQLite checkpointer |
+| How is a gate enforced? | A hook blocks the tool call | `interrupt()` pauses the graph |
+| How do you resume? | Re-run from the gate document | Resume the thread from its checkpoint |
+| How do you debug a bad run? | Read the record | Fork from any checkpoint |
+| Where does it break? | Gate state is local: an approval recorded on one machine stayed there when I moved this very change to the cloud, and had to be given again | The fake model hid prompt bugs: the first live run failed 10 of 10 on rules the code enforced but the prompts never stated, and on a strict parser that scripted answers never exercised |
+
+The lesson I take from the last row: an agent's control flow can be tested to a high standard
+without a model, and still fail on the first real call, because the tests' fake model answers
+in exactly the shape the code expects. A cheap live smoke run belongs in the loop from the start.
+
+## What I deliberately did not build
+
+- **A real evidence source.** v1 reads `SimulatorSource` over scenario files. The
+  `EvidenceSource` protocol is the seam for a real one, and every payload is already treated as
+  untrusted.
+- **Autonomous remediation.** There is no mode that applies an action without an approval
+  record, by design.
+- **A UI.** The operator works from the command line or LangGraph Studio; a console on the
+  LangGraph JS SDK is designed but not built.
+- **Many scenarios.** Eight hand-built scenarios, five for development and three held out, is
+  enough to show the method and too few for a general accuracy claim.
+
+Known failure modes are listed under [When it fails](#when-it-fails).
+
+How I evaluate a system like this is in [docs/eval-methodology.md](docs/eval-methodology.md),
+what the live runs taught me is in [docs/trace-mining.md](docs/trace-mining.md), and how a team
+would take it over is in [docs/handover.md](docs/handover.md).
+
+## Running it
+
+The graph runs triage, parallel evidence
 collection (logs, metrics, deploys), a merge step with an investigation budget, root-cause
 analysis, a human approval, execution of an allowlisted action, verification and a postmortem,
 with an escalation path, over eight simulated scenarios with a scripted model, so no API key is
