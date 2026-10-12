@@ -29,13 +29,13 @@ What it is not: an autonomous SRE, a Kubernetes project, or a UI project.
 
 | Project | Proves | Does not cover |
 |---|---|---|
-| WorkHorse | A gated agentic SDLC on the harness, 24 specialist agents, human approval at two gates, run data behind a real retirement decision | LangGraph; operating a system after it ships |
+| WorkHorse | A gated agentic SDLC with 24 specialist agents, human approval at two gates, run data behind a real retirement decision | LangGraph; operating a system after it ships |
 | Studbook and its MCP server | Evidence-grounded retrieval with citations and held-out evals | Stateful control flow |
 | My trading engine | Real engine invariants, event sourcing, a non-bypassable risk gate | An agent orchestration framework |
 | AgentOps | LangGraph state, interrupts, checkpoints, replay, LangSmith evals, incident operations | Everything above |
 
 The overlap with WorkHorse is deliberate and the README compares the two on the same questions
-(section 13). WorkHorse enforces gates with the harness hooks and files on disk. AgentOps enforces
+(section 13). WorkHorse enforces gates with hooks on every tool call and files on disk. AgentOps enforces
 them with a typed state graph and a checkpointer. Building both is the point: I have run the same
 idea in two runtimes and can say where each one breaks.
 
@@ -434,7 +434,7 @@ The README reads like the design review a customer would receive, in this order:
 
 Section 7 gets the most care, because an interviewer cannot get it from documentation:
 
-| Question | WorkHorse (the harness hooks) | AgentOps (LangGraph) |
+| Question | WorkHorse (tool-call hooks) | AgentOps (LangGraph) |
 |---|---|---|
 | Where is state? | Files and gate documents on disk | Typed state in a checkpointer |
 | How is a gate enforced? | A hook blocks the tool call | `interrupt()` pauses the graph |

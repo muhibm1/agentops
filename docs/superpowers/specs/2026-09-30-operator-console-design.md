@@ -14,7 +14,7 @@ yes. The console is that screen, built on the LangGraph JavaScript SDK against t
 Server API a customer would run in production.
 
 It also closes the one gap in my GitHub that the LangChain posting names directly: TypeScript
-on their stack. Every other project of mine that uses TypeScript is the harness tooling.
+on their stack. Every other project of mine that uses TypeScript is agent tooling.
 
 ## 2. What the operator can do
 
