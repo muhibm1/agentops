@@ -74,6 +74,7 @@ and who approved it?", read the `approval` and `apply` records with the same ide
 agentops eval --model scripted                    # free; checks the harness, not a model
 agentops eval --model anthropic --dev             # prints the plan and estimated cost, stops
 agentops eval --model anthropic --dev --yes       # spends it
+agentops compare before.json after.json           # per-scenario churn between two --json files
 ```
 
 The eval runs the graph and a ReAct baseline over the five dev scenarios and prints pass rates,

@@ -273,6 +273,25 @@ Exit codes: 0 when the measurement completed, even with failing rows; 1 for a us
 (including a tracing problem or a checksum mismatch); 2 when a scenario or dataset file cannot
 be read.
 
+### The loop
+
+Every change to the graph or a prompt goes through the same three steps, and each paid run is
+kept beside the version that produced it:
+
+```
+agentops eval --model anthropic --dev --repetitions 3 --yes --json runs/<commit>.json
+agentops compare runs/<previous>.json runs/<commit>.json
+```
+
+`agentops compare` reads two `--json` files and reports, per system, how each scenario moved:
+`better` when some pass-or-fail evaluator passed more often and none less, `worse` for the
+reverse, `mixed` for both, `same` otherwise, with the per-evaluator totals above and the
+evaluators that moved next to each scenario. Pass counts are summed over repetitions and
+compared by rate. A change ships when it leaves no scenario worse, or when the regression is
+named in the commit. The runs behind the [Results](#results) were compared this way; the
+record is in [docs/trace-mining.md](docs/trace-mining.md). Exit codes: 0 with the report; 2 when
+a file is not `agentops eval --json` output or the two share no scenario.
+
 ### The live model
 
 `--model anthropic` runs the graph's four model nodes, the baseline and the judge on Claude
