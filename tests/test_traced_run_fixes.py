@@ -5,8 +5,11 @@ because no prompt listed the runbook's names. Also the escalation reason, which 
 records did not keep."""
 
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
+from anthropic import transform_schema
+from pydantic import ValidationError
 
 from agentops.actions.registry import default_registry, describe_actions
 from agentops.baseline import baseline_prompt
@@ -138,3 +141,39 @@ def test_a_proposal_missing_a_required_parameter_escalates_before_approval() -> 
 
     assert fields["status"] == "investigating"
     assert fields["escalation_reason"] == "action_not_allowed"
+
+
+# The r3b run: every proposal of an action with a required parameter came back with no
+# parameters, because the SDK closes an open mapping into an object that may hold no keys.
+def closed_params_schema() -> dict[str, Any]:
+    schema = transform_schema(RcaOutput.model_json_schema())
+    return schema["$defs"]["Remediation"]["properties"]["params"]
+
+
+def test_the_schema_the_model_answers_to_can_carry_parameters() -> None:
+    params = closed_params_schema()
+
+    assert params["type"] == "array"
+    assert set(params["items"]["properties"]) == {"name", "value"}
+
+
+def test_parameters_arrive_as_pairs_and_are_kept_as_a_mapping() -> None:
+    proposed = remediation(params=[{"name": "fallback", "value": "manual_review_queue"}])
+
+    assert proposed.params == {"fallback": "manual_review_queue"}
+    assert proposed.model_dump()["params"] == {"fallback": "manual_review_queue"}
+    assert is_allowed(proposed, default_registry())
+
+
+@pytest.mark.parametrize(
+    "pairs",
+    [
+        [{"name": "fallback"}],
+        [{"name": "fallback", "value": "a", "extra": 1}],
+        [{"name": "fallback", "value": "a"}, {"name": "fallback", "value": "b"}],
+        ["fallback"],
+    ],
+)
+def test_malformed_parameter_pairs_are_refused(pairs: list[object]) -> None:
+    with pytest.raises(ValidationError):
+        remediation(params=pairs)
