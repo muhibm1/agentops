@@ -40,6 +40,29 @@ CAUSE_LABELS: tuple[str, ...] = (
     "schema_drift",
     "ingestion_job_failure",
 )
+# One generic sentence per label, so a model reading the catalogue tells apart neighbours such
+# as a job that failed and a job that ran before its input arrived. The definitions describe
+# categories, not any scenario's evidence.
+CAUSE_LABEL_DEFINITIONS: dict[str, str] = {
+    "recent_deploy_regression": "a recent deploy changed behaviour and the symptoms follow it",
+    "config_change": "a configuration change, not a code deploy, changed behaviour",
+    "database_saturation": "the database or its connection pool is at capacity",
+    "dependency_timeout": "a downstream service the affected one calls is slow or timing out",
+    "noisy_neighbour": "another workload on shared infrastructure is taking the resources",
+    "traffic_spike": "request volume rose beyond what the service handles",
+    "memory_pressure": "memory exhaustion or garbage collection pauses in the service",
+    "cache_eviction": "a cache was lost or evicted and the backing store takes the load",
+    "disk_saturation": "disk space or disk I/O is exhausted",
+    "network_partition": "hosts cannot reach each other",
+    "certificate_expiry": "a TLS certificate expired",
+    "late_upstream_partition": (
+        "a batch job ran to completion before its upstream input for the period had "
+        "arrived, so it succeeded on empty or partial input"
+    ),
+    "upstream_volume_drop": "the upstream source itself sent far less data than usual",
+    "schema_drift": "the shape of the input data changed and the consumer misreads it",
+    "ingestion_job_failure": "the ingestion or batch job itself failed, crashed or raised",
+}
 ESCALATION_SUMMARY_MAX_LENGTH = 1000
 MODEL_TEXT_MAX_LENGTH = 2000
 # An operator's reject reason reaches the audit file, the checkpoint and the next rca prompt.
@@ -86,6 +109,11 @@ class StrictModel(BaseModel):
 EVIDENCE_IDS_DESCRIPTION = (
     "Ids of evidence items shown to you, such as log-003 or metric-error_rate. Never free text."
 )
+
+
+def cause_catalogue() -> str:
+    """The catalogue as one prompt sentence: every label with its definition."""
+    return "; ".join(f"{label} ({CAUSE_LABEL_DEFINITIONS[label]})" for label in CAUSE_LABELS)
 
 
 class Hypothesis(StrictModel):

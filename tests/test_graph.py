@@ -39,13 +39,13 @@ from agentops.sources.base import LogLine, Window
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
 from agentops.state import (
-    CAUSE_LABELS,
     Action,
     CitationError,
     Escalation,
     IncidentState,
     RcaOutput,
     Triage,
+    cause_catalogue,
     new_incident,
 )
 
@@ -417,7 +417,7 @@ def assert_prompts_hide_the_grading_key_and_fence_the_evidence(
     # The ground-truth label is also a hypothesis name, so it legitimately returns in later
     # prompts; the triage prompt, built before any model output, must not hold it outside the
     # shared cause catalogue, which is the same for every scenario (owner's decision, 2026-10-12).
-    assert scenario.ground_truth.root_cause not in prompts[0].replace(", ".join(CAUSE_LABELS), "")
+    assert scenario.ground_truth.root_cause not in prompts[0].replace(cause_catalogue(), "")
     # The runbook's action list is the same for every scenario too, so the correct action may
     # appear inside it and nowhere else (decided 2026-10-12, after the traced live run).
     without_runbook = all_prompts.replace(describe_actions(default_registry()), "")
