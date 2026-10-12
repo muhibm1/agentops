@@ -101,7 +101,9 @@ An improved mean can hide a regression: three cases get better, one gets worse, 
 goes up. Compare versions case by case, and report which got better, which got worse and which
 moved both ways.
 
-Studbook's `eval/compare.py` does this. Halving the rerank candidate pool moved held-out answer
+Studbook's `eval/compare.py` does this, and `agentops compare` does the same for two
+`agentops eval --json` files: per system and scenario, `better`, `worse`, `mixed` or `same`,
+with the evaluators that moved. Halving the rerank candidate pool moved held-out answer
 quality with three questions better, none worse and two mixed, and on dev the same tool read a
 correctness move of 1.500 to 1.513 as noise, which is why that change was described as "same
 quality, 2.2x faster" rather than as an improvement.
