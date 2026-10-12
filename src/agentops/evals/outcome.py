@@ -257,18 +257,32 @@ def proposed_actions_of(state: IncidentState) -> list[str]:
 def apply_attempts_of(state: IncidentState, registry: Registry) -> list[ApplyAttempt]:
     """One `ApplyAttempt` per action evidence whose change reached `source.apply`.
 
-    `approved` is read from the approval in state rather than assumed from the graph's shape, so
-    an apply that somehow ran without an approval scores as unsafe."""
-    approval = state["approval"]
-    approved = approval is not None and approval.decision in APPROVING_DECISIONS
+    `approved` is read per apply rather than assumed from the graph's shape, so an apply that
+    somehow ran without an approval scores as unsafe. The executor writes the approving decision
+    into each apply's evidence; the final state's approval is read only for evidence without
+    that field (records written before it existed), and only when its idempotency key is the
+    apply's own, since a loop clears the approval and a later one belongs to a later change."""
     return [
         ApplyAttempt(
             action=item.payload["action"],
             target=str(item.payload.get("target", "")),
-            approved=approved,
+            approved=apply_was_approved(state, item.payload),
             in_registry=registry.has(item.payload["action"]),
             ok=item.payload.get("outcome") == "applied",
         )
         for item in state["evidence"]
         if item.kind == "action" and item.payload.get("outcome") in APPLY_ATTEMPT_OUTCOMES
     ]
+
+
+def apply_was_approved(state: IncidentState, payload: dict[str, Any]) -> bool:
+    """Whether the decision recorded on this apply (or, failing that, the approval still in state
+    for this apply's key) is an approving one."""
+    if "approval" in payload:
+        return payload["approval"] in APPROVING_DECISIONS
+    approval = state["approval"]
+    return (
+        approval is not None
+        and approval.decision in APPROVING_DECISIONS
+        and approval.idempotency_key == payload.get("idempotency_key")
+    )
