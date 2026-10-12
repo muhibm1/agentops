@@ -12,7 +12,12 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
 from agentops.actions.audit import AuditLog
-from agentops.actions.registry import Registry, describe_actions, idempotency_key
+from agentops.actions.registry import (
+    ParameterError,
+    Registry,
+    describe_actions,
+    idempotency_key,
+)
 from agentops.nodes import (
     UNTRUSTED_DATA_RULE,
     ask_model,
@@ -142,8 +147,17 @@ def outcome_fields(
 
 
 def is_allowed(remediation: Remediation | None, registry: Registry) -> bool:
-    """True when the remediation names an action the runbook declares (spec R13)."""
-    return remediation is not None and registry.has(remediation.action)
+    """True when the remediation names an action the runbook declares (spec R13) and its target
+    and parameters fit that action. Checked here as well as at execute, so an operator is never
+    asked to approve a proposal execute would refuse: the 2026-10-12 three-repetition run
+    approved `circuit_break_dependency` six times and execute refused it every time."""
+    if remediation is None or not registry.has(remediation.action):
+        return False
+    try:
+        registry.validate_params(remediation.action, remediation.params, remediation.target)
+    except ParameterError:
+        return False
+    return True
 
 
 def proposal_record(incident_id: str, remediation: Remediation) -> dict[str, Any]:

@@ -6,13 +6,15 @@ records did not keep."""
 
 from datetime import UTC, datetime
 
+import pytest
+
 from agentops.actions.registry import default_registry, describe_actions
 from agentops.baseline import baseline_prompt
 from agentops.evals.run import run_graph_once
-from agentops.nodes.rca import rca_human_prompt
+from agentops.nodes.rca import is_allowed, outcome_fields, rca_human_prompt
 from agentops.nodes.triage import TRIAGE_INSTRUCTIONS
 from agentops.sources.scenario import load_scenario
-from agentops.state import Hypothesis, Triage, new_incident
+from agentops.state import Hypothesis, RcaOutput, Remediation, Triage, new_incident
 from tests.conftest import SCENARIOS_DIR
 
 
@@ -75,3 +77,64 @@ def test_a_resolved_graph_run_records_no_escalation_reason() -> None:
 
     assert outcome.outcome == "remediated"
     assert outcome.escalation_reason is None
+
+
+# The three-repetition run (/mnt/project-files/agentops/live-eval-2026-10-12-r3): rca proposed
+# circuit_break_dependency with no parameters, the operator was asked to approve it, and execute
+# refused it because the runbook requires `fallback`.
+def remediation(**changes: object) -> Remediation:
+    fields: dict[str, object] = {
+        "action": "circuit_break_dependency",
+        "target": "fraud-check",
+        "params": {"fallback": "manual_review_queue"},
+        "reason": "the dependency is timing out",
+        "evidence_ids": ["dep-fraud-check"],
+        "risk": "medium",
+        "rollback": "close the circuit breaker",
+    }
+    fields.update(changes)
+    return Remediation.model_validate(fields)
+
+
+def test_the_action_line_states_every_parameter_constraint() -> None:
+    line = describe_actions(default_registry())
+
+    assert "fallback (string, required, matching ^[a-z0-9_]+$)" in line
+    assert "pool_size (integer, required, at least 8, at most 128)" in line
+
+
+def test_a_proposal_that_fits_its_runbook_entry_is_allowed() -> None:
+    assert is_allowed(remediation(), default_registry())
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"params": {}},
+        {"params": {"fallback": "fail-open"}},
+        {"params": {"fallback": "manual_review_queue", "extra": "x"}},
+        {"target": "fraud_check"},
+        {"action": "rollback_deployment"},
+    ],
+)
+def test_a_proposal_execute_would_refuse_is_not_allowed(changes: dict[str, object]) -> None:
+    assert not is_allowed(remediation(**changes), default_registry())
+
+
+def test_a_proposal_missing_a_required_parameter_escalates_before_approval() -> None:
+    result = RcaOutput.model_validate(
+        {
+            "hypotheses": [{"name": "dependency_timeout", "score": 0.9}],
+            "root_cause": {
+                "label": "dependency_timeout",
+                "explanation": "fraud-check times out",
+                "evidence_ids": ["dep-fraud-check"],
+            },
+            "remediation": remediation(params={}).model_dump(),
+        }
+    )
+
+    fields = outcome_fields(result, [], default_registry())
+
+    assert fields["status"] == "investigating"
+    assert fields["escalation_reason"] == "action_not_allowed"
