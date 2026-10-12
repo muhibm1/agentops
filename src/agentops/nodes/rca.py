@@ -41,8 +41,9 @@ AMBIGUITY_MARGIN = 0.15
 RCA_INSTRUCTIONS = (
     "You are the root-cause step of an incident investigation. Re-score every hypothesis you "
     "were given between 0 and 1 in light of the evidence, keeping each name exactly as it is and "
-    "citing the evidence ids that support or contradict it. If one cause stands out, name it as "
-    "a snake_case label that equals the highest-scored hypothesis and propose one remediation; "
+    "citing the evidence ids that support or contradict it. If one cause stands out, set its "
+    "label to the name of the highest-scored hypothesis, copied exactly, and propose one "
+    "remediation; "
     "both must cite the ids of the evidence items that support them, and only those ids. If no "
     "cause stands out, return both as null. "
 )
