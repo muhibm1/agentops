@@ -1,15 +1,28 @@
 # Trace mining
 
-The design asks for at least one router or prompt change that came from reading what the live
-runs actually did, rather than from what I expected them to do. This page is that record: what I
-read, what it showed, and what changed because of it.
+**In short.** Before AgentOps was ever run on a real model, 961 automated tests passed. The
+first paid run then failed every single incident, on bugs in my own code that no test with a
+stand-in model could have found. This page is the record of eleven paid runs, in order: what
+each run showed, what I changed because of it, and what the next run said about the change.
+The early changes fixed code; the later ones changed how the model is instructed and how its
+answers are checked; the last fixed the scoring itself. Reading what a system actually did,
+rather than what I expected it to do, is the method; the design asks for at least one change
+that came from it, and every change on this page did.
+
+A *run* here is one paid pass over the five development scenarios (scripted incidents with a
+known cause and a known right fix), usually three times each, on a live Claude model. The
+numbers quoted are passes out of 15 unless a run says otherwise.
 
 ## What I read
 
-LangSmith tracing was the plan. The runs were made from a cloud session whose network policy
-blocks `api.smith.langchain.com` (a 403 at the proxy), so no trace from these runs reached
-LangSmith. Tracing is wired (`--model anthropic` with `LANGSMITH_TRACING` set; see
-[Tracing](../README.md#tracing)) and will carry the same runs once that host is allowed.
+LangSmith tracing was the plan: a trace is the full record of one run, every model call and
+tool call with its inputs and outputs, kept on LangSmith's site where it can be opened and
+read. The eleven runs below were made from a cloud session whose network policy blocked
+`api.smith.langchain.com` (a 403 at the proxy), so none of them left a trace. The host was
+allowed later the same day, and a twelfth run, one repetition on Haiku at `5175228`, landed
+every trace in the LangSmith project `agentops` with no errors, which confirms the wiring
+(`--model anthropic` with `LANGSMITH_TRACING` set; see [Tracing](../README.md#tracing)). The
+findings on this page come from the run records, not from traces.
 
 Every run also leaves a record that does not depend on LangSmith: `agentops eval --json` writes one
 object per run with the final diagnosis, its cited evidence, the evidence collected before the
@@ -104,9 +117,13 @@ the eval discards it with the run's temporary directory.
 
 ## The second loop: from 9 of 15 to 14 of 15
 
-With no code causes left, the remaining misses were judgement, and each one is a change to the
-graph or a prompt, measured the same way (three repetitions, dev split, Haiku) and compared
-scenario by scenario with `agentops compare`.
+**In short.** Once the code bugs were gone, the misses that remained were judgement calls: the
+model naming the wrong cause, or refusing to choose between two. Each round below changed one
+thing about what the model is told or how its answer is checked, ran the same five scenarios
+three times on the cheaper model (Claude Haiku 4.5), and compared the result with the previous
+round scenario by scenario, so a better average could not hide a scenario getting worse. Four
+rounds took the right-end-state score from 9 of 15 to a plateau on Haiku, and to 14 of 15 on
+the default model, Claude Sonnet 5.5.
 
 | Version | Change | Graph right outcome | Exact cause | Safety | What moved |
 |---|---|---|---|---|---|
@@ -150,8 +167,16 @@ What each round taught:
 
 ## The held-out split, scored once
 
-`agentops eval --model anthropic --held-out --repetitions 3` at `64289e6`, Sonnet 5.5, three
-scenarios the loop never saw, $0.44 plus $0.04 for the judge, no failures, never rerun.
+**In short.** Three scenarios were kept aside through the whole loop and scored once, at the
+end, on the shipped version. They say how the system does on incidents it was never tuned on.
+AgentOps ended all nine runs in the right place, read the evidence first every time, and made
+no unapproved change; it named the exact cause in six of nine. The simpler baseline agent also
+ended all nine in the right place, but made an unapproved change in six of them and named the
+exact cause in three. These numbers are not used to change anything; by the method's rule, a
+held-out split that steers a change becomes a development split.
+
+The command was `agentops eval --model anthropic --held-out --repetitions 3` at `64289e6`,
+Sonnet 5.5, $0.44 plus $0.04 for the judge, no failures, never rerun.
 
 | Scenario | Graph | Baseline |
 |---|---|---|
