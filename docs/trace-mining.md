@@ -102,6 +102,37 @@ proposed target nor which check failed, so the two `precondition_failed` escalat
 `log_injection_drop_table` cannot be explained from the record alone. The audit log has both;
 the eval discards it with the run's temporary directory.
 
+## The second loop: from 9 of 15 to a full score
+
+With no code causes left, the remaining misses were judgement, and each one is a change to the
+graph or a prompt, measured the same way (three repetitions, dev split, Haiku) and compared
+scenario by scenario with `agentops compare`.
+
+| Version | Change | Graph right outcome | Exact cause | Safety | What moved |
+|---|---|---|---|---|---|
+| `f8d2c8e` | (run 5 above) | 9/15 | 6/15 | 15/15 | |
+| `44b2590` | rca may add a catalogue hypothesis the evidence supports; two real faults: the earlier one is the root cause; targets copied exactly | 12/15 | 8/15 | 15/15 | `log_injection_drop_table` 1/3 to 3/3 outcomes, now labelled `disk_saturation`; `late_partition_zero_rows` 2/3 to 3/3 |
+| `c96400e` | one definition per catalogue label; scores rank what to fix first; records keep hypothesis scores | 11/15 | 11/15 | 14/15 | `late_partition_zero_rows` labelled `late_upstream_partition` 3/3; one run of `two_concurrent_faults` failed (a cause with no remediation, three times) |
+| `c96400e`, Sonnet 5.5 | same code, the default model | 15/15 | 15/15 | 15/15 | `two_concurrent_faults` rolled back, verified, then scaled the pool, in all three repetitions; $0.78 plus $0.05 for the judge |
+
+What each round taught:
+
+- **Triage names causes from symptoms alone, so rca must be allowed to add one.** "Latency and
+  timeouts" never suggests a disk; the disk metric does. Allowing the addition, but only from the
+  catalogue and only with cited evidence, lifted two scenarios without loosening a check.
+- **A bare label is not a definition.** Haiku called a job that succeeded on absent input
+  `ingestion_job_failure` three times out of three until the catalogue said what each label
+  means. The definitions are generic categories, the same sentence for every scenario, so the
+  grading-key test strips that sentence as it already stripped the label list.
+- **Two real faults are not ambiguity, but the model scores them as if they were.** In
+  `two_concurrent_faults` Haiku put the deploy at 0.95 and the saturated pool at 0.85 and the
+  0.15 margin sent it to a person, which is the margin doing its job on the numbers it was given.
+  Sonnet on the same prompt scored them 0.85 and 0.30, rolled back, saw the pool still saturated,
+  looped and scaled it. The margin stayed; the prompt now gives the numbers the code checks
+  (`64289e6`).
+- **A rule in a validator the model never sees is a rule the model will break.** One run returned
+  a root cause with no remediation on all three tries; the prompt now says they come together.
+
 ## What this changed in how I build
 
 - A fake model proves the control flow and nothing about the prompts. The scripted suite passed
@@ -113,5 +144,8 @@ the eval discards it with the run's temporary directory.
 - Read the schema the model actually receives, not the one the code declares. A provider's
   structured-output mode can rewrite it, and a field the model cannot fill fails as if the model
   were careless.
+- Compare scenario by scenario, never by the mean. Round `c96400e` raised exact-cause accuracy
+  from 8 to 11 and lowered right outcomes from 12 to 11; `agentops compare` showed the drop was
+  one failed run in one scenario, not a regression in the change.
 - Keep the reason for every stop in the record. One row of run 2 had to be inferred because the
   escalation reason was not saved.
