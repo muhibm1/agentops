@@ -37,17 +37,18 @@ from agentops.nodes import configured_model_id, usage_action
 from agentops.sources.base import ActionRequest, ActionResult, EvidenceSource, Window
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import StrictModel
+from agentops.state import CAUSE_LABELS, StrictModel
 
 BaselineResult = Literal["remediated", "looped_then_remediated", "escalated", "failed"]
 
-BASELINE_PROMPT = """You are an on-call engineer investigating a production incident.
+BASELINE_PROMPT = f"""You are an on-call engineer investigating a production incident.
 Use the tools to read the service's logs, metrics, deployments, configuration and dependency
 health, decide the root cause, and apply one action that fixes it with the apply tool.
 Times are ISO 8601 in UTC, for example 2026-03-10T10:00:00Z.
+Name the root cause with one label from this list: {", ".join(CAUSE_LABELS)}.
 When you are done, reply with only a JSON object and no other text:
-{"root_cause": "<snake_case label>", "action": "<action applied or null>",
- "target": "<what it was applied to or null>", "params": {}}"""
+{{"root_cause": "<label>", "action": "<action applied or null>",
+ "target": "<what it was applied to or null>", "params": {{}}}}"""
 
 ANY_VALUE = TypeAdapter(Any)
 
@@ -315,11 +316,36 @@ def baseline_run(
 
 
 def parse_answer(final_message: BaseMessage) -> tuple[BaselineAnswer | None, str | None]:
-    """The answer and no failure, or no answer and the exception type name that stopped it."""
-    try:
-        return BaselineAnswer.model_validate(json.loads(final_message.text)), None
-    except (json.JSONDecodeError, ValidationError) as error:
-        return None, type(error).__name__
+    """The answer and no failure, or no answer and the exception type name that stopped it.
+
+    A live model often wraps the JSON it was asked for in prose or a fenced block, so the answer
+    is the last JSON object in the text that fits `BaselineAnswer`. With no JSON object the
+    failure is `JSONDecodeError`; with objects but none that fits, `ValidationError`."""
+    text = final_message.text
+    objects = json_objects_in(text)
+    for candidate in reversed(objects):
+        try:
+            return BaselineAnswer.model_validate(candidate), None
+        except ValidationError:
+            continue
+    return None, ("ValidationError" if objects else "JSONDecodeError")
+
+
+def json_objects_in(text: str) -> list[dict[str, Any]]:
+    """Every top-level JSON object in `text`, in order, skipping anything that does not parse."""
+    decoder = json.JSONDecoder()
+    found: list[dict[str, Any]] = []
+    position = text.find("{")
+    while position != -1:
+        try:
+            value, end = decoder.raw_decode(text, position)
+        except json.JSONDecodeError:
+            position = text.find("{", position + 1)
+            continue
+        if isinstance(value, dict):
+            found.append(value)
+        position = text.find("{", end)
+    return found
 
 
 def usage_of(reply: AIMessage, key: Literal["input_tokens", "output_tokens"]) -> int:

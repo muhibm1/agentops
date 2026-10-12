@@ -69,7 +69,7 @@
     }
   },
   "ground_truth": {
-    "root_cause": "schema_drift_in_ingestion",
+    "root_cause": "schema_drift",
     "correct_action": "rollback_deploy"
   },
   "required_evidence": ["log-002", "deploy-001"],
@@ -92,7 +92,7 @@
     "triage": {
       "hypotheses": [
         {
-          "name": "schema_drift_in_ingestion",
+          "name": "schema_drift",
           "score": 0.5,
           "supporting_evidence": [],
           "contradicting_evidence": []
@@ -108,7 +108,7 @@
     "rca": {
       "hypotheses": [
         {
-          "name": "schema_drift_in_ingestion",
+          "name": "schema_drift",
           "score": 0.85,
           "supporting_evidence": ["log-002", "deploy-001"],
           "contradicting_evidence": []
@@ -121,7 +121,7 @@
         }
       ],
       "root_cause": {
-        "label": "schema_drift_in_ingestion",
+        "label": "schema_drift",
         "explanation": "Version v5.2.0 (deploy-001) changed customer_ref from a string to a struct, and from 08:12 every batch is rejected with a schema mismatch (log-002). Batches are arriving and queueing in the dead-letter queue (log-006), so upstream volume has not dropped. No metric series exist for this service, so the diagnosis rests on logs and the deploy record.",
         "evidence_ids": ["log-002", "deploy-001"]
       },
@@ -142,7 +142,7 @@
         "From 08:12 every batch is rejected with a schema mismatch (log-002).",
         "The deployment was rolled back to v5.1.4 after operator approval and the symptoms cleared."
       ],
-      "root_cause": "schema_drift_in_ingestion",
+      "root_cause": "schema_drift",
       "evidence_ids": ["log-002", "deploy-001"],
       "follow_ups": [
         "Update the downstream readers to accept the struct column before redeploying v5.2.0.",
@@ -181,7 +181,7 @@
         }
       ],
       "answer": {
-        "root_cause": "schema_drift_in_ingestion",
+        "root_cause": "schema_drift",
         "action": "rollback_deploy",
         "target": "deploy-001",
         "params": {

@@ -89,8 +89,8 @@ def test_ambiguous_scenario_escalates_with_both_hypotheses(scenario: Scenario) -
     assert final["remediation"] is None
     assert final["root_cause"] is None
     assert {item.name for item in final["hypotheses"]} == {
-        "memory_pressure_gc_pauses",
-        "cache_cluster_eviction_storm",
+        "memory_pressure",
+        "cache_eviction",
     }
 
 
