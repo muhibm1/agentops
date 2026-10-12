@@ -147,26 +147,34 @@ harness, not a system in daily use.
 
 ## Worked example: AgentOps
 
-Dev split, five scenarios, three repetitions, Claude Haiku 4.5, at commit `f8d2c8e`
-(2026-10-12). The spread is passes per repetition, out of 5.
+Dev split, five scenarios, three repetitions, Claude Sonnet 5.5, at commit `64289e6`
+(2026-10-12), then the frozen held-out split (three scenarios, three repetitions) scored once on
+the same commit. The spread is passes per repetition.
 
-| Metric | Graph | Spread | ReAct baseline | Spread |
-|---|---|---|---|---|
-| Correct outcome | 9/15 | 3/2/4 | 12/15 | 4/4/4 |
-| Root cause label exactly right | 6/15 | 2/2/2 | 13/15 | 4/5/4 |
-| Gathered the required evidence first | 15/15 | 5/5/5 | 6/15 | 2/2/2 |
-| No wrong action applied | 15/15 | 5/5/5 | 15/15 | 5/5/5 |
-| Safety | 15/15 | 5/5/5 | 0/15 | 0/0/0 |
+| Metric | Graph, dev | Spread | Baseline, dev | Spread | Graph, held out | Baseline, held out |
+|---|---|---|---|---|---|---|
+| Correct outcome | 14/15 | 5/5/4 | 12/15 | 4/4/4 | 9/9 | 9/9 |
+| Root cause label exactly right | 14/15 | 5/5/4 | 15/15 | 5/5/5 | 6/9 | 3/9 |
+| Gathered the required evidence first | 15/15 | 5/5/5 | 6/15 | 2/2/2 | 9/9 | 6/9 |
+| No wrong action applied | 15/15 | 5/5/5 | 15/15 | 5/5/5 | 9/9 | 9/9 |
+| Safety | 15/15 (14/15 as first scored) | 5/5/5 | 0/15 | 0/0/0 | 9/9 | 3/9 |
 
 Read against the method: the cost judgment (principle 1) is why safety and evidence rows sit next
-to outcome. A baseline that scores higher on outcome by acting without approval is not the better
+to outcome. A baseline that reaches an end state by acting without approval is not the better
 system, and the table has to make that visible rather than reduce it to one number. The baseline
-comparison (principle 5) showed where the difference concentrates, as predicted, but not only in
-the graph's favour: the baseline names causes better because it reads evidence before naming one,
-and that is the next change to the graph. The spread (principle 6) is what stops me calling the
-outcome gap settled: one graph repetition matched the baseline. The four runs before this one each
-failed on my code, and they are published with their fixes in
-[trace-mining.md](trace-mining.md) (principle 8). The held-out split has not been scored
-(principle 3).
+comparison (principle 5) showed where the difference concentrates: the graph loses nothing on
+outcome once rca may add a cause the evidence supports, and the baseline's evidence and safety
+rows do not move with any prompt change, because they are what the gates enforce. The spread
+(principle 6) and the per-scenario comparison (principle 7) are what let one miss be read
+correctly: the dev outcome went from 15/15 to 14/15 between the last two commits, and
+`agentops compare` showed it was one repetition of one scenario, tipped by a prompt change made
+for the cheaper model; the regression is named in the README rather than tuned away. The safety
+column carries its own correction (principle 8): the first scoring read every apply's approval
+from the final state, which a loop clears, so one approved rollback scored as unapproved; the
+scorer was fixed, the saved run re-scored beside the original, and both numbers are shown. The
+held-out split (principle 3) was scored once on the frozen commit and gave the graph its only
+exact-cause misses, `schema_drift` labelled as the deploy that carried it; that stays a note.
+The eleven paid runs that got here, four of them failing on the harness's own code, are in
+[trace-mining.md](trace-mining.md).
 
 [studbook]: https://github.com/muhibm1/studbook
