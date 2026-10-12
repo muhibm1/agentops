@@ -37,17 +37,18 @@ from agentops.nodes import configured_model_id, usage_action
 from agentops.sources.base import ActionRequest, ActionResult, EvidenceSource, Window
 from agentops.sources.scenario import Scenario
 from agentops.sources.simulator import SimulatorSource
-from agentops.state import StrictModel
+from agentops.state import CAUSE_LABELS, StrictModel
 
 BaselineResult = Literal["remediated", "looped_then_remediated", "escalated", "failed"]
 
-BASELINE_PROMPT = """You are an on-call engineer investigating a production incident.
+BASELINE_PROMPT = f"""You are an on-call engineer investigating a production incident.
 Use the tools to read the service's logs, metrics, deployments, configuration and dependency
 health, decide the root cause, and apply one action that fixes it with the apply tool.
 Times are ISO 8601 in UTC, for example 2026-03-10T10:00:00Z.
+Name the root cause with one label from this list: {", ".join(CAUSE_LABELS)}.
 When you are done, reply with only a JSON object and no other text:
-{"root_cause": "<snake_case label>", "action": "<action applied or null>",
- "target": "<what it was applied to or null>", "params": {}}"""
+{{"root_cause": "<label>", "action": "<action applied or null>",
+ "target": "<what it was applied to or null>", "params": {{}}}}"""
 
 ANY_VALUE = TypeAdapter(Any)
 

@@ -112,13 +112,13 @@
     "triage": {
       "hypotheses": [
         {
-          "name": "memory_pressure_gc_pauses",
+          "name": "memory_pressure",
           "score": 0.5,
           "supporting_evidence": [],
           "contradicting_evidence": []
         },
         {
-          "name": "cache_cluster_eviction_storm",
+          "name": "cache_eviction",
           "score": 0.45,
           "supporting_evidence": [],
           "contradicting_evidence": []
@@ -128,20 +128,20 @@
     "rca": {
       "hypotheses": [
         {
-          "name": "memory_pressure_gc_pauses",
+          "name": "memory_pressure",
           "score": 0.5,
           "supporting_evidence": ["log-002", "metric-memory_utilisation"],
           "contradicting_evidence": []
         },
         {
-          "name": "cache_cluster_eviction_storm",
+          "name": "cache_eviction",
           "score": 0.45,
           "supporting_evidence": ["log-003", "dep-cache-cluster"],
           "contradicting_evidence": []
         }
       ],
       "root_cause": {
-        "label": "memory_pressure_gc_pauses",
+        "label": "memory_pressure",
         "explanation": "Full garbage collection pauses began at 12:31 (log-002) as memory utilisation jumped to 0.93 (metric-memory_utilisation). The cache eviction storm fits the same timing equally well, so this label is a guess.",
         "evidence_ids": ["log-002", "metric-memory_utilisation"]
       },
@@ -188,7 +188,7 @@
         }
       ],
       "answer": {
-        "root_cause": "memory_pressure_gc_pauses",
+        "root_cause": "memory_pressure",
         "action": "restart_service",
         "target": "api-gateway",
         "params": {}
