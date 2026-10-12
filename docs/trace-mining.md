@@ -87,6 +87,21 @@ Fixed in `f8d2c8e`: `params` stays a mapping everywhere in the code and on disk,
 model as a list of `{name, value}` pairs that the closed schema keeps. A test now runs the
 rca schema through `transform_schema` and checks the field survives.
 
+## Run 5: no code causes left
+
+At `f8d2c8e`, $0.48 plus a $0.02 check. The check stopped at approval proposing
+`circuit_break_dependency` on `fraud-check` with `fallback: accept`, so parameters now reach the
+runbook. The graph's correct outcomes went from 4/15 to 9/15; `dependency_timeout_noisy_neighbour`
+remediated in all three repetitions. What is left is judgement, not code: the graph names the
+wrong cause in `late_partition_zero_rows` and `log_injection_drop_table` while proposing the right
+action, and escalates `two_concurrent_faults` as ambiguous every time. The results and how I read
+them are in the README's [Results](../README.md#results).
+
+One gap in the record remains: when a precondition fails, the run record keeps neither the
+proposed target nor which check failed, so the two `precondition_failed` escalations on
+`log_injection_drop_table` cannot be explained from the record alone. The audit log has both;
+the eval discards it with the run's temporary directory.
+
 ## What this changed in how I build
 
 - A fake model proves the control flow and nothing about the prompts. The scripted suite passed
