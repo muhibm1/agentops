@@ -147,6 +147,14 @@ harness, not a system in daily use.
 
 ## Worked example: AgentOps
 
+**In short.** AgentOps is an incident-response agent that must get a person's approval before
+it changes anything. It was scored against a simpler agent that acts on its own, on eight
+scripted incidents run three times each: five used while improving it (the dev split) and three
+kept aside and scored once at the end (the held-out split). The table shows why one number would
+mislead: the simpler agent names the cause as well or better on the dev incidents, and reaches
+the right end state nearly as often, but it does so by acting without approval in 21 of its 24
+runs. The questions in the rows are explained in the AgentOps README under Results.
+
 Dev split, five scenarios, three repetitions, Claude Sonnet 5.5, at commit `64289e6`
 (2026-10-12), then the frozen held-out split (three scenarios, three repetitions) scored once on
 the same commit. The spread is passes per repetition.
