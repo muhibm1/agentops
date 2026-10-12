@@ -15,10 +15,14 @@ numbers quoted are passes out of 15 unless a run says otherwise.
 
 ## What I read
 
-LangSmith tracing was the plan. The runs were made from a cloud session whose network policy
-blocks `api.smith.langchain.com` (a 403 at the proxy), so no trace from these runs reached
-LangSmith. Tracing is wired (`--model anthropic` with `LANGSMITH_TRACING` set; see
-[Tracing](../README.md#tracing)) and will carry the same runs once that host is allowed.
+LangSmith tracing was the plan: a trace is the full record of one run, every model call and
+tool call with its inputs and outputs, kept on LangSmith's site where it can be opened and
+read. The eleven runs below were made from a cloud session whose network policy blocked
+`api.smith.langchain.com` (a 403 at the proxy), so none of them left a trace. The host was
+allowed later the same day, and a twelfth run, one repetition on Haiku at `5175228`, landed
+every trace in the LangSmith project `agentops` with no errors, which confirms the wiring
+(`--model anthropic` with `LANGSMITH_TRACING` set; see [Tracing](../README.md#tracing)). The
+findings on this page come from the run records, not from traces.
 
 Every run also leaves a record that does not depend on LangSmith: `agentops eval --json` writes one
 object per run with the final diagnosis, its cited evidence, the evidence collected before the
