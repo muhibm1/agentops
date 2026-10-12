@@ -315,11 +315,36 @@ def baseline_run(
 
 
 def parse_answer(final_message: BaseMessage) -> tuple[BaselineAnswer | None, str | None]:
-    """The answer and no failure, or no answer and the exception type name that stopped it."""
-    try:
-        return BaselineAnswer.model_validate(json.loads(final_message.text)), None
-    except (json.JSONDecodeError, ValidationError) as error:
-        return None, type(error).__name__
+    """The answer and no failure, or no answer and the exception type name that stopped it.
+
+    A live model often wraps the JSON it was asked for in prose or a fenced block, so the answer
+    is the last JSON object in the text that fits `BaselineAnswer`. With no JSON object the
+    failure is `JSONDecodeError`; with objects but none that fits, `ValidationError`."""
+    text = final_message.text
+    objects = json_objects_in(text)
+    for candidate in reversed(objects):
+        try:
+            return BaselineAnswer.model_validate(candidate), None
+        except ValidationError:
+            continue
+    return None, ("ValidationError" if objects else "JSONDecodeError")
+
+
+def json_objects_in(text: str) -> list[dict[str, Any]]:
+    """Every top-level JSON object in `text`, in order, skipping anything that does not parse."""
+    decoder = json.JSONDecoder()
+    found: list[dict[str, Any]] = []
+    position = text.find("{")
+    while position != -1:
+        try:
+            value, end = decoder.raw_decode(text, position)
+        except json.JSONDecodeError:
+            position = text.find("{", position + 1)
+            continue
+        if isinstance(value, dict):
+            found.append(value)
+        position = text.find("{", end)
+    return found
 
 
 def usage_of(reply: AIMessage, key: Literal["input_tokens", "output_tokens"]) -> int:
