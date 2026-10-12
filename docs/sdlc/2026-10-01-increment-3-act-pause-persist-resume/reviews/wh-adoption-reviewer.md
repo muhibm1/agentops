@@ -10,9 +10,9 @@ Adoption score: 4
 Findings outside scope: none
 Not verified: Ran `PYTHONPATH=src python -m agentops --help`: failed with `No module named 'typer'` (dependencies not installed in this environment), so documented commands were not executed; `agentops` entry point confirmed only by reading `src/agentops/cli.py` (run, approve, resume, history, fork all defined) and `__main__.py`. Confirmed by reading: every new module under `actions/` and the four new nodes carries a module docstring; five ADRs added and linked from the spec; spec observability section matches the CLI report and audit log description (not checked line by line against code). Tests not run.
 
-## Re-check (after f2dfd3a..decc79b)
+## Re-check (after 228bbbc..285d25e)
 
-- medium, README "When it fails": closed. confirmed: `git show be67282` adds a "When it fails" section covering exit 2 (run failure and unusable state file), audit write failure before and after apply, `apply_failed`, and a refused `approve`; it says not to delete `agentops.sqlite` and when `resume` is safe. The audit-after-apply recovery claim is backed by commit decc79b's new test in tests/test_executor.py (believed, not run).
+- medium, README "When it fails": closed. confirmed: `git show b0b6ebe` adds a "When it fails" section covering exit 2 (run failure and unusable state file), audit write failure before and after apply, `apply_failed`, and a refused `approve`; it says not to delete `agentops.sqlite` and when `resume` is safe. The audit-after-apply recovery claim is backed by commit 285d25e's new test in tests/test_executor.py (believed, not run).
 - low, runbook action how-to: closed. confirmed: CONTRIBUTING.md "Adding a runbook action" names runbook.py, preconditions.py, tests/test_runbook.py and tests/test_preconditions.py.
 - low, `--operator` and path options: closed. confirmed: README now lists `--state-db`, `--audit-dir`, `--scenarios-dir` defaults and the `--operator` roles.
 - No new blockers from the code fixes (read stat only; docs are the only user-facing change). Tests and commands not run (typer missing earlier; not retried).

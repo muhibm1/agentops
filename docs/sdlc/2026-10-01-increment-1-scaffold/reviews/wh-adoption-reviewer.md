@@ -12,7 +12,7 @@ Checked and fine (confirmed by reading): README links resolve to existing files 
 Findings outside scope: none
 Not verified: ran no commands (no install, pytest, ruff or pyright); documented commands were checked only by reading CONTRIBUTING.md, CLAUDE.md, the hook and cli.py. The repo has a `.venv` but I did not run `agentops --help`. No runbook exists in this increment; the spec scopes it out (runbook arrives later), so not raised as a finding.
 
-## Re-check (fix commit db61178)
+## Re-check (fix commit 52c47cb)
 
 Adoption score: 4 (unchanged; no blockers below 4)
 

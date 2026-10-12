@@ -10,8 +10,8 @@ Not verified: I read the diff only; ran no tests, ruff, or mypy. The medium find
 
 ## Re-check
 
-Verdict: both findings closed (confirmed by reading commits 5aca3b0, 058d641, c791a21; ran no tests).
+Verdict: both findings closed (confirmed by reading commits 9cfcaee, 40dfa6d, 2d5813e; ran no tests).
 
-- medium escalate.py reason re-derivation: closed. 5aca3b0 has merge write `escalation_reason` when it routes to escalate and rca write `ambiguous` when it clears the result; `escalation_reason()` reads the state first and only falls back to re-deriving for a node called alone. Tests added (test_rca_writes_ambiguous_as_the_reason..., test_merge.py).
-- low rca.py duplicate names: closed. 058d641 raises `RcaConsistencyError` naming the repeated names when the count differs and the set matches; `test_rca_rejects_a_duplicated_hypothesis_name` added. The set-mismatch branch still catches the other shapes.
-- New finding in changed code: none. c791a21 truncates the fallback summary to the cap and the model-reply path is validated by the new max_length.
+- medium escalate.py reason re-derivation: closed. 9cfcaee has merge write `escalation_reason` when it routes to escalate and rca write `ambiguous` when it clears the result; `escalation_reason()` reads the state first and only falls back to re-deriving for a node called alone. Tests added (test_rca_writes_ambiguous_as_the_reason..., test_merge.py).
+- low rca.py duplicate names: closed. 40dfa6d raises `RcaConsistencyError` naming the repeated names when the count differs and the set matches; `test_rca_rejects_a_duplicated_hypothesis_name` added. The set-mismatch branch still catches the other shapes.
+- New finding in changed code: none. 2d5813e truncates the fallback summary to the cap and the model-reply path is validated by the new max_length.

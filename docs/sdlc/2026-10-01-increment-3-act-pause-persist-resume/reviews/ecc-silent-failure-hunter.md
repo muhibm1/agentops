@@ -11,7 +11,7 @@ Verdict: 5 findings (0 critical, 1 high, 2 medium, 2 low)
 Findings outside scope: none
 Not verified: no code was run and no tests were executed; all findings come from reading `git diff main...HEAD` for executor.py, execute.py, approval.py, verify.py, audit.py, cli.py and simulator.py. The simulator was not checked for a torn final ledger line after a hard crash (a partial line raises `LedgerError` on replay, which fails loudly, so it was not reported).
 
-## Re-check (f2dfd3a..decc79b)
+## Re-check (228bbbc..285d25e)
 
 Verdict: 0 reopened, 0 new. All claims confirmed by reading the diff; no tests run.
 

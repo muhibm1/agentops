@@ -3,7 +3,7 @@
 Change id: `2026-10-01-increment-3-act-pause-persist-resume`
 Status: partial (checks green; evals not yet run)
 Run at: 2026-10-01T10:29:23.263Z UTC
-Commit: `8465aa2357cd`
+Commit: `55dc8806d62f`
 
 Status is green only when every defined check exited 0 and every eval category met its target.
 "No check defined" rows do not count as passes; they are listed so the gap is visible.

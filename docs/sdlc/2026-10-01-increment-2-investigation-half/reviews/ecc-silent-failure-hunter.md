@@ -11,13 +11,13 @@ Verdict: 5 findings (0 critical, 0 high, 3 medium, 2 low)
 Findings outside scope: none
 Not verified: tests and the graph were not run; LangGraph behaviour that conditional edges see post-merge state (loops already incremented) was read, not exercised.
 
-## Re-check (fixer commits 5aca3b0, 058d641, c791a21 and neighbours; read only, tests not run)
+## Re-check (fixer commits 9cfcaee, 40dfa6d, 2d5813e and neighbours; read only, tests not run)
 
 | # | Status | Evidence |
 |---|---|---|
 | 1 source outage reason | deferred to increment 3 (D6) | merge.py still returns only `no_evidence` or `budget_exhausted` |
 | 2 partial-evidence routing | deferred to increment 3 (D6) | after_rca unchanged in this respect |
-| 3 escalate no fallback | closed (confirmed by reading escalate.py:35-77) | 3 attempts catching CitationError and ValidationError, then code-built `fallback_escalation` with evidence_ids empty; status and reason still set; summary capped at ESCALATION_SUMMARY_MAX_LENGTH (c791a21) |
+| 3 escalate no fallback | closed (confirmed by reading escalate.py:35-77) | 3 attempts catching CitationError and ValidationError, then code-built `fallback_escalation` with evidence_ids empty; status and reason still set; summary capped at ESCALATION_SUMMARY_MAX_LENGTH (2d5813e) |
 | 4 reason re-derived | closed (confirmed by reading) | merge.py:41-42 and rca.py:74 write `escalation_reason` at the deciding node; escalate.py:84 uses it first and only falls back when unset |
 | 5 failure detail / attempt accounting | still open, low (not touched by any fix) | evidence.py:124 still records `type(error).__name__` only; timed_action docstring still says model errors are unrecorded |
 

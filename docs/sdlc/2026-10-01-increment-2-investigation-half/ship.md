@@ -1,6 +1,6 @@
 # Ship: increment 2 investigation half
 
-Change id: `2026-10-01-increment-2-investigation-half` · Tier 2 · Branch `wh/2026-10-01-increment-2-investigation-half` at code `ad3be8e` (docs-only head `22d1842`, plus this file) · PR https://github.com/muhibm1/agentops/pull/3
+Change id: `2026-10-01-increment-2-investigation-half` · Tier 2 · Branch `wh/2026-10-01-increment-2-investigation-half` at code `18d1c9b` (docs-only head `4e96f49`, plus this file) · PR https://github.com/muhibm1/agentops/pull/3
 Prepared 2026-10-01T06:55Z UTC · Design approved: see [approvals.md](./approvals.md)
 
 This is the Ship document. Approving it records G4. Nothing is deployed by an agent: the release is you merging the PR to main.
@@ -31,12 +31,12 @@ In plain words: before, one run read one fixed set of evidence and failed if a s
 | test | `.venv/Scripts/python.exe -m pytest -q` (239 passed, 1 skipped) | 0 | [test.log](./verify-logs/test.log) | confirmed |
 | security_audit | `.venv/Scripts/python.exe -m pip_audit -r requirements.txt` (0 vulnerabilities) | 0 | [security_audit.log](./verify-logs/security_audit.log) | confirmed |
 | evals | `pytest -v` over 12 eval files (216 passed, 1 skipped) | 0 | [evals.log](./verify-logs/evals.log) | confirmed |
-| CI on GitHub | Actions run 36826541286 (push) and 36826544455 (pull_request), ubuntu-24.04, MIN_TESTS 80, on `22d1842` | success | https://github.com/muhibm1/agentops/actions/runs/36826541286 | confirmed |
+| CI on GitHub | Actions run 36826541286 (push) and 36826544455 (pull_request), ubuntu-24.04, MIN_TESTS 80, on `4e96f49` | success | https://github.com/muhibm1/agentops/actions/runs/36826541286 | confirmed |
 | build, e2e, screenshot | no command in the profile | n/a | n/a | not run: no check defined |
 | install | skipped by `wh.js verify` (venv already built) | n/a | n/a | not run |
 
 Evals: golden 18/18, edge 8/8, failure 9/9, adversarial 3/3 (targets 100%; all met, confirmed). The one skip is the E12 case the eval text excludes. N1 17 s against 60 s, N2 239 tests against 80.
-This is the first real Actions run with the floor at 80 on the pinned runner; it passed (confirmed). The CI run covers `22d1842`, which differs from the code at `ad3be8e` only by docs; the commit holding this file triggers one more run (believed, not verified at writing time).
+This is the first real Actions run with the floor at 80 on the pinned runner; it passed (confirmed). The CI run covers `4e96f49`, which differs from the code at `18d1c9b` only by docs; the commit holding this file triggers one more run (believed, not verified at writing time).
 Known pre-existing failures: none (`wh.js known-failure list` reported none).
 
 ## What the reviewers found
@@ -47,29 +47,29 @@ Six reviewers: 0 critical, 0 high, 13 distinct medium (11 original, 2 raised by 
 |----------|----------|-----------|---------|------------|
 | medium | ecc-silent-failure-hunter | `nodes/evidence.py`, `nodes/merge.py` | A source that fails both attempts looks like "no evidence"; no `source_outage` reason | accepted: deferred, conductor D6, increment 3; see [ecc-silent-failure-hunter.md](./reviews/ecc-silent-failure-hunter.md) |
 | medium | ecc-silent-failure-hunter | `nodes/rca.py` (`after_rca`) | A source down in both rounds is dropped; rca runs on partial evidence with the gap unmarked | accepted: deferred, conductor D6, increment 3; see [ecc-silent-failure-hunter.md](./reviews/ecc-silent-failure-hunter.md) |
-| medium | wh-bug (re-check) | `nodes/router.py:130` | Keywords after a prefix (`misconfigured_*`, `*_redeploy`) lost their source | fixed in `ad3be8e` |
-| medium | wh-bug (re-check) | `nodes/rca.py:100` | Duplicate triage names made a correct re-score fail | fixed in `ad3be8e` |
-| medium | wh-bug, ecc-python | `nodes/escalate.py:47` | Escalation reason re-derived after rca, could say `budget_exhausted` for an ambiguous result | fixed in `5aca3b0` |
-| medium | wh-bug | `nodes/router.py:118` | Raw substring keyword match misrouted `conversion_rate_drop` and others | fixed in `2eb69eb` (spec R2 wording updated in `ad3be8e`) |
-| medium | ecc-silent-failure-hunter | `nodes/escalate.py:35-41` | Three bad citations ended the run with no hand-off | fixed in `058d641`, summary cap in `c791a21` |
-| medium | wh-security | `tests/test_scenario_runs.py` | Untrusted-data rule not asserted per prompt; fence test could not fail | fixed in `4e1063f` (mutation-checked by the reviewer) |
-| medium | wh-adoption | `graph.py:31`, `evidence.py:5` | "ADR 0001" ambiguous between increments | fixed in `e1d996a` |
-| medium | wh-adoption | `CONTRIBUTING.md:66` | Scenario guide omitted the `escalate` answer | fixed in `e1d996a` |
-| medium | wh-conformance | `cli.py:137` | Failed-read count had no non-zero test | fixed in `18546cb` |
-| medium | wh-conformance | `.workhorse/profile.yml` | R15 release note not asserted by a test | fixed in `18546cb` |
-| medium | wh-conformance | `README.md`, `CLAUDE.md` | R16 stub-model sentence not asserted | fixed in `18546cb` |
+| medium | wh-bug (re-check) | `nodes/router.py:130` | Keywords after a prefix (`misconfigured_*`, `*_redeploy`) lost their source | fixed in `18d1c9b` |
+| medium | wh-bug (re-check) | `nodes/rca.py:100` | Duplicate triage names made a correct re-score fail | fixed in `18d1c9b` |
+| medium | wh-bug, ecc-python | `nodes/escalate.py:47` | Escalation reason re-derived after rca, could say `budget_exhausted` for an ambiguous result | fixed in `9cfcaee` |
+| medium | wh-bug | `nodes/router.py:118` | Raw substring keyword match misrouted `conversion_rate_drop` and others | fixed in `f40bf4d` (spec R2 wording updated in `18d1c9b`) |
+| medium | ecc-silent-failure-hunter | `nodes/escalate.py:35-41` | Three bad citations ended the run with no hand-off | fixed in `40dfa6d`, summary cap in `2d5813e` |
+| medium | wh-security | `tests/test_scenario_runs.py` | Untrusted-data rule not asserted per prompt; fence test could not fail | fixed in `498eef6` (mutation-checked by the reviewer) |
+| medium | wh-adoption | `graph.py:31`, `evidence.py:5` | "ADR 0001" ambiguous between increments | fixed in `9541864` |
+| medium | wh-adoption | `CONTRIBUTING.md:66` | Scenario guide omitted the `escalate` answer | fixed in `9541864` |
+| medium | wh-conformance | `cli.py:137` | Failed-read count had no non-zero test | fixed in `4a4daf0` |
+| medium | wh-conformance | `.workhorse/profile.yml` | R15 release note not asserted by a test | fixed in `4a4daf0` |
+| medium | wh-conformance | `README.md`, `CLAUDE.md` | R16 stub-model sentence not asserted | fixed in `4a4daf0` |
 | low | wh-security | `nodes/__init__.py:58` | Lookalike delimiters outside NFKC (U+2039, U+3008, zero-width split) pass; scripted model only today | open: deferred to increment 3 (conductor D7), nonce-per-prompt fix named in report |
 | low | wh-security | `nodes/router.py:91` | Up to 16 reads against a 12 budget (nominal cost checked, attempts charged) | open: deferred to increment 3 (conductor D7, D8) |
 | low | wh-bug | `nodes/escalate.py:63` | Rejected escalate attempt recorded with `latency_ms` 0.0 | open: left as a note (conductor D8); record only, nothing sums latency |
 | low | ecc-silent-failure-hunter | `evidence.py:124` | Failed read keeps the exception type name only, no message | open: not touched by any fix |
 | low | wh-adoption | `docs/ci.md` | Floor 80 against 239 real tests; a mass deletion would still pass | open: raising the floor touches `ci.yml` (sensitive), your call |
-| low | wh-security (re-check) | `nodes/escalate.py:52-66` | Rejected escalate attempts left no Action record | fixed in `ad3be8e` |
-| low | wh-security | `state.py` | No length cap on hypothesis name and summary | fixed in `c791a21` |
-| low | wh-security, ecc-silent-failure-hunter | `nodes/escalate.py` | Reason recomputed, not recorded | fixed in `5aca3b0` |
-| low | wh-security | `nodes/__init__.py:24` | Fullwidth `<<<end>>>` not neutralised | fixed in `4e1063f` (residual is the open row above) |
-| low | ecc-python, wh-bug | `nodes/rca.py:91` | Repeated name in the re-score passed the set check | fixed in `058d641` |
+| low | wh-security (re-check) | `nodes/escalate.py:52-66` | Rejected escalate attempts left no Action record | fixed in `18d1c9b` |
+| low | wh-security | `state.py` | No length cap on hypothesis name and summary | fixed in `2d5813e` |
+| low | wh-security, ecc-silent-failure-hunter | `nodes/escalate.py` | Reason recomputed, not recorded | fixed in `9cfcaee` |
+| low | wh-security | `nodes/__init__.py:24` | Fullwidth `<<<end>>>` not neutralised | fixed in `498eef6` (residual is the open row above) |
+| low | ecc-python, wh-bug | `nodes/rca.py:91` | Repeated name in the re-score passed the set check | fixed in `40dfa6d` |
 
-Spec conformance: 18 of 18 requirements traced to code and test (R1 to R16, N1, N2); the three test gaps the reviewer found are closed in `18546cb` (confirmed by grep, the conformance reviewer did not re-run). Adoption score: 4 (after re-check, no blockers).
+Spec conformance: 18 of 18 requirements traced to code and test (R1 to R16, N1, N2); the three test gaps the reviewer found are closed in `4a4daf0` (confirmed by grep, the conformance reviewer did not re-run). Adoption score: 4 (after re-check, no blockers).
 Not run by the security reviewer: AgentShield (`npx` denied by the permission classifier; the CLAUDE.md diff is descriptive text, read by hand). `pip_audit` was not run by that reviewer; the `security_audit` check above ran it and passed (confirmed).
 
 ## Decisions
@@ -131,4 +131,4 @@ Approve to record G4 (you then merge the PR to main yourself; no agent merges or
 
 ## Deploy record
 
-Owner merged PR #3 to main (merge commit 44f68f1107c4b038aca825255a97c0af7ffb0bb2, 2026-10-01T06:54:21Z, confirmed via GitHub). No environment in the profile has a deploy command, so nothing was deployed (confirmed from the run brief).
+Owner merged PR #3 to main (merge commit 4593a75d682400b85c6c102f2cbf7cd496fd7475, 2026-10-01T06:54:21Z, confirmed via GitHub). No environment in the profile has a deploy command, so nothing was deployed (confirmed from the run brief).

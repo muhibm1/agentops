@@ -3,7 +3,7 @@
 Change id: `2026-10-01-increment-2-investigation-half`
 Status: green
 Run at: 2026-10-01T06:42:13.544Z UTC
-Commit: `ad3be8ecf295`
+Commit: `988a25f38f62`
 
 Status is green only when every defined check exited 0 and every eval category met its target.
 "No check defined" rows do not count as passes; they are listed so the gap is visible.
@@ -53,7 +53,7 @@ None. `known-failure list` reported no failures recorded.
 
 ## Failures and fixes
 
-Two review fix rounds (058d641 to ad3be8e). Checks re-ran green at ad3be8e and all evals were re-run in full: no failures remain.
+Two review fix rounds (40dfa6d to 18d1c9b). Checks re-ran green at 18d1c9b and all evals were re-run in full: no failures remain.
 
 ## Not verified
 

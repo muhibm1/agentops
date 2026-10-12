@@ -3,7 +3,7 @@
 Change id: `2026-10-02-increment-4-no-spend-measurement-harness`
 Version: none (no version tag; the release is the merge to main)
 PR: #10 (merged by the main session on the owner's standing instruction)
-Merged commit: `9e3af266fa3f55dac3cb06ed9ce1e8899ad73605` (includes the G4 approval commit eff2a4e)
+Merged commit: `82d201c1724a634e3dccd50da8fd8971436bf9e6` (includes the G4 approval commit 6376c6a)
 
 ## Changelog
 
@@ -24,7 +24,7 @@ Config and secrets touched (names only): none.
 
 ## Rollback
 
-The release was the merge. Rollback is a revert of merge commit 9e3af266fa3f55dac3cb06ed9ce1e8899ad73605 through a new pull request (`git revert -m 1 9e3af26`, then PR to main; only the owner pushes to main). Not rehearsed: no environment exists to rehearse in, and the change is a local measurement harness.
+The release was the merge. Rollback is a revert of merge commit 82d201c1724a634e3dccd50da8fd8971436bf9e6 through a new pull request (`git revert -m 1 82d201c`, then PR to main; only the owner pushes to main). Not rehearsed: no environment exists to rehearse in, and the change is a local measurement harness.
 
 ## Runbook
 
@@ -38,7 +38,7 @@ Nothing runs in production, so nothing is watched after release. Check that CI o
 
 | Environment | At (UTC) | By | Commit | Result |
 |-------------|----------|----|--------|--------|
-| none | n/a | n/a | 9e3af26 | merged only; nothing deployed |
+| none | n/a | n/a | 82d201c | merged only; nothing deployed |
 
 ## Your decision
 

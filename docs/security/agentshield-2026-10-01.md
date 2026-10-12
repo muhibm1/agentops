@@ -5,7 +5,7 @@ asked the owner to run the scan by hand because the agent harness refused to.
 
 ## How it was run
 
-By the owner, from the repository root on `main` at `98862d1`:
+By the owner, from the repository root on `main` at `17eea9e`:
 
 ```
 npx -y ecc-agentshield@1.6.0 scan --path . --min-severity high --format json
@@ -44,7 +44,7 @@ is a regular expression applied one line at a time, and the new section wrapped 
 100 columns and used verbs the patterns do not list. The defences were in the file but invisible
 to the scanner. It did credit the new deny list and named three gaps in it.
 
-**2026-10-02, by the main session, on `main` at `0f7c99f`, after #8:** grade A, 100, zero findings.
+**2026-10-02, by the main session, on `main` at `c33a802`, after #8:** grade A, 100, zero findings.
 `#8` states each boundary on one line, copies the scanner's five patterns into
 `tests/test_agent_safety_config.py` (confirmed failing against the previous `CLAUDE.md`), adds
 `~/.ssh`, `~/.aws`, `sudo` and `rm -rf` to the deny list, and puts `curl`, `wget` and

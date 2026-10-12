@@ -16,7 +16,7 @@ Not verified:
 - cli.py report rendering (lines 440 to the end) was only partly read.
 - The edges of the reject loop and the approval-refusal loop were checked and look correct (rca filters non-runbook actions, so execute's `refused` path cannot be reached from a normal approve).
 
-## Re-check (f2dfd3a..decc79b)
+## Re-check (228bbbc..285d25e)
 
 | Finding | Status | Label | Basis |
 |---|---|---|---|
@@ -31,9 +31,9 @@ New finding in fixed code:
 |---|---|---|---|---|
 | medium | src/agentops/actions/executor.py:184-186, 300-311; src/agentops/nodes/verify.py:139-141 | A plain repeat of a key applied earlier in the same run is now `applied=True`, so verify loops instead of escalating `symptoms_persist`. | Key is `idempotency_key(incident_id, remediation)` (executor.py:169), so it is stable across loops. Run `two_concurrent_faults`; `rollback_deploy` applies, verify does not clear, loop; the model proposes `rollback_deploy` with the same target and params again; the operator approves. `find_recorded_execution` returns `already_applied` with `applied=True`; verify again does not clear; `next_step_fields` sees `execution.applied` and loops again, asking for another approval each round, until `budget_exhausted`. Expected (before the fix, and per the verify.py docstring "while the last execution changed something"): `symptoms_persist` after the first repeat. Confirmed by reading the code; not run. Eval gap: E58 sets `applied=False` by hand and does not go through the executor; needed: a repeat-in-a-later-loop case asserting `symptoms_persist`. | executor.py `already_applied`: set `applied=True` only when no action evidence in `state["evidence"]` already records this key with `applied is True` (the crash-recovery case); otherwise keep `applied=False`. |
 
-Re-check scope: read only `git diff f2dfd3a..decc79b` for executor.py, audit.py, postmortem.py, rca.py, verify.py, scenario.py, simulator.py, state.py, base.py and the two scenario files, plus executor.py key derivation, execute.py:1-60 and tests/test_verify_postmortem.py:200-225. The other changed files (registry, preconditions, runbook, cli, approval) were not re-checked: none of my findings touched them.
+Re-check scope: read only `git diff 228bbbc..285d25e` for executor.py, audit.py, postmortem.py, rca.py, verify.py, scenario.py, simulator.py, state.py, base.py and the two scenario files, plus executor.py key derivation, execute.py:1-60 and tests/test_verify_postmortem.py:200-225. The other changed files (registry, preconditions, runbook, cli, approval) were not re-checked: none of my findings touched them.
 
-## Re-check 2 (decc79b..HEAD, fix in e5bd16f)
+## Re-check 2 (285d25e..HEAD, fix in c8e88e0)
 
 | Finding | Status | Label | Basis |
 |---|---|---|---|
@@ -41,4 +41,4 @@ Re-check scope: read only `git diff f2dfd3a..decc79b` for executor.py, audit.py,
 | crash recovery still `applied=True` | holds | confirmed by reading the code and running tests | `crash_after_apply` exits inside `apply_and_audit` before the outcome reaches state, so no action evidence records the key; resume takes the ledger branch and `applied_in_evidence` is False, giving `applied=True`. Covered by test_executor.py:452, :700, :720 and by test_cli_lifecycle.py two-faults crash test (resume loops to `scale_db_pool`, then resolves). |
 
 Commands: `.venv/Scripts/python.exe -m pytest -q tests/test_executor.py tests/test_verify_postmortem.py tests/test_state.py tests/test_cli.py` exit 0, 143 passed; `.venv/Scripts/python.exe -m pytest -q tests/test_cli_lifecycle.py` exit 0, 14 passed (both confirmed, output read in the terminal).
-New findings: none. Other commits in range (2713b6c cli message cut, 8465aa2 max_length caps) read; no wrong-result path found (confirmed by reading the diff).
+New findings: none. Other commits in range (acbb06f cli message cut, 8081b87 max_length caps) read; no wrong-result path found (confirmed by reading the diff).

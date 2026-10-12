@@ -24,7 +24,7 @@ Not verified:
 - `pip_audit` was not run. requirements.txt is unchanged in this diff.
 - Whether the actual test count meets `MIN_TESTS: "80"` was not checked. That is the verifier's job.
 
-## Re-check (fixer commits 5aca3b0, 2eb69eb, 058d641, 4e1063f, 18546cb, e1d996a, c791a21)
+## Re-check (fixer commits 9cfcaee, f40bf4d, 40dfa6d, 498eef6, 4a4daf0, 9541864, 2d5813e)
 
 Verdict: 4 of 5 closed, 1 still open, 1 narrowed residual reopened, 1 new low. `.venv/Scripts/python.exe -m pytest -q` exit 0, 234 passed, 1 skipped.
 

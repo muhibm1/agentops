@@ -16,30 +16,30 @@ Not verified:
 - The unknown-effect path (executor.py:251-259, verify.py:146-147, postmortem/rca/cli readers) and the crash-between-effect-and-record recovery (executor.py:186-195) were traced: no failure scenario found. Note: after `apply_unknown` verify either resolves or escalates, so `possibly_applied_action_names` in rca.py cannot be reached by a graph run today (believed, from the edges).
 - Test suite not run by this reviewer; the two confirmations above come from scratch scripts run against the repository `.venv`.
 
-## Re-check (fixes 78bc4a4..866c2f2)
+## Re-check (fixes 9521f87..93cc3c8)
 
 Verdict: 4 of 5 closed, 1 open (low); 2 new findings (0 critical, 0 high, 2 medium, 0 low)
 
 | Finding | Status | Evidence |
 |---|---|---|
-| medium preconditions.py:224 substring target | closed | b0835b2: whole-token regex, preconditions.py:225-227; test_target_named_in_logs_fails_when_the_target_is_inside_a_longer_name (confirmed in source; suite passes) |
-| medium simulator.py ledger repair not crash safe | closed | b8cfd7d: scratch script against the fixed code, LF ledgers: cases a (`frag\n`), b (`frag\n{"torn_se`), seal without newline, torn entry after a seal, each replayed, appended twice, replayed again with the right keys (confirmed). See new finding N1 for CRLF |
-| medium dataset.py/commands.py dev split skips checksums | closed | 7f3b10a: commands.py:84 calls `require_matching_checksums` for both splits; three new tests in test_eval_cli.py (confirmed in source) |
-| medium baseline.py:280 no looped label | closed | c1260f6: baseline.py:282 and outcome.py:146 share `remediation_label` (accepted applies >= 2) (confirmed in source; four new tests) |
+| medium preconditions.py:224 substring target | closed | 710a4c1: whole-token regex, preconditions.py:225-227; test_target_named_in_logs_fails_when_the_target_is_inside_a_longer_name (confirmed in source; suite passes) |
+| medium simulator.py ledger repair not crash safe | closed | 610c0c4: scratch script against the fixed code, LF ledgers: cases a (`frag\n`), b (`frag\n{"torn_se`), seal without newline, torn entry after a seal, each replayed, appended twice, replayed again with the right keys (confirmed). See new finding N1 for CRLF |
+| medium dataset.py/commands.py dev split skips checksums | closed | 4df5668: commands.py:84 calls `require_matching_checksums` for both splits; three new tests in test_eval_cli.py (confirmed in source) |
+| medium baseline.py:280 no looped label | closed | 7f8f268: baseline.py:282 and outcome.py:146 share `remediation_label` (accepted applies >= 2) (confirmed in source; four new tests) |
 | low outcome.py:200 already_applied not counted | open | outcome.py:195-212 unchanged; `ok` is only `outcome == "applied"`. Still unreachable from `agentops eval` (believed, not verified) |
 
 New findings (code the fixes changed):
 
 | Severity | File:line | Finding | Failure scenario | Fix |
 |---|---|---|---|---|
-| medium | src/agentops/sources/simulator.py:304 (with :287, :199) | On Windows the text-mode append writes `\r\n`; a tear between `\r` and `\n` leaves a last line that is JSON, so the repair adds only `\n` and the next replay finds an empty line before an entry and raises | Ledger `<entry k1>\r\n`, torn to `<entry k1>\r` (power loss or full disk, same assumption as before). Replay passes (`{...}\r` is JSON). Next apply: `repair_separator` returns `"\n"`, written as `\r\n` -> `<k1>\r\r\n<k2>\r\n`; `splitlines` gives `[k1, "", k2]`; `""` is not JSON and is followed by k2 -> LedgerError "line 2 is not JSON and is followed by more entries"; `resume`, `approve`, `history` exit 2. Confirmed with a scratch script through `SimulatorSource` on this machine; the pre-fix code (78bc4a4) replays the same bytes without error (confirmed), so this is a regression. Expected: k1 and k2 replay. Eval gap: add E9c "a CRLF ledger cut between CR and LF still replays after the next append" | simulator.py:287: open the ledger with `newline="\n"` so no `\r` is written; and in `_replay`, skip a line that is empty after `strip()` instead of starting a torn run (existing CRLF files) |
+| medium | src/agentops/sources/simulator.py:304 (with :287, :199) | On Windows the text-mode append writes `\r\n`; a tear between `\r` and `\n` leaves a last line that is JSON, so the repair adds only `\n` and the next replay finds an empty line before an entry and raises | Ledger `<entry k1>\r\n`, torn to `<entry k1>\r` (power loss or full disk, same assumption as before). Replay passes (`{...}\r` is JSON). Next apply: `repair_separator` returns `"\n"`, written as `\r\n` -> `<k1>\r\r\n<k2>\r\n`; `splitlines` gives `[k1, "", k2]`; `""` is not JSON and is followed by k2 -> LedgerError "line 2 is not JSON and is followed by more entries"; `resume`, `approve`, `history` exit 2. Confirmed with a scratch script through `SimulatorSource` on this machine; the pre-fix code (9521f87) replays the same bytes without error (confirmed), so this is a regression. Expected: k1 and k2 replay. Eval gap: add E9c "a CRLF ledger cut between CR and LF still replays after the next append" | simulator.py:287: open the ledger with `newline="\n"` so no `\r` is written; and in `_replay`, skip a line that is empty after `strip()` instead of starting a torn run (existing CRLF files) |
 | medium | src/agentops/actions/executor.py:124 (with src/agentops/actions/audit.py:63) | The new approval gate trusts `read_records`, and `AuditLog.append` never repairs a torn last line, so a re-recorded approval joins the fragment and is unreadable; a real approval is then refused | The accepted `approval` record write in approval.py:66 is torn (crash mid-write). The node did not finish, so the thread is still at the interrupt; the operator runs `approve <thread> --decision approve` again and approval.py:66 appends the same record onto the fragment: `frag{"event": "approval", ...}\n` is one non-JSON line, skipped. `unrecorded_approval_problem` finds no record -> execute refuses -> the run escalates though the operator approved. Same for any record appended right after a torn one. Append-then-read confirmed with a scratch script (`records` returned `[]`); that the node re-runs on resume after the crash is believed, not verified. Expected: the second approval is recorded and executes. Eval gap: add E40 "an approval re-given after a torn audit write executes" | audit.py:63: before writing, if the file is non-empty and does not end in `\n`, write `\n` first, so a new record never joins a fragment |
 
 Re-check not verified:
 - The new approval gate on legitimate paths (approve, edit, crash-after-apply resume, two-approval loop, fork) was traced and found consistent: record and `Approval` share `decision.decision` and the key of `chosen` (approval.py:63-75) (confirmed by reading; `python -m pytest -q` 864 passed, 1 skipped, exit 0, run by this reviewer).
 - Evaluators `failed` -> False, `evidence_ids_at_proposal` raising, and the exit-1-when-all-failed rule gave no failure scenario.
 
-## Re-check 2 (fixes b4a5a8b, 6e98ed7, 17d6b56)
+## Re-check 2 (fixes c79d507, e8ba3b2, 310da3c)
 
 Verdict: N1, N2 closed; security R2 closed for the same thread, open for a second thread (1 new low). Earlier low (outcome.py:200) still open.
 
@@ -49,7 +49,7 @@ Verdict: N1, N2 closed; security R2 closed for the same thread, open for a secon
 | N2 medium audit.py torn line joins next record | closed | audit.py:65-66, :72-78 `missing_newline`. Probe (confirmed): `{"event": "approval", "valid": tr` + append -> one readable approval; legacy `...}\r` + append -> both records read. tests/test_executor.py `test_a_torn_approval_record_then_a_second_approval_applies_once` |
 | security R2 replay on a fresh source | closed for the same thread | executor.py:224. Graph probe (InMemorySaver, fresh `SimulatorSource` per run, confirmed): approve thread p1, then `update_state(as_node="approval", execution=None)` -> second apply record is `applied: false, already_applied`. See R2b for another thread |
 
-New finding (code 17d6b56 changed):
+New finding (code 310da3c changed):
 
 | Severity | File:line | Finding | Failure scenario | Fix |
 |---|---|---|---|---|
@@ -59,7 +59,7 @@ Findings outside scope (re-check 2): executor.py:217 (unchanged line) checks the
 
 Re-check 2 not verified: the dev-server HTTP path for writing a new thread's state (probed with the Python graph API only). `python -m pytest -q -p no:cacheprovider`: 876 passed, 1 skipped, exit 0 (run by this reviewer).
 
-## Re-check 3 (fix da5a079)
+## Re-check 3 (fix 4f10e42)
 
 Verdict: R2b closed; 0 new findings. Earlier low (outcome.py:200) still open, unchanged.
 
@@ -67,7 +67,7 @@ Verdict: R2b closed; 0 new findings. Earlier low (outcome.py:200) still open, un
 |---|---|---|
 | R2b low executor.py:124 approval gate not bound to the thread | closed | executor.py:134 adds `record.get("thread_id") == thread_id`; execute.py:42 passes the same `run_thread_id(config)` value the approval node stamps at approval.py:54/66 (confirmed by reading). E49 (test_cli_lifecycle.py) is the re-check 2 probe: copied state on p1-x is refused, escalates, no apply on either ledger. E50: a CLI fork records its own approval and applies (fork writes `as_node="triage"`, cli.py:240, so it always passes the approval node, which interrupts unconditionally, approval.py:57) (confirmed) |
 
-New findings in code da5a079 changed: none. Only caller of `unrecorded_approval_problem` is execute.py:42 (confirmed by grep); crash-after-apply resume and the two-approval loop stay on one thread, so their records still match (confirmed by reading).
+New findings in code 4f10e42 changed: none. Only caller of `unrecorded_approval_problem` is execute.py:42 (confirmed by grep); crash-after-apply resume and the two-approval loop stay on one thread, so their records still match (confirmed by reading).
 
 Findings outside scope: executor.py:217 any-thread apply lookup, as stated by the caller (known).
 

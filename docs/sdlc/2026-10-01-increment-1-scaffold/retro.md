@@ -2,7 +2,7 @@
 
 ## What happened
 
-The change took AgentOps from design documents to a runnable scaffold (CLI, graph, simulator, scripted model, CI) at tier 2. G2 and G4 were each approved first time with no rejections. Review found 5 mediums (4 fixed in db61178 along with 4 lows, plus one more medium closed on re-check) and the deploy step stalled because the permission classifier denied the shipper; the owner merged PR #1 himself (merge 45e026d).
+The change took AgentOps from design documents to a runnable scaffold (CLI, graph, simulator, scripted model, CI) at tier 2. G2 and G4 were each approved first time with no rejections. Review found 5 mediums (4 fixed in 52c47cb along with 4 lows, plus one more medium closed on re-check) and the deploy step stalled because the permission classifier denied the shipper; the owner merged PR #1 himself (merge 219757e).
 
 ## Clock
 
@@ -11,7 +11,7 @@ Agents 1 h 03 m, waiting on you 12 m, dead 1 m, wall 1 h 15 m (from ship.md, con
 ## What the pipeline caught
 
 - Design: auditor pass added D16 and D17 before G2.
-- Verify: green at 43da834, 38/38 evals; the 4 profile checks confirmed.
+- Verify: green at 8eed9e3, 38/38 evals; the 4 profile checks confirmed.
 - Review (6 reviewers, 0 critical, 0 high, 5 medium): terminal injection through model text (security), triage CitationError masked as ValidationError (bug), silent empty evidence (silent-failure), spec/code mismatch on action counts and README gap (adoption). A human reading the diff would plausibly have missed the first two.
 - Re-check closed all mediums; fix added 10 tests (66 to 76).
 

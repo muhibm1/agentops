@@ -53,7 +53,7 @@ not observed. The homoglyph or full-width delimiter variants (scenario 8) are de
 increment 2 by the spec and were not tested.
 
 
-## Re-check (fix commit db61178)
+## Re-check (fix commit 52c47cb)
 
 Verdict: 3 of 3 findings closed; 0 reopened; 0 new findings in the changed code.
 
@@ -77,4 +77,4 @@ and `CitationError` joins model-supplied ids unescaped (state.py:207), so a reje
 still put a newline or ESC on stderr. Same class as the closed medium, error path, low; fix: pass
 the sentence through `escape_for_terminal` in `fail()`. Backslashes are not escaped, so literal
 `\n` text and an escaped newline look alike; cosmetic, no line can be forged.
-Not verified (re-check): no green Actions run was seen for db61178.
+Not verified (re-check): no green Actions run was seen for 52c47cb.

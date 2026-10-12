@@ -11,4 +11,4 @@ scope: project
 Retry validation a bounded number of times, then build the hand-off in code from state. Never let the last node raise or end with no output.
 
 ## Evidence
-- ship.md findings table: medium, ecc-silent-failure-hunter, `nodes/escalate.py:35-41`, "Three bad citations ended the run with no hand-off"; fixed in 058d641 (decision C9).
+- ship.md findings table: medium, ecc-silent-failure-hunter, `nodes/escalate.py:35-41`, "Three bad citations ended the run with no hand-off"; fixed in 40dfa6d (decision C9).

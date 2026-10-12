@@ -13,11 +13,11 @@ Not covered: no runbook entry or observability notes for the escalation reasons 
 Findings outside scope: none
 Not verified: ran `python -m pytest -q` in ~/AgentOps; it failed at collection (ModuleNotFoundError: agentops) because the package is not installed in this shell, so test results and the documented commands were not confirmed. Read via git diff and grep only: README.md, CLAUDE.md, docs/ci.md, CONTRIBUTING.md, codebase-map.md, module headers.
 
-## Re-check (after fixer commits cc6ff2f..c791a21)
+## Re-check (after fixer commits c08ff22..2d5813e)
 
 | Finding | Status | Evidence |
 |---|---|---|
-| medium, ambiguous ADR cites | closed (confirmed) | `grep -rn "ADR [0-9]" src CLAUDE.md` excluding "increment-N ADR" returns nothing; graph.py, evidence.py, escalate.py now say "increment-1 ADR 0002" / "increment-2 ADR 0001" (e1d996a) |
+| medium, ambiguous ADR cites | closed (confirmed) | `grep -rn "ADR [0-9]" src CLAUDE.md` excluding "increment-N ADR" returns nothing; graph.py, evidence.py, escalate.py now say "increment-1 ADR 0002" / "increment-2 ADR 0001" (9541864) |
 | medium, CONTRIBUTING.md escalate answer | closed (confirmed) | CONTRIBUTING.md:65-73 now requires `escalate` (`summary`, `evidence_ids`) and names the three reasons; test_repo_documents.py asserts the reasons appear |
 | low, MIN_TESTS floor | still open (confirmed) | `pytest --collect-only -q` collects 235 tests; ci.yml:12 `MIN_TESTS: "80"`, docs/ci.md:28 says 80. Deleting about 150 tests would still pass. Fix: raise to about 230 in ci.yml and docs/ci.md. |
 

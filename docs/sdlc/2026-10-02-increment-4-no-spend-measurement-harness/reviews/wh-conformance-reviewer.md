@@ -1,6 +1,6 @@
 Verdict: 2 findings (0 critical, 0 high, 0 medium, 2 low)
 
-Forward trace (confirmed from diff stat, test names and spec; tests were not re-run, verification.md reports 784 passed at 78bc4a4)
+Forward trace (confirmed from diff stat, test names and spec; tests were not re-run, verification.md reports 784 passed at 9521f87)
 
 | Req | Code | Test | Status |
 |---|---|---|---|
@@ -29,7 +29,7 @@ Backward trace (git diff main...HEAD, 75 files)
 - scenarios/*.json (8), runbooks/default.yaml, evals/*: R9, R5/R6, R12. Planned in plan.md Files.
 - requirements*.txt: R18. langgraph.json, dev_server.py: R16.
 - docs (ADR 0001-0005, spec, plan, evals, brief, approvals, conductor-log): SDLC artifacts, harmless.
-- .workhorse/profile.yml (+2 lines): D13 ask-before for --held-out and --model anthropic (commit 9fc9c5d); necessary, ask-first path, decided in the brief. Not in the spec requirement table; harmless.
+- .workhorse/profile.yml (+2 lines): D13 ask-before for --held-out and --model anthropic (commit 56d265d); necessary, ask-first path, decided in the brief. Not in the spec requirement table; harmless.
 - Scope creep: none found.
 
 Plan conformance: all 9 tasks have commits; planned files all touched; unplanned touched files: .workhorse/profile.yml only (above).
@@ -42,4 +42,4 @@ Plan conformance: all 9 tasks have commits; planned files all touched; unplanned
 Known deviations check: seal marker (spec R4 and Design updated, tests/test_simulator.py:476, 540 and test_cli_lifecycle.py:449 cover it: documented); correct_outcome looped label = 2+ applies (spec.md:240 updated: documented); B1: code docstring only (finding 1).
 
 Findings outside scope: none
-Not verified: tests not re-run by this review (relied on verification.md, 784 passed at 78bc4a4); the 1 skipped test is not identified; evals.md case-to-test mapping taken from verification.md, not re-derived.
+Not verified: tests not re-run by this review (relied on verification.md, 784 passed at 9521f87); the 1 skipped test is not identified; evals.md case-to-test mapping taken from verification.md, not re-derived.
