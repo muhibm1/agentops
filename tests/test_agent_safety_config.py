@@ -1,8 +1,8 @@
 """AgentShield findings of 2026-10-01: the agent-facing safety rules stay in place.
 
 The scan flagged CLAUDE.md for missing indirect-injection and data-leakage defences. These tests
-keep the fix from being removed quietly: the the harness deny rules for secret files, and the
-CLAUDE.md section that tells agents to treat repository data as untrusted.
+keep the fix from being removed quietly: the deny rules for secret files in `.claude/settings.json`,
+and the CLAUDE.md section that tells agents to treat repository data as untrusted.
 """
 
 import json

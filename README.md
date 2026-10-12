@@ -228,11 +228,11 @@ both models, cost about $6.50.
 
 ## Two approaches to gated agents
 
-I built [WorkHorse](https://github.com/muhibm1/workhorse) first: a harness plugin
-that gates software delivery at two human approvals. AgentOps gates an incident response the same
+I built [WorkHorse](https://github.com/muhibm1/workhorse) first: a delivery pipeline
+that gates software changes at two human approvals using hooks that run before every tool call. AgentOps gates an incident response the same
 way, with a different mechanism, and the contrast is the useful part.
 
-| Question | WorkHorse (the harness hooks) | AgentOps (LangGraph) |
+| Question | WorkHorse (tool-call hooks) | AgentOps (LangGraph) |
 |---|---|---|
 | Where is state? | Files and gate documents on disk, control state under `.git/workhorse/` | Typed state in a SQLite checkpointer |
 | How is a gate enforced? | A hook blocks the tool call | `interrupt()` pauses the graph |
