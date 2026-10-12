@@ -479,11 +479,14 @@ def action_evidence(
     detail: str,
 ) -> Evidence:
     """Evidence of kind `action`: rca and postmortem read `action`, `applied` and `effect` to
-    list what is in effect and what may be."""
+    list what is in effect and what may be; `approval` is the decision that let this change run,
+    kept here because a loop clears the approval from state and the scorer reads each apply."""
     number = count_of_kind(state, "action") + 1
+    approval = state["approval"]
     payload = {
         "idempotency_key": key,
         **describe(remediation),
+        "approval": None if approval is None else approval.decision,
         "outcome": outcome,
         "applied": applied,
         "effect": effect_of(applied),
