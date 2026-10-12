@@ -36,15 +36,15 @@ Not verified:
 - AgentShield scan (the diff changes CLAUDE.md): `npx -y ecc-agentshield@1.6.0 scan --path ~/AgentOps --min-severity high --format json` was denied by the the harness permission classifier ("Untrusted Code Integration"). The owner must run it by hand or allow it.
 - Medium finding: whether a real (non-simulator) adapter would act on the foreign target is believed, not verified; only the simulator exists, and it ignores `target`.
 
-## Re-check (fixer commits f2dfd3a..decc79b)
+## Re-check (fixer commits 228bbbc..285d25e)
 
 Verdict after re-check: 0 critical, 0 high, 0 medium open; 3 low (2 new, 1 residual).
-Run: `.venv/Scripts/python.exe -m pytest -q` on the touched suites, 214 passed (confirmed, run at decc79b); verify-logs/summary.json at decc79b: checks_green true.
+Run: `.venv/Scripts/python.exe -m pytest -q` on the touched suites, 214 passed (confirmed, run at 285d25e); verify-logs/summary.json at 285d25e: checks_green true.
 
 | Prior finding | Status | Evidence |
 |---|---|---|
-| medium, preconditions ignore target | closed (confirmed) | f643e6c: preconditions.py `not_the_target` fails both deployment checks unless `latest.id == remediation.target`; runbook.py `target_pattern` is required and must compile; registry.py `validate_params(target=)` is called from executor.py:141 and approval.py:146 (grep: no other caller); refusal text does not echo the target. Deny tests: test_preconditions, test_executor `a_rollback_aimed_at_another_object_applies_nothing`, test_approval, test_runbook. |
-| low, apply audit gap | closed (confirmed) | 32c6139 + decc79b: executor.py `find_recorded_execution` writes `applied: true` with RECOVERED_DETAIL when the ledger has the key and the audit file has no apply record; tests cover the recovered and the no-duplicate cases. |
+| medium, preconditions ignore target | closed (confirmed) | efe6f37: preconditions.py `not_the_target` fails both deployment checks unless `latest.id == remediation.target`; runbook.py `target_pattern` is required and must compile; registry.py `validate_params(target=)` is called from executor.py:141 and approval.py:146 (grep: no other caller); refusal text does not echo the target. Deny tests: test_preconditions, test_executor `a_rollback_aimed_at_another_object_applies_nothing`, test_approval, test_runbook. |
+| low, apply audit gap | closed (confirmed) | c2b4139 + 285d25e: executor.py `find_recorded_execution` writes `applied: true` with RECOVERED_DETAIL when the ledger has the key and the audit file has no apply record; tests cover the recovered and the no-duplicate cases. |
 | low, unbounded target | closed (confirmed) | state.py TARGET_MAX_LENGTH 64 on Remediation and ExecutionRecord; 64/65 tests in test_state.py. |
 
 | Severity | File:line | Finding | Failure scenario | Fix |

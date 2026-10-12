@@ -11,4 +11,4 @@ scope: project
 Keep one pending queue per output schema, and add a CLI-level test where an early node fails, so retries cannot consume another node's entries.
 
 ## Evidence
-- reviews/wh-bug-reviewer.md: medium cli.py:109-118, triage CitationError reported as ValidationError; closed in db61178.
+- reviews/wh-bug-reviewer.md: medium cli.py:109-118, triage CitationError reported as ValidationError; closed in 52c47cb.

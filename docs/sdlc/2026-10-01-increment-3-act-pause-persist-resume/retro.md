@@ -18,10 +18,10 @@ Longest phase: review (reviewers 85 min, fixer 24 min). From conductor-log: revi
 
 ## What it missed
 
-- Verify and evals were green at f2dfd3a while both highs existed: eval cases covered the happy path and declared failures, not crash-between-apply-and-record or failed-read. Should have been caught at eval design.
+- Verify and evals were green at 228bbbc while both highs existed: eval cases covered the happy path and declared failures, not crash-between-apply-and-record or failed-read. Should have been caught at eval design.
 - Fix round 1 introduced a regression (repeat applied key, medium) caught only at re-check. Should have been caught by negative cases in the fix.
 - G2, G4, G5 were approved unread. G4 left D25 (AgentShield scan, refused by harness) undone and 5 lows open, including applied=False when `source.apply` raises.
-- Evals ran against f2dfd3a, not the final head 8465aa2 (ship.md says so); verification.md still says "partial (evals not yet run)" in its header though the table shows 64/64 met. Stale status text.
+- Evals ran against 228bbbc, not the final head 8081b87 (ship.md says so); verification.md still says "partial (evals not yet run)" in its header though the table shows 64/64 met. Stale status text.
 
 ## Instincts written (`.workhorse/instincts/`)
 

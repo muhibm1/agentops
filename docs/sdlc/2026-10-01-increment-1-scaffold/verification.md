@@ -3,7 +3,7 @@
 Change id: `2026-10-01-increment-1-scaffold`
 Status: green
 Run at: 2026-10-01T04:16:43.198Z UTC
-Commit: `db611789bdb0`
+Commit: `b3dca7fa7178`
 
 Status is green only when every defined check exited 0 and every eval category met its target.
 "No check defined" rows do not count as passes; they are listed so the gap is visible.
@@ -43,7 +43,7 @@ Status is green only when every defined check exited 0 and every eval category m
 
 Non-functional (confirmed): N1 full suite 12.39 s on pytest's summary line (target < 60 s), met. N2 `agentops run --scenario clean_bad_deploy --model scripted` 1.185 s real under Git Bash `time`, exit 0 (target < 5 s), met. E34: lint, typecheck, test, security_audit exit 0 per summary.json; `ruff format --check .` exit 0 ("28 files already formatted").
 
-Eval run (confirmed): `.venv/Scripts/python.exe -m pytest -v -rA`, exit 0, 76 passed, re-run after review fix db61178 (all cases re-checked; E18, E19, E20, E26, E29, E32, E35, E37 named PASSED), log `verify-logs/evals.log`. Each of the 37 test-backed cases E1 to E38 (excluding E34) has its named test with a PASSED line there (parametrised cases: every parameter passed). 38 cases total: 18 golden, 5 edge, 8 failure, 7 adversarial.
+Eval run (confirmed): `.venv/Scripts/python.exe -m pytest -v -rA`, exit 0, 76 passed, re-run after review fix 52c47cb (all cases re-checked; E18, E19, E20, E26, E29, E32, E35, E37 named PASSED), log `verify-logs/evals.log`. Each of the 37 test-backed cases E1 to E38 (excluding E34) has its named test with a PASSED line there (parametrised cases: every parameter passed). 38 cases total: 18 golden, 5 edge, 8 failure, 7 adversarial.
 
 ## Failures and fixes
 
@@ -69,7 +69,7 @@ No previous change to compare with.
 
 ## Notes for the Ship document
 
-Review fix db61178 added 10 tests (66 to 76 total). Up from 66 tests at the earlier run of this same change. N1 updated to 12.39 s from the new pytest summary.
+Review fix 52c47cb added 10 tests (66 to 76 total). Up from 66 tests at the earlier run of this same change. N1 updated to 12.39 s from the new pytest summary.
 
 ## Checks
 

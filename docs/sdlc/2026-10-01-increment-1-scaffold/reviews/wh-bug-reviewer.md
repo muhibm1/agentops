@@ -13,7 +13,7 @@ Not verified:
 - `scripts/check_test_count.py` relies on pytest's `tests` attribute counting passed+failed+skipped+errors (believed, not verified against pytest 9.1.1 source); a double-counted fail+teardown error would undercount, which errs safe.
 - Files read: every changed file under `src/`, `scripts/check_test_count.py`, `.github/workflows/ci.yml`, `.githooks/pre-push`, `.github/dependabot.yml`, `pyproject.toml`, both requirements files, `.gitignore`; spec and evals by grep. Scenario JSON files read only through the loader.
 
-## Re-check (fix commit db61178)
+## Re-check (fix commit 52c47cb)
 
 Verdict: 3 of 3 findings closed; 2 new findings (0 critical, 0 high, 0 medium, 2 low)
 

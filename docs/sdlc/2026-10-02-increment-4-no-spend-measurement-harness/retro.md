@@ -1,10 +1,10 @@
 # Retro: increment 4, no-spend measurement harness
 
-Change id: `2026-10-02-increment-4-no-spend-measurement-harness` · Tier 3 · PR #10 merged as 9e3af26
+Change id: `2026-10-02-increment-4-no-spend-measurement-harness` · Tier 3 · PR #10 merged as 82d201c
 
 ## What happened
 
-The change added `agentops eval`, `agentops dataset`, a checksum-pinned held-out split, a `langgraph dev` entry, new runbook preconditions and a stricter execute step, and closed five low findings from increment 3. Seven reviewers and three re-check rounds ran; G4 was rejected once for a cross-thread approval replay (R2b), fixed in da5a079, then approved. The owner merged PR #10; nothing is deployed.
+The change added `agentops eval`, `agentops dataset`, a checksum-pinned held-out split, a `langgraph dev` entry, new runbook preconditions and a stricter execute step, and closed five low findings from increment 3. Seven reviewers and three re-check rounds ran; G4 was rejected once for a cross-thread approval replay (R2b), fixed in 4f10e42, then approved. The owner merged PR #10; nothing is deployed.
 
 ## Clock
 
@@ -21,7 +21,7 @@ Over budget. The longest phase was build (waves 1 to 4, about 18:45 to 20:26 by 
 ## What it missed
 
 1. R2b: an approval recorded on thread p1 admitted execute on a copy p1-x. All seven reviewers' first pass and the fix rounds left it as a low; the G4 reader rejected it. It should have been caught at design (spec said "approval must be in the audit log" without binding it to the thread) and rated by the claim it breaks.
-2. Fix-round regressions again: re-check round 1 found CRLF ledger tear and torn audit write refusing a real approval, both in fixer code (b4a5a8b, 6e98ed7).
+2. Fix-round regressions again: re-check round 1 found CRLF ledger tear and torn audit write refusing a real approval, both in fixer code (c79d507, e8ba3b2).
 3. Fixer turn limit and a dead design run: 90.8 dead minutes.
 4. The owner did not read G2, G4 or G5 packets (standing instruction). Open lows unseen by the owner: outcome.py already_applied, python lows 4-5, silent executor traceback, security R1 (CORS simple POST), D25 Elastic-2.0 dev pins, D26.
 

@@ -9,7 +9,7 @@ Verdict: 3 findings (0 critical, 0 high, 2 medium, 1 low)
 Findings outside scope: none
 Not verified: I did not run `pytest` or the floor script (`scripts/check_test_count.py`); I read test names and the executor, approval, verify and audit sources only. test_preconditions.py, test_runbook.py and test_simulator.py were not read, so admit and deny pairing there is believed, not verified.
 
-## Re-check (f2dfd3a..decc79b)
+## Re-check (228bbbc..285d25e)
 
 - Medium 1 (apply-record write failure untested): closed, confirmed by reading the diff. tests/test_executor.py adds `FailingApplyAudit` (raises when `record["event"] == "apply"`) and `test_a_failed_apply_record_write_is_recovered_on_rerun_without_a_second_apply` asserting `kind == "already_applied"`; tests/test_cli_lifecycle.py adds the same case at CLI level. A companion test covers no duplicate recovered record when the audit already shows the apply.
 - Medium 2 (latest-point rule and opened_at boundary untested): closed, confirmed by reading the diff. tests/test_verify_postmortem.py adds `test_only_the_latest_point_of_a_series_decides_the_verdict` and `test_a_point_or_line_exactly_at_the_opening_is_not_a_post_action_signal`. Test bodies not read line by line, so assertion strength is believed adequate, not verified.

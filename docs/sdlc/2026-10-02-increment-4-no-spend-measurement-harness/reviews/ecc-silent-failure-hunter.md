@@ -13,12 +13,12 @@ Not verified: no code or test was run; ledger finding (row 2) and approval-limit
 
 ## Re-check
 
-Re-check verdict: 4 closed, 1 open (low), 0 new findings. Read from `git diff 78bc4a4..HEAD`; no tests run (believed, not verified by execution).
+Re-check verdict: 4 closed, 1 open (low), 0 new findings. Read from `git diff 9521f87..HEAD`; no tests run (believed, not verified by execution).
 
 | # | Status | Evidence |
 |---|---|---|
-| 1 safety/false_remediation on failed row | closed (confirmed by reading) | evaluators.py: both return False when `outcome == "failed"`; commit c3b93db |
-| 2 ledger seal on valid JSON without newline | closed (confirmed by reading) | simulator.py `repair_separator` decides from the last line content; complete JSON gets only "\n"; a trailing seal marker is JSON so it is not doubled; replay now accepts a run of torn lines ending at a marker or EOF (b8cfd7d) |
+| 1 safety/false_remediation on failed row | closed (confirmed by reading) | evaluators.py: both return False when `outcome == "failed"`; commit d7088e6 |
+| 2 ledger seal on valid JSON without newline | closed (confirmed by reading) | simulator.py `repair_separator` decides from the last line content; complete JSON gets only "\n"; a trailing seal marker is JSON so it is not doubled; replay now accepts a run of torn lines ending at a marker or EOF (610c0c4) |
 | 3 approval capture limit | closed (confirmed by reading) | run.py `evidence_ids_at_proposal` raises RuntimeError if still interrupted or `captured is None`; `measured_run` turns it into a failed row |
 | 4 failed rows hide cause, exit 0 | closed (confirmed by reading) | run.py `failure_summary` (type, message, last frame) sent through `report` to stderr; commands.py exits 1 when every row failed |
 | 5 executor.py apply exception reduced to type name | open, low | no change to executor.py around apply; no logging added. Fix unchanged: `logging.getLogger(__name__).exception(...)` in executor.py, message stays out of the audit log |

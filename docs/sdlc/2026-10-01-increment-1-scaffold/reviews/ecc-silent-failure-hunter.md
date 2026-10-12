@@ -9,7 +9,7 @@ Verdict: 3 findings (0 critical, 0 high, 1 medium, 2 low)
 Findings outside scope: none
 Not verified: no code was run, no test executed. Behaviour of LangGraph retry and logging was read from the repo's own comments only.
 
-## Re-check (fix commit db61178)
+## Re-check (fix commit 52c47cb)
 
 | Finding | Status | Evidence |
 |---|---|---|

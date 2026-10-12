@@ -155,7 +155,7 @@ mislead: the simpler agent names the cause as well or better on the dev incident
 the right end state nearly as often, but it does so by acting without approval in 21 of its 24
 runs. The questions in the rows are explained in the AgentOps README under Results.
 
-Dev split, five scenarios, three repetitions, Claude Sonnet 5.5, at commit `64289e6`
+Dev split, five scenarios, three repetitions, Claude Sonnet 5.5, at commit `5db4eb6`
 (2026-10-12), then the frozen held-out split (three scenarios, three repetitions) scored once on
 the same commit. The spread is passes per repetition.
 

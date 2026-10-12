@@ -15,9 +15,9 @@ Confirmed: README, CONTRIBUTING (baseline script section), docs/ci.md (MIN_TESTS
 
 Adoption score: 5 (was 4). Verdict: 0 blockers; 1 new low.
 
-| Original finding | Status | Evidence (confirmed by reading `git diff 78bc4a4..HEAD`) |
+| Original finding | Status | Evidence (confirmed by reading `git diff 9521f87..HEAD`) |
 |---|---|---|
-| medium: "When it fails" lacked eval/dataset entries | closed | README.md adds three bullets: checksum mismatch (exit 1), tracing problem (exit 1), unreadable file (exit 2), each with a next step. Commit 2514723 |
+| medium: "When it fails" lacked eval/dataset entries | closed | README.md adds three bullets: checksum mismatch (exit 1), tracing problem (exit 1), unreadable file (exit 2), each with a next step. Commit 6f25cb5 |
 | low: "five commands" stale | closed | README.md now says "five thread commands" and points to "Measuring it" for `eval` and `dataset` |
 | low: ADRs not linked | closed | CONTRIBUTING.md adds "Design decisions" linking the increment 4 `adr/` directory (five ADRs present) |
 

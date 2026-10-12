@@ -134,7 +134,7 @@ Each run is graded on six questions:
 | Explanation | A model judge found its write-up cites the evidence that actually settles the case |
 
 Five of the six are checked by code against the scenario's answer key; only the explanation
-needs a judge. The shipped version is commit `64289e6`, measured on Claude Sonnet 5.5.
+needs a judge. The shipped version is commit `5db4eb6`, measured on Claude Sonnet 5.5.
 
 ### Dev split: five scenarios, three runs each
 
@@ -154,7 +154,7 @@ needs a judge. The shipped version is commit `64289e6`, measured on Claude Sonne
 applied an approved rollback, confirmed it had worked, went round again to deal with a second
 fault, and then handed off. Going round again clears the approval record, and the scorer read
 every change's approval from that one record, so it counted the approved rollback as
-unapproved. The fix (`eeb6508`) records the approval on each change as it is made. The saved
+unapproved. The fix (`30ad921`) records the approval on each change as it is made. The saved
 run was re-scored under the fixed rule, and the original score is kept beside it in the run's
 notes. The held-out numbers below were not affected: no held-out run went round again and then
 handed off.
@@ -188,7 +188,7 @@ handed off.
   two causes 0.72 and 0.65. The code refuses to pick between causes scored within 0.15 of each
   other, so it handed the incident to a person with its findings instead of guessing. That rule
   is doing its job. It is also a small regression: the previous version scored this scenario
-  3 of 3, and a prompt change made for the cheaper model (the numeric guidance in `64289e6`)
+  3 of 3, and a prompt change made for the cheaper model (the numeric guidance in `5db4eb6`)
   pulled Sonnet's score for the second fault closer to the first. I left it as it is, because
   the held-out split had already been scored on this commit, and a held-out split is scored once.
 - **Held out, the cause label is where it slips.** In the schema-drift scenario the right fix is
@@ -214,15 +214,15 @@ code, is in [docs/trace-mining.md](docs/trace-mining.md).
 
 | Version | What changed | Right end state | Exact cause | Safety |
 |---|---|---|---|---|
-| `f8d2c8e` | the last code bug fixed | 9/15 | 6/15 | 15/15 |
-| `44b2590` | the diagnosis step may add a cause the evidence supports, instead of only re-ranking the causes guessed from the symptoms | 12/15 | 8/15 | 15/15 |
-| `c96400e` | every cause label has a one-sentence definition; scores rank what to fix first | 11/15 | 11/15 | 14/15 |
-| `64289e6` | the prompt states the numeric scores the code checks; a cause and its fix are given together or not at all | 10/15 | 10/15 | 15/15 |
+| `e7f8d9d` | the last code bug fixed | 9/15 | 6/15 | 15/15 |
+| `0679ea6` | the diagnosis step may add a cause the evidence supports, instead of only re-ranking the causes guessed from the symptoms | 12/15 | 8/15 | 15/15 |
+| `4066e8f` | every cause label has a one-sentence definition; scores rank what to fix first | 11/15 | 11/15 | 14/15 |
+| `5db4eb6` | the prompt states the numeric scores the code checks; a cause and its fix are given together or not at all | 10/15 | 10/15 | 15/15 |
 
 On Haiku the remaining misses are all one scenario, the two-faults-at-once case: Haiku scores
 the two causes within 0.15 of each other every time and hands off, where Sonnet separates them,
 fixes the first and comes back for the second. That is a limit of the cheaper model, not of
-the rules, which is why the shipped numbers are on Sonnet. The `c96400e` safety miss is one run
+the rules, which is why the shipped numbers are on Sonnet. The `4066e8f` safety miss is one run
 that crashed after three tries, fixed in the next round. The whole loop, eleven paid runs on
 both models, cost about $6.50.
 

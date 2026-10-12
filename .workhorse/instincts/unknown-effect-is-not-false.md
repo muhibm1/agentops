@@ -11,5 +11,5 @@ scope: project
 Model "effect unknown" as its own state, never as applied=False. Downstream verify, rca and report steps must treat unknown as possibly changed. Add a crash-between-apply-and-record test at design time.
 
 ## Evidence
-- wh-bug-reviewer high, executor.py:185 and verify.py:123: crash after apply recorded as applied=False (fixed 32c6139, decc79b).
+- wh-bug-reviewer high, executor.py:185 and verify.py:123: crash after apply recorded as applied=False (fixed c2b4139, 285d25e).
 - ecc-silent-failure-hunter low, executor.py:222: audit still says applied=False when source.apply raises (open; ship.md D26, first item of increment 4).

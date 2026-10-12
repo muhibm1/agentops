@@ -13,7 +13,7 @@ Not verified: ruff, pyright and the pytest suite were not run (review of the dif
 
 ## Re-check
 
-Read `git diff 78bc4a4..HEAD` for simulator.py, dataset.py, commands.py and run.py plus the new test names. Did not run ruff, pyright or pytest (not verified).
+Read `git diff 9521f87..HEAD` for simulator.py, dataset.py, commands.py and run.py plus the new test names. Did not run ruff, pyright or pytest (not verified).
 
 | # | Status | Evidence |
 |---|---|---|

@@ -1,6 +1,6 @@
 Verdict: 6 findings (0 critical, 0 high, 1 medium, 5 low)
 
-Scope: `git diff main...HEAD` at 78bc4a4 plus the files it touches. Tier 3. Compliance regimes: none (`.workhorse/profile.yml:126`), so the regime walk does not apply.
+Scope: `git diff main...HEAD` at 9521f87 plus the files it touches. Tier 3. Compliance regimes: none (`.workhorse/profile.yml:126`), so the regime walk does not apply.
 
 | Severity | File:line | Finding | Failure scenario | Fix |
 |---|---|---|---|---|
@@ -35,7 +35,7 @@ Not verified:
 - Unauthenticated LangSmith posts when the key is absent: believed from the client source; no network test was run.
 - AgentShield: n/a. The diff touches none of `.claude/`, `CLAUDE.md`, `agents/`, `skills/`, `hooks/`, `.mcp.json` or a plugin manifest; `.workhorse/profile.yml` only adds two `ask_commands`.
 
-## Re-check (fixes 78bc4a4..HEAD, at 866c2f2)
+## Re-check (fixes 9521f87..HEAD, at 93cc3c8)
 
 Re-check verdict: 6 original findings: 6 closed, 0 reopened. 2 new findings (0 critical, 0 high, 0 medium, 2 low).
 
@@ -61,11 +61,11 @@ Matcher probe (src/agentops/actions/preconditions.py:225), run with `.venv/Scrip
 - A Cyrillic `е` in the line does not match (fails closed). Upper case matches through casefold.
 
 Final pre-ship checklist state (tier 3)
-- `for update` and `for insert` policies, functions and grants, `CREATE OR REPLACE`, policy tests, deny-side assertions, storage bucket, free-text table: n/a. The fix diff adds no SQL, migration or storage (`git diff --stat 78bc4a4..HEAD`, confirmed).
+- `for update` and `for insert` policies, functions and grants, `CREATE OR REPLACE`, policy tests, deny-side assertions, storage bucket, free-text table: n/a. The fix diff adds no SQL, migration or storage (`git diff --stat 9521f87..HEAD`, confirmed).
 - New admin capability writes to an append-only log: pass. src/agentops/nodes/approval.py:62,66 still appends every answer before state is set. An unrecorded approval now ends in `refused` with no apply (confirmed).
 - New secret or env var: pass. The fix diff adds no variable. A grep of the diff for key, token and private-key shapes found nothing.
 - New third-party import in a runtime path pinned: pass (requirements.txt:15).
-- Dependency audit: pass. `.venv/Scripts/python -m pip_audit -r requirements.txt` printed "No known vulnerabilities found" (re-run at 866c2f2).
+- Dependency audit: pass. `.venv/Scripts/python -m pip_audit -r requirements.txt` printed "No known vulnerabilities found" (re-run at 93cc3c8).
 - Approval interrupt cannot be bypassed by a state write: pass (probe). The residual dev-server paths are R1 and R2.
 - Targeted tests: `.venv/Scripts/python -m pytest -q` on test_executor, test_preconditions, test_langgraph_json, test_requirements and test_approval: 113 passed, exit 0.
 
@@ -77,7 +77,7 @@ Not verified (re-check):
 - R1 end to end: `langgraph dev` was not started and no browser was tested. Local network access behaviour is believed.
 - I did not re-run the full test suite; the verifier owns it. AgentShield: n/a, because the fix diff touches no agent configuration.
 
-## Re-check (G4 rejection fix da5a079)
+## Re-check (G4 rejection fix 4f10e42)
 
 Re-check verdict: copied-thread approval forgery and double apply closed. 0 new findings.
 
@@ -86,7 +86,7 @@ Re-check verdict: copied-thread approval forgery and double apply closed. 0 new 
 | Approval recorded by thread A admits execute on a copy in thread B | closed | executor.py:134 requires `record["thread_id"] == thread_id`; execute.py:41-42 passes `run_thread_id(config)`. Probe (fresh source, `update_state(as_node="approval")`, `execution=None`): copy ends `escalated`, `action_not_allowed`, no apply. tests/test_cli_lifecycle.py E49 asserts the same, with ledger and audit read-back (confirmed). |
 | thread_id spoofed by the caller | closed | The id comes only from `configurable`, which the checkpointer also keys state on, so the state executed and the id checked belong to one thread. The dev server merges the path thread id last, over any caller `configurable.thread_id` (langgraph_runtime_inmem/ops.py:2690-2700, confirmed). |
 | Audit record thread_id forged in a record body | closed | audit.py:21,102-104 rejects a caller record that sets `thread_id`; append stamps it from the node's config (confirmed). |
-| Same thread id reused (thread deleted and recreated) | closed by 17d6b56, not this commit | Probe: new saver, same id `p1`, fresh source, `execution=None`: result `already_applied`, exactly one `applied: true` record (confirmed). |
+| Same thread id reused (thread deleted and recreated) | closed by 310da3c, not this commit | Probe: new saver, same id `p1`, fresh source, `execution=None`: result `already_applied`, exactly one `applied: true` record (confirmed). |
 | Legitimate fork | admitted | E50: a CLI fork before approval records its own approval and applies once for itself (test passes). |
 
 Commands: `.venv/Scripts/python -m pytest -q tests/test_cli_lifecycle.py tests/test_executor.py tests/test_approval.py`: 76 passed. `ruff check` on the four changed files: exit 0. Diff secret grep: no matches.

@@ -10,7 +10,7 @@ Verdict: 4 findings (0 critical, 0 high, 1 medium, 3 low)
 Findings outside scope: none
 Not verified: ruff, mypy and pytest were not run (review of the diff only). rca.py, escalate.py, postmortem.py, state.py and the tests were not read.
 
-## Re-check (f2dfd3a..decc79b)
+## Re-check (228bbbc..285d25e)
 
 - Medium, fork shares the original ledger: closed (confirmed by reading the diff; tests not run). `ThreadRun.start` now takes the thread id and `ledger_path_for(audit_dir, thread_id)`; `next_fork` calls `start` with `<thread>-fork-<n>`, so a fork gets its own empty ledger. `test_a_fork_after_an_apply_has_its_own_empty_ledger_and_applies_for_itself` covers the scenario I described.
 - Low, `KeyError` on missing channel values: closed for `scenario_id` (confirmed): `.get` plus a one-sentence `USAGE_ERROR`. `incident_id` is no longer read.

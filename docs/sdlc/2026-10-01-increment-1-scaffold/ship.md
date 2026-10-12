@@ -1,6 +1,6 @@
 # Ship: Increment 1 scaffold
 
-Change id: `2026-10-01-increment-1-scaffold` · Tier 2 · Branch `wh/2026-10-01-increment-1-scaffold` at `384f7df` (code at `db61178`) · PR https://github.com/muhibm1/agentops/pull/1
+Change id: `2026-10-01-increment-1-scaffold` · Tier 2 · Branch `wh/2026-10-01-increment-1-scaffold` at `361eb26` (code at `52c47cb`) · PR https://github.com/muhibm1/agentops/pull/1
 Prepared 2026-10-01 UTC · Design approved: see [approvals.md](./approvals.md)
 
 This is the Ship document. Approving it records your decision for the merge. The PR is open and not merged.
@@ -41,15 +41,15 @@ Known pre-existing failures cited: none (`wh.js known-failure list`: "No known f
 
 ## What the reviewers found
 
-0 critical, 0 high, 5 medium (all fixed in `db61178` and re-checked closed by the reviewer who raised them), 15 low rows below (8 open per the conductor, 0 accepted instead of fixed). Reports: [reviews/](./reviews/).
+0 critical, 0 high, 5 medium (all fixed in `52c47cb` and re-checked closed by the reviewer who raised them), 15 low rows below (8 open per the conductor, 0 accepted instead of fixed). Reports: [reviews/](./reviews/).
 
 | Severity | Reviewer | File:line | Finding | Resolution |
 |----------|----------|-----------|---------|------------|
-| medium | wh-security | cli.py:123-131 | Model text printed to terminal unescaped | fixed in db61178 |
-| medium | wh-bug | cli.py:109-118 | Triage CitationError shown as an unrelated ValidationError | fixed in db61178 |
-| medium | ecc-silent-failure-hunter | nodes/evidence.py:109-127 | Zero evidence accepted silently | fixed in db61178 (NoEvidenceError, exit 2) |
-| medium | wh-adoption | cli.py:121-134 | Spec says CLI prints action counts; it did not | fixed in db61178 |
-| medium | wh-adoption | README.md:12-15 | Run section silent on `--scenarios-dir` default and code map | fixed in db61178 |
+| medium | wh-security | cli.py:123-131 | Model text printed to terminal unescaped | fixed in 52c47cb |
+| medium | wh-bug | cli.py:109-118 | Triage CitationError shown as an unrelated ValidationError | fixed in 52c47cb |
+| medium | ecc-silent-failure-hunter | nodes/evidence.py:109-127 | Zero evidence accepted silently | fixed in 52c47cb (NoEvidenceError, exit 2) |
+| medium | wh-adoption | cli.py:121-134 | Spec says CLI prints action counts; it did not | fixed in 52c47cb |
+| medium | wh-adoption | README.md:12-15 | Run section silent on `--scenarios-dir` default and code map | fixed in 52c47cb |
 | low | wh-bug | cli.py:127-136 | Error path (`fail()`, CitationError ids) prints model text unescaped | open, low |
 | low | wh-bug | nodes/__init__.py:58-60 | Neutralised dict-key collision can drop an entry | open, low |
 | low | ecc-silent-failure-hunter | nodes/__init__.py:83-89 | Failed retry attempts not recorded in `state.actions`; `(M failed)` in the report is always 0 for them | open, low |
@@ -60,8 +60,8 @@ Known pre-existing failures cited: none (`wh.js known-failure list`: "No known f
 | low | verifier artifact (conductor-noted) | verification.md:22,74 | Checks table appears twice | open, low |
 | low | wh-conformance | brief.md D1-D17 | Decisions taken by recommendation, no per-row human answer | open, low (G2 notes accept all 17) |
 | low | ecc-python | check_test_count.py:18; graph.py:25 | Unguarded int/XML parse; source retry on bare Exception | open, low (believed unchanged; ecc-python was not re-run; both fail closed) |
-| low | ecc-python, ecc-silent-failure-hunter | cli.py:116-118 | Triage script held one entry, hiding the real error | fixed in db61178 |
-| low | wh-bug, wh-security | scenario.py:93, evidence.py:56, triage.py/rca.py, evidence.py:58 | BOM/UTF-16 scenario files; 4+ bracket runs; unfenced service and symptoms; dict keys not neutralised | fixed in db61178 |
+| low | ecc-python, ecc-silent-failure-hunter | cli.py:116-118 | Triage script held one entry, hiding the real error | fixed in 52c47cb |
+| low | wh-bug, wh-security | scenario.py:93, evidence.py:56, triage.py/rca.py, evidence.py:58 | BOM/UTF-16 scenario files; 4+ bracket runs; unfenced service and symptoms; dict keys not neutralised | fixed in 52c47cb |
 
 Spec conformance: 20 of 23 requirements traced to code and test (R1-R18, R22, R23). R19 is run by the verifier, R20 has no machine check, R21 timing has no test (confirmed by [wh-conformance-reviewer.md](./reviews/wh-conformance-reviewer.md)). Adoption score: 4.
 
@@ -101,7 +101,7 @@ Approve to merge and deploy, or reject with notes to send it back. Recommended: 
 
 | Environment | Command | Exit code | UTC |
 |---|---|---|---|
-| merge | PR #1 merged by the owner, merge commit 45e026d8f584e99fd180224eee9591a183009308 (confirmed as origin/main HEAD) | not run by shipper | 2026-10-01 |
+| merge | PR #1 merged by the owner, merge commit 219757ea015051f5f22e2298c74d6f0d1a9a7d59 (confirmed as origin/main HEAD) | not run by shipper | 2026-10-01 |
 | dev, staging, prod | not run: the profile defines no deploy command for any environment | n/a | n/a |
 
-Nothing was deployed (confirmed: no deploy command exists). Rollback is a `git revert -m 1 45e026d` on a new branch, merged through a new PR (believed, not verified: not executed).
+Nothing was deployed (confirmed: no deploy command exists). Rollback is a `git revert -m 1 219757e` on a new branch, merged through a new PR (believed, not verified: not executed).

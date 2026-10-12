@@ -4,7 +4,7 @@ Change id: `2026-10-01-increment-2-investigation-half`
 
 ## What happened
 
-AgentOps gained parallel investigation: a router chooses evidence sources, a merge step owns a 12-read budget and widens the time window, and a run ends in a proposed fix or a named escalation. Six reviewers found 0 high and 13 medium findings; two fix rounds closed 11 of them and 2 were deferred to increment 3. The owner approved G2 and G4, merged PR #3 (44f68f1), and nothing was deployed because the profile has no deploy command (confirmed).
+AgentOps gained parallel investigation: a router chooses evidence sources, a merge step owns a 12-read budget and widens the time window, and a run ends in a proposed fix or a named escalation. Six reviewers found 0 high and 13 medium findings; two fix rounds closed 11 of them and 2 were deferred to increment 3. The owner approved G2 and G4, merged PR #3 (4593a75), and nothing was deployed because the profile has no deploy command (confirmed).
 
 ## Clock
 
@@ -19,7 +19,7 @@ No over-budget lesson. The review fixer's 12 minutes are the two fix rounds belo
 ## What the pipeline caught
 
 - Design: 19 decisions in the brief, all accepted at G2.
-- Verify: 38/38 evals, 219 tests green at cc6ff2f. A human would likely not have found the reviewer items below.
+- Verify: 38/38 evals, 219 tests green at c08ff22. A human would likely not have found the reviewer items below.
 - Review: silent-failure hunter found the escalate node ending with no hand-off after three bad citations; bug reviewer found router keyword substring misrouting; security reviewer found missing length caps and lookalike delimiter gaps.
 - Re-check after round 1 caught regressions (router prefix, duplicate triage names) before the human saw the PR.
 

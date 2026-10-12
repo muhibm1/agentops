@@ -3,7 +3,7 @@
 Change id: `2026-10-01-increment-3-act-pause-persist-resume`
 Version: not versioned (no release tag)
 PR: #5 (merged to main)
-Merged commit: `aa65cbffde9979b655ced7aa906cef93112813c9` (confirmed, supplied by the main session)
+Merged commit: `4cad9f4beb6e17ca6e8eab5b10e8a5e40818d826` (confirmed, supplied by the main session)
 
 ## Changelog
 
@@ -27,7 +27,7 @@ Config and secrets touched (names only, never values):
 
 ## Rollback
 
-Revert the merge commit through a PR: `git revert -m 1 aa65cbffde9979b655ced7aa906cef93112813c9` on a new branch, open a PR, merge it. Not rehearsed: nothing is deployed, so the revert only changes the repository.
+Revert the merge commit through a PR: `git revert -m 1 4cad9f4beb6e17ca6e8eab5b10e8a5e40818d826` on a new branch, open a PR, merge it. Not rehearsed: nothing is deployed, so the revert only changes the repository.
 
 ## Runbook
 
@@ -41,7 +41,7 @@ Nothing runs in production, so there is nothing to watch.
 
 | Environment | At (UTC) | By | Commit | Result |
 |-------------|----------|----|--------|--------|
-| none | n/a | n/a | aa65cbf | merged only; nothing deployed |
+| none | n/a | n/a | 4cad9f4 | merged only; nothing deployed |
 
 ## Your decision
 
