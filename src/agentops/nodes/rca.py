@@ -53,13 +53,16 @@ RCA_INSTRUCTIONS = (
     f"as a hypothesis with one of these labels, citing that evidence: {cause_catalogue()}. "
     "A score ranks what to act on first; it is not the chance that a cause is real. When more "
     "than one cause is real, the root cause is the one that began first or that the others "
-    "follow from: score it at least 0.2 above every other, and score a fault that follows from "
-    "it low, since it is handled after the root cause's fix is verified. "
+    "follow from: score it 0.9 or above and score every fault that follows from it 0.6 or "
+    "below, since those are handled after the root cause's fix is verified. Two scores within "
+    "0.15 of each other mean you cannot tell which is the cause, and the incident is handed to "
+    "a person instead. "
     "If one cause stands out, set its "
     "label to the name of the highest-scored hypothesis, copied exactly, and propose one "
     "remediation whose target is a name copied exactly from the evidence; "
-    "both must cite the ids of the evidence items that support them, and only those ids. If no "
-    "cause stands out, return both as null. "
+    "both must cite the ids of the evidence items that support them, and only those ids. "
+    "root_cause and remediation come together: give both, or give both as null when no cause "
+    "stands out; a root cause with no remediation is rejected. "
 )
 
 

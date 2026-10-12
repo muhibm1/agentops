@@ -210,3 +210,11 @@ def test_a_failed_precondition_is_named_in_the_run_record() -> None:
     from agentops.evals.outcome import failed_preconditions_of
 
     assert failed_preconditions_of(state) == ["target_named_in_logs on reindex-job"]
+
+
+def test_the_rca_prompt_gives_numeric_scores_and_says_both_or_neither() -> None:
+    from agentops.nodes.rca import RCA_INSTRUCTIONS
+
+    assert "0.9 or above" in RCA_INSTRUCTIONS
+    assert "0.6 or below" in RCA_INSTRUCTIONS
+    assert "a root cause with no remediation is rejected" in RCA_INSTRUCTIONS
