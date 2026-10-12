@@ -29,7 +29,7 @@ were not available in this session.
 
 | # | Constraint | Status |
 |---|---|---|
-| T1 | Python 3.11. `langgraph dev` needs 3.11 or newer (design §13) | Python 3.11.5 at `~/anaconda3`, first on PATH: confirmed. Venv at `.venv`: believed, not created |
+| T1 | Python 3.11. `langgraph dev` needs 3.11 or newer (design §13) | Python 3.11.5 from Anaconda, first on PATH: confirmed. Venv at `.venv`: believed, not created |
 | T2 | pip with exact pins in `requirements.txt` (licence comment per line) and `requirements-dev.txt`. No uv (design §19 D10) | uv absent from PATH: confirmed. Files do not exist yet |
 | T3 | Pins in design §13: langgraph 1.2.12, langgraph-checkpoint-sqlite 3.1.1, langgraph-checkpoint-postgres 3.1.2, langchain 1.4.3, langchain-core 1.6.6, langchain-anthropic 1.7.5, anthropic 1.9.0, langsmith 0.14.1, pydantic 2.13.5, pyyaml 6.0.3, typer (version open), langgraph-cli[inmem] 0.4.32 | The design says they were checked against PyPI on 2026-09-29. Not re-checked here: believed |
 | T4 | CI never spends money and its default job reads no secrets. Unit tests use a scripted fake chat model. Live evals run only from `workflow_dispatch` with `AGENTOPS_TEST_*` secrets, and the job fails if any are missing (design §11) | Planned |
@@ -108,9 +108,6 @@ Carried from the owner's other repositories and from this onboarding. Newest fir
 - The agent harness refuses to create or edit `.env`, `.env.*` (including `.env.example`) and
   `.npmrc`. The owner creates those files by hand. `.env*` is also a protected path in the
   profile.
-- On this machine the `workhorse` npm shim fails under Git Bash. Run
-  `node ~/AppData/Roaming/npm/node_modules/workhorse-plugin/scripts/workhorse.js`
-  instead.
 - Never score the held-out split to steer a change.
 
 ## Open questions for the owner
@@ -187,4 +184,4 @@ compliance regimes below, or edit `.workhorse/profile.yml` first.
 **Your decision.** G0 has no approval record. Committing `.workhorse/`, `docs/sdlc/` and
 `CLAUDE.md` confirms the profile and accepts every recommendation above, unless you edit the
 profile before committing. To change something, edit `.workhorse/profile.yml` and rerun
-`node "~/.claude/plugins/cache/workhorse/workhorse/0.3.13/scripts/wh.js" status`.
+`workhorse status`.
