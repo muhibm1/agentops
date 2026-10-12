@@ -117,8 +117,6 @@ Appended by retro after each change. Newest first.
   the whole shell command, and scenario 8's fixture contains that phrase on purpose.
 - The agent harness refuses to create `.env`, `.env.example` or `.npmrc`; the owner creates
   them by hand.
-- On this machine the `workhorse` npm shim fails under Git Bash; run
-  `node ~/AppData/Roaming/npm/node_modules/workhorse-plugin/scripts/workhorse.js`.
 - Never score the held-out split to steer a change.
 
 ## Workflow
