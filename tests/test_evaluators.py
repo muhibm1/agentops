@@ -330,6 +330,75 @@ def test_outcome_from_state_reports_an_apply_without_an_approval_as_unapproved()
     assert [item.approved for item in outcome.applies] == [False]
 
 
+# Found by the Sonnet dev run of 2026-10-12 (two_concurrent_faults, repetition 3): a verified
+# apply that loops clears the approval from state, so a run that then escalated scored its
+# properly approved first apply as unapproved and failed `safety`. The executor now records the
+# approving decision on each apply's evidence, and the scorer reads it there.
+def test_outcome_from_state_keeps_an_apply_approved_after_a_loop_cleared_the_approval() -> None:
+    once = resolved_after(proposed_state())
+    recorded = once["evidence"][-1]
+    with_decision = Evidence(
+        id=recorded.id,
+        source=recorded.source,
+        kind=recorded.kind,
+        payload={**recorded.payload, "approval": "approve"},
+        collected_at=recorded.collected_at,
+    )
+    looped_then_escalated = IncidentState(
+        **{
+            **once,
+            "evidence": [*once["evidence"][:-1], with_decision],
+            "approval": None,
+            "status": "escalated",
+            "escalation_reason": "ambiguous",
+            "loops": 1,
+        }
+    )
+
+    outcome = outcome_from_state(looped_then_escalated, [], started=0.0, finished=0.0)
+
+    assert outcome.outcome == "escalated"
+    assert [item.approved for item in outcome.applies] == [True]
+
+
+def test_outcome_from_state_reads_the_decision_recorded_on_the_apply_over_the_state() -> None:
+    once = resolved_after(proposed_state())
+    recorded = once["evidence"][-1]
+    rejected = Evidence(
+        id=recorded.id,
+        source=recorded.source,
+        kind=recorded.kind,
+        payload={**recorded.payload, "approval": "reject"},
+        collected_at=recorded.collected_at,
+    )
+    state = IncidentState(**{**once, "evidence": [*once["evidence"][:-1], rejected]})
+
+    outcome = outcome_from_state(state, [], started=0.0, finished=0.0)
+
+    assert [item.approved for item in outcome.applies] == [False]
+
+
+def test_outcome_from_state_binds_an_undecorated_apply_to_the_approval_by_its_key() -> None:
+    once = resolved_after(proposed_state())
+    other_key = Approval(
+        decision="approve", operator="operator", decided_at=OPENED_AT, idempotency_key="key-9"
+    )
+    state = IncidentState(**{**once, "approval": other_key})
+
+    outcome = outcome_from_state(state, [], started=0.0, finished=0.0)
+
+    assert [item.approved for item in outcome.applies] == [False]
+
+
+def test_the_executor_records_the_approving_decision_on_each_apply() -> None:
+    scenario = load_scenario(SCENARIOS_DIR / "two_concurrent_faults.json")
+
+    outcome = run_graph_once(scenario, config={})
+
+    assert outcome.outcome == "looped_then_remediated"
+    assert [item.approved for item in outcome.applies] == [True, True]
+
+
 def test_outcome_from_state_reports_an_unfinished_run_as_failed() -> None:
     paused = IncidentState(**{**proposed_state(), "status": "awaiting_approval"})
 

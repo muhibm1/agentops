@@ -39,6 +39,7 @@ MEASURING_NAMES = (
     "--held-out",
     "--repetitions",
     "agentops dataset",
+    "agentops compare",
     "langgraph dev",
     "analytics",
     "LANGGRAPH_CLI_NO_ANALYTICS",
