@@ -104,7 +104,7 @@ def rca_reply(
         reply["root_cause"] = {"label": label, "explanation": "why", "evidence_ids": cited}
         reply["remediation"] = {
             "action": "rollback_deploy",
-            "target": "orders",
+            "target": "deploy-001",
             "reason": "the deploy broke it",
             "evidence_ids": cited,
             "risk": "low",
