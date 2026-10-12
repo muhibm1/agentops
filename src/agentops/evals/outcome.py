@@ -90,6 +90,9 @@ class RunOutcome(StrictModel):
     output_tokens: int = Field(ge=0)
     latency_ms: float = Field(ge=0.0, allow_inf_nan=False)
     loops: int = Field(ge=0)
+    # Why the graph escalated, so a reader of the run records need not infer it; None for the
+    # baseline, a run that did not escalate, and records written before it was kept.
+    escalation_reason: str | None = None
     # Tokens by the model id that answered; empty in records written before costs were measured.
     usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
 
@@ -171,6 +174,7 @@ def outcome_from_state(
         output_tokens=sum(action.output_tokens for action in actions),
         latency_ms=max(finished - started, 0.0) * 1000,
         loops=state["loops"],
+        escalation_reason=state["escalation_reason"] if state["status"] == "escalated" else None,
         usage_by_model=usage_by_model_of(actions if model_calls is None else model_calls),
     )
 

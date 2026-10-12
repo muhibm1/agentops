@@ -25,7 +25,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
-from agentops.actions.registry import Registry, default_registry
+from agentops.actions.registry import Registry, default_registry, describe_actions
 from agentops.evals.outcome import (
     UNDETERMINED_LABEL,
     ApplyAttempt,
@@ -51,6 +51,12 @@ When you are done, reply with only a JSON object and no other text:
  "target": "<what it was applied to or null>", "params": {{}}}}"""
 
 ANY_VALUE = TypeAdapter(Any)
+
+
+def baseline_prompt(registry: Registry) -> str:
+    """`BASELINE_PROMPT` plus the runbook's action names: the graph's rca prompt lists them, so the
+    baseline is told the same names and the comparison measures the gates, not a missing list."""
+    return f"{BASELINE_PROMPT}\n{describe_actions(registry)}"
 
 
 class BaselineToolCall(StrictModel):
@@ -203,7 +209,12 @@ def run_baseline(
     simulator = require_simulator(source) if source is not None else SimulatorSource(scenario)
     trace = BaselineTrace()
     tools = baseline_tools(simulator, scenario.service, incident_id, trace)
-    agent = create_agent(model, tools, system_prompt=BASELINE_PROMPT, middleware=tuple(middleware))
+    agent = create_agent(
+        model,
+        tools,
+        system_prompt=baseline_prompt(default_registry()),
+        middleware=tuple(middleware),
+    )
     result = agent.invoke({"messages": [HumanMessage(incident_report(scenario))]})
     messages: list[BaseMessage] = result["messages"]
     return baseline_run(scenario, trace, messages, configured_model_id(model))
