@@ -81,11 +81,22 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# In the JSON schema the model answers to: the live run on 2026-10-12 filled these lists with
+# sentences describing the symptoms.
+EVIDENCE_IDS_DESCRIPTION = (
+    "Ids of evidence items shown to you, such as log-003 or metric-error_rate. Never free text."
+)
+
+
 class Hypothesis(StrictModel):
     name: str = Field(min_length=1, max_length=HYPOTHESIS_NAME_MAX_LENGTH)
     score: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
-    supporting_evidence: list[str] = Field(default_factory=list)
-    contradicting_evidence: list[str] = Field(default_factory=list)
+    supporting_evidence: list[str] = Field(
+        default_factory=list, description=EVIDENCE_IDS_DESCRIPTION
+    )
+    contradicting_evidence: list[str] = Field(
+        default_factory=list, description=EVIDENCE_IDS_DESCRIPTION
+    )
 
 
 class Triage(StrictModel):
