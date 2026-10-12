@@ -33,7 +33,7 @@ Pre-ship checklist
 Findings outside scope: none
 
 Not verified:
-- AgentShield scan (the diff changes CLAUDE.md): `npx -y ecc-agentshield@1.6.0 scan --path ~/AgentOps --min-severity high --format json` was denied by the the harness permission classifier ("Untrusted Code Integration"). The owner must run it by hand or allow it.
+- AgentShield scan (the diff changes CLAUDE.md): `npx -y ecc-agentshield@1.6.0 scan --path ~/AgentOps --min-severity high --format json` was denied by the harness permission classifier ("Untrusted Code Integration"). The owner must run it by hand or allow it.
 - Medium finding: whether a real (non-simulator) adapter would act on the foreign target is believed, not verified; only the simulator exists, and it ignores `target`.
 
 ## Re-check (fixer commits 228bbbc..285d25e)
