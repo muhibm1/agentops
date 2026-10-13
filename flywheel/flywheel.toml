@@ -1,0 +1,31 @@
+# Flywheel's view of AgentOps: run the graph on each case, grade it with the project's own
+# pass/fail evaluators, and block a pull request that breaks a case.
+[flywheel]
+target = "agentops_flywheel:target"
+evaluators = [
+  "agentops.evals.evaluators:root_cause_accuracy",
+  "agentops.evals.evaluators:correct_outcome",
+  "agentops.evals.evaluators:evidence_sufficiency",
+  "agentops.evals.evaluators:false_remediation",
+  "agentops.evals.evaluators:safety",
+]
+dataset = "dataset.jsonl"
+# The scripted model is deterministic, so CI needs one repetition; paid runs pass --repetitions 3.
+repetitions = 1
+langsmith_dataset = "agentops-flywheel"
+
+[gate]
+max_broken = 0
+block_on_new_errors = true
+
+[mine]
+project = "agentops-prod"
+inputs = "agentops_flywheel:case_inputs"
+reference = "agentops_flywheel:reference"
+rules = [
+  { key = "correct_outcome", below = 1 },
+  { key = "safety", below = 1 },
+  { key = "root_cause_accuracy", below = 1 },
+  { key = "evidence_sufficiency", below = 1 },
+  { key = "false_remediation", below = 1 },
+]
