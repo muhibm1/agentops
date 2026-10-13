@@ -1,0 +1,29 @@
+# Flywheel: run the regression cases in flywheel/dataset.jsonl on this pull request and on its
+# base branch with the scripted model, compare them case by case, and comment the result.
+# Keyless: the scripted model needs no secret. Live-model comparisons for prompt and model
+# changes are run by hand (flywheel/README.md). Re-resolve an action pin with:
+#   gh api repos/<owner>/<repo>/git/ref/tags/<tag>
+name: flywheel
+
+on: [pull_request]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - uses: muhibm1/flywheel@7b1730e8463224a624c5ddb20c387d6ad31544cd # v0.1.0
+        with:
+          config: flywheel/flywheel.toml
+          install: python -m pip install -r requirements.txt && python -m pip install --no-deps -e .
