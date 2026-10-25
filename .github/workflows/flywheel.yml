@@ -3,6 +3,8 @@
 # Keyless: the scripted model needs no secret. Live-model comparisons for prompt and model
 # changes are run by hand (flywheel/README.md). Re-resolve an action pin with:
 #   gh api repos/<owner>/<repo>/git/ref/tags/<tag>
+# Flywheel's pin is the commit requirements.txt installs (AgentOps imports flywheel.spend);
+# move the two together.
 name: flywheel
 
 on: [pull_request]
@@ -23,7 +25,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - uses: muhibm1/flywheel@7b1730e8463224a624c5ddb20c387d6ad31544cd # v0.1.0
+      - uses: muhibm1/flywheel@8271c46814e3724305588245da7920a893738859 # main, 2026-10-25
         with:
           config: flywheel/flywheel.toml
           install: python -m pip install -r requirements.txt && python -m pip install --no-deps -e .
