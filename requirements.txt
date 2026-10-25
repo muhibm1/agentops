@@ -1,4 +1,5 @@
-# Runtime dependencies. Exact pins only, each with its licence; Dependabot proposes upgrades.
+# Runtime dependencies. Exact pins only, each with its licence: a PyPI version, or a full
+# GitHub commit for a package not on PyPI. Dependabot proposes upgrades to the PyPI pins.
 langgraph==1.2.12  # MIT
 langchain-core==1.6.6  # MIT
 # create_agent, the ReAct loop the measured baseline runs on (src/agentops/baseline.py).
@@ -16,3 +17,7 @@ sqlite-vec==0.1.9  # MIT or Apache-2.0
 pyyaml==6.0.3  # MIT
 # Records the traces of an opted-in `agentops eval` run; the harness imports it (src/agentops/tracing.py).
 langsmith==0.14.2  # MIT
+# The spend ladder every live model call goes through: the cap, the ledger and free replay
+# (src/agentops/budget.py). Not on PyPI, so it is pinned to one commit and moved by hand,
+# together with the Action pin in .github/workflows/flywheel.yml.
+langsmith-flywheel @ git+https://github.com/muhibm1/flywheel@8271c46814e3724305588245da7920a893738859  # MIT

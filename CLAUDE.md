@@ -53,7 +53,8 @@ idempotently. Python 3.11, MIT. The approved design is
 - Branches: `<prefix>/<short-name>` (WorkHorse uses `wh/<change-id>`); commits: Conventional
   Commits (`feat:`, `fix:`, `docs:`, `test:`, `chore:`)
 - Tests live in `tests/` as `test_*.py`; never edit a test to make it pass
-- Every dependency is an exact pin, with its licence as a comment in `requirements.txt`
+- Every dependency is an exact pin, with its licence as a comment in `requirements.txt`: a PyPI
+  version, or a full GitHub commit for a package not on PyPI (Flywheel)
 - No flag, env var or config may disable the approval interrupt
 - New actions go in the runbook, never in a prompt
 - Never score the held-out split to steer a change; score it only when a version is frozen
