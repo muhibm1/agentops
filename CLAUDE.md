@@ -25,7 +25,10 @@ idempotently. Python 3.11, MIT. The approved design is
   Live model: `--model anthropic` (add `--dev` for the cheaper model) on `run`, `approve`,
   `resume`, `fork` and `eval`, reading `ANTHROPIC_API_KEY` from the shell; `AGENTOPS_MODEL_<ROLE>`
   overrides one role's id. `eval --model anthropic` prints the plan and estimated cost and exits
-  1 unless `--yes`. The live smoke test reads only `AGENTOPS_TEST_ANTHROPIC_API_KEY`:
+  1 unless `--yes`. Every live call needs room under `AGENTOPS_API_CAP` (dollars; ledger
+  `~/.agentops/api-ledger.jsonl`) and is recorded under `~/.agentops/replay`; a rerun replays
+  recorded answers for free, and `AGENTOPS_REPLAY=replay` needs no key or cap
+  (`src/agentops/budget.py`). The live smoke test reads only `AGENTOPS_TEST_ANTHROPIC_API_KEY`:
   `pytest -q -m live_smoke tests/test_live_smoke.py`. `langgraph dev` reads `langgraph.json`.
 
 ## Architecture in five lines

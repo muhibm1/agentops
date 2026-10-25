@@ -11,10 +11,16 @@ ledger are written under `--audit-dir` (default `audit/`). Each thread has its o
 the actions the original thread applied. `eval` and `dataset` measure the graph against the
 ReAct baseline offline; they live in `agentops.evals.commands`.
 
+A live command first checks what it may spend (`agentops.budget`): it exits 1 before anything
+runs when `AGENTOPS_API_CAP` is unset or spent, unless it replays recorded answers. After a run
+that made a paid or replayed call, one line on stderr says what it billed.
+
 Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
 problem (unknown scenario or thread, malformed thread id, thread not waiting, bad decision,
 a decision the approval node refused, unknown hypothesis, unknown model, `--model anthropic`
-without `ANTHROPIC_API_KEY`); 2 when the run fails or the state file cannot be used.
+without `ANTHROPIC_API_KEY`, or with no API cap left or a malformed spend setting); 2 when the
+run fails or the state file cannot be used. A run stopped by the cap or by a replay miss is a
+failed run: its last checkpoint stands, and `resume` continues it.
 Every failure prints one sentence to stderr naming the cause, and every string a model or a
 scenario wrote is escaped before it is printed.
 """
@@ -29,6 +35,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Annotated, Any, NoReturn, get_args
 
+import flywheel.spend as spend
 import typer
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -36,7 +43,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StateSnapshot
 from pydantic import ValidationError
 
-from agentops import __version__
+from agentops import __version__, budget
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import default_registry
 from agentops.evals.commands import dataset_command, eval_command
@@ -337,12 +344,29 @@ class ThreadRun:
         return self.graph.get_state(self.config())
 
     def invoke(self, value: Any, **switches: bool) -> None:
-        """Run until the graph pauses or ends, saving each checkpoint before the next step."""
-        try:
-            self.graph.invoke(value, self.config(**switches), durability="sync")
-        except Exception as error:  # the command's outer boundary: any failure becomes exit 2
-            text = str(error)[:ERROR_TEXT_MAX_LENGTH]
-            fail(RUN_FAILED, f"The run failed: {type(error).__name__}: {text}")
+        """Run until the graph pauses or ends, saving each checkpoint before the next step, then
+        print on stderr the API credit the run used, when it made a paid or replayed call."""
+        with spend.meter() as used:
+            try:
+                self.graph.invoke(value, self.config(**switches), durability="sync")
+            except Exception as error:  # the command's outer boundary: any failure becomes exit 2
+                print_credit(used)
+                text = str(error)[:ERROR_TEXT_MAX_LENGTH]
+                cause = f"{type(error).__name__}: {text}{self.hint(error)}"
+                fail(RUN_FAILED, f"The run failed: {cause}")
+        print_credit(used)
+
+    def hint(self, error: Exception) -> str:
+        """How to go on after the spend ladder stopped the run; empty for any other failure."""
+        resume = f"`agentops resume {self.thread_id} --model {self.models.label}`"
+        if isinstance(error, spend.SpendRefused):
+            return f". Raise {budget.CAP_VARIABLE}, then {resume} continues from here."
+        if isinstance(error, spend.ReplayMiss):
+            return (
+                ". Replay answers only the calls recorded before; with "
+                f"{budget.REPLAY_VARIABLE}=record and a cap, {resume} records the rest."
+            )
+        return ""
 
     def refusal(self) -> str | None:
         """Why the node refused the last answer and asked again, or None."""
@@ -450,14 +474,29 @@ def check_model_name(model: str) -> ModelName:
     fail(USAGE_ERROR, f"Unknown model {model!r}; choose {SCRIPTED_MODEL} or {LIVE_MODEL}.")
 
 
-def models_for(model: str, dev: bool) -> ModelFactory:
+def models_for(model: str, dev: bool, *, check_budget: bool = True) -> ModelFactory:
     """The models behind `--model` and `--dev`. Exits 1 naming `ANTHROPIC_API_KEY`, never its
-    value, when the live model is asked for without a key; nothing is built or written first."""
+    value, when the live model is asked for without a key, and naming the setting when a spend
+    setting is malformed or, with `check_budget`, when there is no API cap left
+    (`budget.refusal`); nothing is built or written first. `eval` checks the cap itself, after
+    it has printed its plan."""
     name = check_model_name(model)
     try:
-        return model_factory(name, dev)
-    except MissingApiKeyError as error:
+        models = model_factory(name, dev)
+    except (MissingApiKeyError, budget.SpendSettingError) as error:
         fail(USAGE_ERROR, str(error))
+    problem = budget.refusal(models.guard, models.recorder) if check_budget else None
+    if problem is not None:
+        fail(USAGE_ERROR, problem)
+    return models
+
+
+def print_credit(used: spend.Meter) -> None:
+    """One stderr line on the API credit a run used; nothing when it made no paid or replayed
+    call, as on the scripted models."""
+    line = budget.credit_line([used.summary()])
+    if line is not None:
+        typer.echo(line, err=True)
 
 
 def load_named_scenario(scenario_id: str, scenarios_dir: Path) -> Scenario:

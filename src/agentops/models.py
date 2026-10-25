@@ -3,6 +3,9 @@
 This is the only module that imports `langchain_anthropic` or `anthropic`, and only inside
 `chat_model_class`, so the scripted demo, the tests and CI never load the live client. The key
 is read from `ANTHROPIC_API_KEY` in the process environment and nowhere else.
+
+Every client `model_factory` builds asks the spend ladder in `agentops.budget` before each call:
+a recorded answer if there is one, else a paid call only while the cap has room.
 """
 
 import os
@@ -10,9 +13,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, get_args
 
+import flywheel.spend as spend
 from langchain_core.language_models import BaseChatModel
 from pydantic import SecretStr
 
+from agentops import budget
 from agentops.fakes import scripted_baseline_model_for, scripted_model_for
 from agentops.sources.scenario import Scenario
 
@@ -35,6 +40,9 @@ CACHE_TTL = "5m"
 REDACTED = "[redacted]"
 # Shorter values are not real keys (tests use "fake"); redacting them would blank ordinary words.
 MIN_REDACTED_KEY_LENGTH = 8
+# What a replaying client holds instead of a key: every answer comes from a recording, so it
+# never calls the API, and a real key is never handed over where none is needed.
+REPLAY_KEY = "replay-only-not-a-key"
 
 
 class MissingApiKeyError(RuntimeError):
@@ -103,13 +111,21 @@ class ModelFactory(Protocol):
 
     def model_ids(self) -> dict[ModelRole, str]: ...
 
+    @property
+    def guard(self) -> spend.Guard | None: ...
+
+    @property
+    def recorder(self) -> spend.Recorder | None: ...
+
 
 class ScriptedModels:
     """The fake models that replay each scenario's script. The judge has no script, so it never
-    runs on them."""
+    runs on them. They spend nothing, so they have no guard and no recordings."""
 
     label: ModelName = "scripted"
     runs_judge = False
+    guard: spend.Guard | None = None
+    recorder: spend.Recorder | None = None
 
     def graph_models(self, scenario: Scenario) -> dict[ModelRole, BaseChatModel]:
         model = scripted_model_for(scenario)
@@ -135,12 +151,18 @@ class LiveModels:
     """One ChatAnthropic per role, built from `settings` with the key passed explicitly.
 
     The scenario handed to `graph_models` and `baseline_model` is never read, so no ground truth
-    or scenario id can reach a prompt through the factory."""
+    or scenario id can reach a prompt through the factory.
+
+    `guard` and `recorder` are the spend ladder every client asks before a call; `model_factory`
+    always sets both. Built by hand without either, as the live smoke test does, the clients call
+    the API directly."""
 
     settings: ModelSettings
     api_key: SecretStr = field(repr=False)
     label: ModelName = "anthropic"
     runs_judge = True
+    guard: spend.Guard | None = field(default=None, repr=False)
+    recorder: spend.Recorder | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not self.api_key.get_secret_value().strip():
@@ -164,6 +186,14 @@ class LiveModels:
         return dict(self.settings.model_ids)
 
     def client(self, role: ModelRole) -> BaseChatModel:
+        """The client for `role`. With a guard or recordings it asks them before every call, and
+        never streams: LangChain skips the cache slot for a streamed call."""
+        ladder: dict[str, Any] = {}
+        if self.guard is not None or self.recorder is not None:
+            ladder = {
+                "cache": budget.answer_cache(self.guard, self.recorder, role),
+                "disable_streaming": True,
+            }
         return chat_model_class()(
             model=self.settings.model_ids[role],
             api_key=self.api_key,
@@ -171,6 +201,7 @@ class LiveModels:
             timeout=REQUEST_TIMEOUT_SECONDS,
             max_retries=MAX_RETRIES,
             max_tokens=MAX_OUTPUT_TOKENS,
+            **ladder,
         )
 
 
@@ -185,9 +216,17 @@ def model_factory(
     model: ModelName, dev: bool, environ: Mapping[str, str] | None = None
 ) -> ModelFactory:
     """The factory for `--model` and `--dev`. Raises `MissingApiKeyError` for `anthropic`
-    without a key, before any client is built."""
+    without a key, and `budget.SpendSettingError` for a spend setting it cannot use, before any
+    client is built. With `AGENTOPS_REPLAY=replay` no key is read and none is passed on."""
     if model == "scripted":
         return ScriptedModels()
     environ = os.environ if environ is None else environ
-    key = require_api_key(environ)
-    return LiveModels(ModelSettings.from_environment(dev, environ), SecretStr(key))
+    guard = budget.guard_from(environ)
+    recorder = budget.recorder_from(environ)
+    key = REPLAY_KEY if budget.is_replaying(recorder) else require_api_key(environ)
+    return LiveModels(
+        ModelSettings.from_environment(dev, environ),
+        SecretStr(key),
+        guard=guard,
+        recorder=recorder,
+    )
