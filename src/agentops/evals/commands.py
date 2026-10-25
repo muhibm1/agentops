@@ -3,18 +3,25 @@
 Exit codes follow the rest of the command line: 0 when the command completed (failed runs are
 rows of the table, not a failed command); 1 when every run failed, or for a usage problem
 (unknown model or system, repetitions outside 1 to 10, a tracing problem, a checksum mismatch,
-a write without `--force`, `--model anthropic` without `ANTHROPIC_API_KEY` or without `--yes`);
-2 when the scenarios directory, a scenario file or the dataset files
-cannot be read.
+a write without `--force`, `--model anthropic` without `ANTHROPIC_API_KEY`, without `--yes`
+or with no API cap left, a malformed spend setting, or a split the spend ladder stopped: a
+refused paid call or a replay miss); 2 when the scenarios directory, a scenario file or the
+dataset files cannot be read.
+
+A live eval prints its plan, the API cap and where answers are recorded before anything runs;
+`AGENTOPS_REPLAY=replay` needs no `--yes`, since it spends nothing. After the table, one line
+says what the split billed and how many calls a recording answered.
 """
 
 import os
 from pathlib import Path
 from typing import Annotated, NoReturn
 
+import flywheel.spend as spend
 import typer
 from pydantic import ValidationError
 
+from agentops import budget
 from agentops.evals.dataset import (
     DatasetExistsError,
     Split,
@@ -24,6 +31,7 @@ from agentops.evals.dataset import (
 )
 from agentops.evals.outcome import SystemName
 from agentops.evals.run import (
+    SPEND_STOPS,
     SYSTEMS,
     project_environment,
     render_header,
@@ -95,20 +103,23 @@ def eval_command(
     split: Split = "held_out" if held_out else "dev"
     require_matching_checksums(scenarios_dir, evals_dir)
     scenarios = load_split(split, scenarios_dir, evals_dir)
-    models = cli.models_for(model, dev)
+    models = cli.models_for(model, dev, check_budget=False)
     if models.label == "anthropic":
         guard_spend(models, systems, len(scenarios), repetitions, yes=yes)
 
     os.environ.update(project_environment(tracing))
-    rows = run_split(
-        scenarios,
-        systems=systems,
-        repetitions=repetitions,
-        split=split,
-        tracing=tracing,
-        report=lambda text: typer.echo(cli.escape_for_terminal(text), err=True),
-        models=models,
-    )
+    try:
+        rows = run_split(
+            scenarios,
+            systems=systems,
+            repetitions=repetitions,
+            split=split,
+            tracing=tracing,
+            report=lambda text: typer.echo(cli.escape_for_terminal(text), err=True),
+            models=models,
+        )
+    except SPEND_STOPS as error:
+        stop(USAGE_ERROR, spend_stop_sentence(error, models.recorder))
     header = render_header(
         model=model,
         split=split,
@@ -116,7 +127,8 @@ def eval_command(
         repetitions=repetitions,
         tracing=tracing,
     )
-    for line in [*header, *render_table(rows)]:
+    credit = budget.credit_line([row.api for row in rows])
+    for line in [*header, *render_table(rows), *([credit] if credit else [])]:
         typer.echo(cli.escape_for_terminal(line))
     if json_path is not None:
         write_json(json_path, rows_as_json(rows))
@@ -132,13 +144,37 @@ def guard_spend(
     *,
     yes: bool,
 ) -> None:
-    """Print the planned runs and their estimated cost, then exit 1 unless `yes`. Nothing has
-    called a model yet: the factory builds its clients only when a run asks for them."""
-    for line in spend_plan(models, systems, scenario_count, repetitions):
+    """Print the planned runs, their estimated cost and what they may spend, then exit 1 unless
+    `yes`, or unless every answer is replayed. With `yes`, exit 1 when there is no API cap left.
+    Nothing has called a model yet: the factory builds its clients only when a run asks for
+    them."""
+    lines = spend_plan(models, systems, scenario_count, repetitions)
+    replaying = budget.is_replaying(models.recorder)
+    if replaying:
+        lines = lines[:1]  # a replay spends nothing: no estimate, and no --yes to ask for
+    for line in [*lines, *budget.plan_lines(models.guard, models.recorder)]:
         typer.echo(line)
+    if replaying:
+        return
     if not yes:
         typer.echo("Re-run with --yes to spend this.")
         raise typer.Exit(code=USAGE_ERROR)
+    problem = budget.refusal(models.guard, models.recorder)
+    if problem is not None:
+        stop(USAGE_ERROR, problem)
+
+
+def spend_stop_sentence(error: Exception, recorder: spend.Recorder | None) -> str:
+    """Why the split stopped, and how to go on without paying twice for what already ran."""
+    text = f"The eval stopped: {type(error).__name__}: {error}"
+    if isinstance(error, spend.ReplayMiss):
+        return f"{text}. Run it with {budget.REPLAY_VARIABLE}=record and a cap to record the rest."
+    if recorder is not None and recorder.mode == "record":
+        return (
+            f"{text}. The answers so far are recorded: raise {budget.CAP_VARIABLE} and run the "
+            "same command, and they replay for free."
+        )
+    return f"{text}. Raise {budget.CAP_VARIABLE} and run it again."
 
 
 def spend_plan(

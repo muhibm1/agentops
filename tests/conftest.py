@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from agentops.budget import VARIABLES as SPEND_VARIABLES
 from agentops.fakes import ScriptedChatModel, scripted_model_for
 from agentops.sources.scenario import Scenario, list_scenario_ids, load_scenario
 from agentops.sources.simulator import SimulatorSource
@@ -39,7 +40,8 @@ class NetworkBlockedInTests(RuntimeError):
 @pytest.fixture(autouse=True)
 def offline(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Every test runs offline and without the app key, unless it is marked `live_smoke` AND the
-    test-only key is set: the marker alone keeps the guard on (R12)."""
+    test-only key is set: the marker alone keeps the guard on (R12). A cap, ledger or replay
+    mode exported in the shell is removed too, so no test spends or replays by accident."""
     if (
         request.node.get_closest_marker(LIVE_SMOKE_MARKER)
         and os.environ.get(TEST_KEY_VARIABLE, "").strip()
@@ -47,6 +49,8 @@ def offline(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> 
         yield
         return
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    for variable in SPEND_VARIABLES:
+        monkeypatch.delenv(variable, raising=False)
     real_getaddrinfo = socket.getaddrinfo
     real_connect = socket.socket.connect
     real_connect_ex = socket.socket.connect_ex

@@ -11,6 +11,12 @@ failure is part of the result.
 Models come from a `ModelFactory`: the scripted fakes by default, or the live models. Every row
 carries the tokens each model answered with, so the table prints a measured cost; with the live
 models the judge also scores each graph run, and its cost is printed apart.
+
+Each run, with its judge call, is one repetition to the spend ladder (`agentops.budget`): its
+answers are recorded under its repetition, so a rerun replays repetition r's answers for
+repetition r, and each row keeps what the run billed and how many calls a recording answered.
+A refused paid call or a replay miss is not a failed row: the measurement could not be made,
+so it stops the split.
 """
 
 import json
@@ -25,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, get_args
 
+import flywheel.spend as spend
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph.state import CompiledStateGraph
@@ -76,6 +83,9 @@ FROZEN_WARNING = (
     "Frozen split: score it only when a version is frozen, and never change the system to "
     "improve these numbers."
 )
+# A refused paid call or a replay miss: the run could not be measured at all, so it stops the
+# split.
+SPEND_STOPS = spend.STOPS
 
 
 @dataclass(frozen=True)
@@ -89,6 +99,9 @@ class EvalRow:
     evaluators: dict[str, EvaluatorResult]
     # The judge's own model call, priced apart from the run; None when the judge did not call.
     judge_call: Action | None = field(default=None)
+    # What the run and its judge call billed and how many calls a recording answered
+    # (`flywheel.spend.Meter.summary`); None when no call went through the spend ladder.
+    api: dict[str, Any] | None = field(default=None)
 
 
 def run_split(
@@ -105,20 +118,22 @@ def run_split(
     when `models` runs a judge, the judge on every graph run. `models` defaults to the scripted
     fakes.
 
-    `report` receives one summary line for every run, or judge call, that raised."""
+    `report` receives one summary line for every run, or judge call, that raised. Raises
+    `SpendRefused` or `ReplayMiss` when the spend ladder stops a call (`SPEND_STOPS`)."""
     models = models or ScriptedModels()
     rows: list[EvalRow] = []
     for system in systems:
         for scenario in scenarios:
             for repetition in range(1, repetitions + 1):
                 config = trace_config(system, scenario.id, repetition, split, tracing)
-                outcome = measured_run(system, scenario, config, report, models)
-                evaluators = graded(scenario, outcome)
-                judge_call = None
-                if system == "graph" and models.runs_judge:
-                    judged, judge_call = judged_run(scenario, outcome, models, report)
-                    if judged is not None:
-                        evaluators[JUDGE_KEY] = judged
+                with spend.meter(sample=repetition) as used:
+                    outcome = measured_run(system, scenario, config, report, models)
+                    evaluators = graded(scenario, outcome)
+                    judge_call = None
+                    if system == "graph" and models.runs_judge:
+                        judged, judge_call = judged_run(scenario, outcome, models, report)
+                        if judged is not None:
+                            evaluators[JUDGE_KEY] = judged
                 rows.append(
                     EvalRow(
                         system=system,
@@ -127,6 +142,7 @@ def run_split(
                         outcome=outcome,
                         evaluators=evaluators,
                         judge_call=judge_call,
+                        api=used.summary(),
                     )
                 )
     return rows
@@ -138,7 +154,8 @@ def judged_run(
     models: ModelFactory,
     report: Callable[[str], None],
 ) -> tuple[dict[str, Any] | None, Action | None]:
-    """The judge's result and call for one graph run; no result when the judge raised."""
+    """The judge's result and call for one graph run; no result when the judge raised, unless
+    the spend ladder stopped it."""
     try:
         return judge_with_usage(
             inputs_for(scenario),
@@ -146,6 +163,8 @@ def judged_run(
             reference_for(scenario),
             model=models.judge_model(),
         )
+    except SPEND_STOPS:
+        raise
     except Exception as error:  # a judge that raises is reported; the run's own row stands
         report(failure_summary("graph", scenario.id, error).replace("run failed", "judge failed"))
         return None, None
@@ -232,13 +251,16 @@ def measured_run(
     report: Callable[[str], None] = lambda text: None,
     models: ModelFactory | None = None,
 ) -> RunOutcome:
-    """One run that never raises: a run that fails is a `failed` outcome that still carries the
-    tokens its model calls used, so a failed live run's spend is not lost."""
+    """One run that never raises but for `SPEND_STOPS`: a run that fails is a `failed` outcome
+    that still carries the tokens its model calls used, so a failed live run's spend is not
+    lost."""
     models = models or ScriptedModels()
     started = time.perf_counter()
     with model_call_ledger() as calls:
         try:
             return RUNNERS[system](scenario, config=config, models=models, model_calls=calls)
+        except SPEND_STOPS:
+            raise
         except Exception as error:  # a run that raises is a measured failure, shown in the table
             report(failure_summary(system, scenario.id, error))
             failed = failed_outcome(system, scenario.id, error, started, time.perf_counter())
@@ -319,7 +341,8 @@ def render_table(rows: Sequence[EvalRow]) -> list[str]:
 
 
 def rows_as_json(rows: Sequence[EvalRow]) -> str:
-    """One object per run: system, scenario, repetition, the `RunOutcome` and every result."""
+    """One object per run: system, scenario, repetition, the `RunOutcome`, every result and
+    what the run billed through the spend ladder."""
     return json.dumps(
         [
             {
@@ -332,6 +355,7 @@ def rows_as_json(rows: Sequence[EvalRow]) -> str:
                 "judge_call": (
                     row.judge_call.model_dump(mode="json") if row.judge_call is not None else None
                 ),
+                "api": row.api,
             }
             for row in rows
         ],

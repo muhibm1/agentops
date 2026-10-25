@@ -7,15 +7,20 @@ arrive. Every run becomes one `agentops-incident` trace with the graph's nodes u
 is what `flywheel score` grades and `flywheel mine` searches.
 
     LANGSMITH_PROJECT=agentops-prod FLYWHEEL_AGENTOPS_MODEL=anthropic FLYWHEEL_AGENTOPS_DEV=1 \
-        python flywheel/traffic.py
+        AGENTOPS_API_CAP=2 python flywheel/traffic.py
 
-Paid when the model is `anthropic`; the scripted model replays each scenario for free.
+Paid when the model is `anthropic`, under the cap `AGENTOPS_API_CAP` sets; the scripted model
+replays each scenario for free. Traffic stands in for new production, so its answers are live
+unless `AGENTOPS_REPLAY` says otherwise: a rerun replaying the last batch would send the same
+traces again.
 """
 
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+os.environ.setdefault("AGENTOPS_REPLAY", "off")
 
 from agentops_flywheel import incident  # noqa: E402
 

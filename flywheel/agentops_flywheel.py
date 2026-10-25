@@ -8,7 +8,8 @@ differs from the hand-written one.
 
 The model comes from the environment, so one config serves CI and paid runs:
 `FLYWHEEL_AGENTOPS_MODEL` is `scripted` (the default: free, deterministic, what CI runs) or
-`anthropic` (reads `ANTHROPIC_API_KEY`); `FLYWHEEL_AGENTOPS_DEV=1` picks the cheaper models.
+`anthropic` (reads `ANTHROPIC_API_KEY`, and pays only under `AGENTOPS_API_CAP`, replaying any
+answer recorded before: `agentops.budget`); `FLYWHEEL_AGENTOPS_DEV=1` picks the cheaper models.
 
 The held-out split is refused: a case from it would put the frozen scenarios into the loop
 that steers changes, which the project's rules forbid.

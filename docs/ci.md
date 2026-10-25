@@ -82,6 +82,11 @@ Accepted or deferred on purpose, each recorded when increment 1 was built:
 - Transitive packages are not locked. Only direct dependencies are exact pins; the packages
   langgraph and langchain-core pull in float at install time, with no lockfile or hashes. Known
   debt, deferred by the design.
+- Added 2026-10-25: Flywheel (`langsmith-flywheel`) is not on PyPI, so `requirements.txt` pins
+  it to a full GitHub commit. `pip-audit` skips it ("not found on PyPI") and Dependabot
+  proposes no upgrade for it; its core uses only the standard library, so nothing else comes
+  in with it. Move the commit by hand, together with the Action pin in
+  `.github/workflows/flywheel.yml`.
 - `pip-audit` covers `requirements.txt` only. The dev tools that run inside CI (pytest, ruff,
   pyright, pip-audit, pyyaml), `langgraph-cli[inmem]` and what it pulls in, and the
   `setuptools` build backend are not audited. Deferred.
