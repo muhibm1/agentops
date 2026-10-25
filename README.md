@@ -379,9 +379,11 @@ through `langchain-anthropic`. It works on `run`, `approve`, `resume`, `fork` an
 
 ```
 export ANTHROPIC_API_KEY=...        # read from this shell only, never from a file
+export AGENTOPS_API_CAP=2           # dollars the ledger may reach; unset, nothing is sent
 agentops run --scenario clean_bad_deploy --model anthropic --dev
 agentops eval --model anthropic --dev            # prints the plan and the estimate, exits 1
-agentops eval --model anthropic --dev --yes      # spends it
+agentops eval --model anthropic --dev --yes      # spends it, recording every answer
+AGENTOPS_REPLAY=replay agentops eval --model anthropic --dev   # the same answers: no key, free
 ```
 
 The variables:
@@ -393,6 +395,13 @@ The variables:
   `ESCALATE`, `BASELINE` or `JUDGE`. A blank value counts as unset.
 - `AGENTOPS_TEST_ANTHROPIC_API_KEY`: read only by the live smoke test (below), never by the
   command line.
+- `AGENTOPS_API_CAP`: the dollars the ledger may reach in total, across every run. Unset or 0,
+  every live command exits 1 before anything runs, unless it replays. A value that is not a
+  dollar amount exits 1 naming the variable, never its value.
+- `AGENTOPS_API_LEDGER`: the ledger, `~/.agentops/api-ledger.jsonl` unless set. One row per call:
+  model, tokens, list price and what was billed. `flywheel spend <file>` totals it.
+- `AGENTOPS_REPLAY`: `record` (the default), `replay` or `off`, below.
+- `AGENTOPS_REPLAY_DIR`: the recorded answers, `~/.agentops/replay` unless set.
 
 Every role uses `claude-sonnet-5-5` by default; `--dev` puts every role on the cheaper
 `claude-haiku-4-5-20251001`. The API address is fixed in code, so a stray `ANTHROPIC_BASE_URL`
@@ -410,6 +419,33 @@ for `explanation_quality`: its pass count is a column of the table, and its own 
 `judge cost:` line under it, apart from the systems' cost. A model id the price table does not
 name prints `n/a (unpriced: <id>)` in the `cost_usd` column, never a guess; on the scripted
 model that is always `n/a (unpriced: scripted)`.
+
+The cap and the recordings: every call a live client makes goes through Flywheel's spend ladder
+(`src/agentops/budget.py`, on `flywheel.spend`), which LangChain asks before it sends anything.
+An answer recorded before is replayed for free. Any other call needs room under the cap, and is
+added to the ledger and recorded once it returns. A refused call is never sent.
+
+- `record`: replay what was recorded, pay for the rest and record it. A rerun of the same work
+  pays only for the calls it has not made before.
+- `replay`: recordings only. No key or cap is needed and nothing is sent; `--yes` is not asked
+  for. A call with no recording stops the run.
+- `off`: every call is live, and nothing is recorded or replayed.
+
+A recording is keyed by its request with the per-run codes blanked: the fence code around
+untrusted evidence and the idempotency keys change on every run without changing the question.
+The prompt sent is never changed. Each repetition of an eval keeps its own recordings, so three
+repetitions stay three samples and a rerun replays each one. After a live command, one line on
+stderr says what it billed and how many calls a recording answered, such as
+`API credit: $0.0123 billed for 4 live calls; 6 answered from recordings ($0.0150 saved).`
+`agentops eval` prints the same line under its table, and each `--json` row carries the run's
+own `api` summary. Before it runs, the eval's plan also prints the cap, what the ledger holds so
+far and where answers are recorded.
+
+When the ladder stops a thread mid-run, the run fails (exit 2) naming the variable, and its last
+checkpoint stands: raise `AGENTOPS_API_CAP`, then `agentops resume <thread> --model anthropic`
+continues it. When it stops an eval, the eval exits 1 instead of scoring failed rows. In
+`record` mode the answers so far are kept, so the same command with a higher cap replays them
+and pays only for the rest.
 
 Nothing in the tests or in CI's default job calls a model: the test suite blocks every
 non-loopback network connection, and CI sets no key. One test, marked `live_smoke`, makes a
