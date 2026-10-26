@@ -1,6 +1,6 @@
 # Runtime dependencies. Exact pins only, each with its licence: a PyPI version, or a full
 # GitHub commit for a package not on PyPI. Dependabot proposes upgrades to the PyPI pins.
-langgraph==1.2.12  # MIT
+langgraph==1.2.16  # MIT
 langchain-core==1.6.6  # MIT
 # create_agent, the ReAct loop the measured baseline runs on (src/agentops/baseline.py).
 langchain==1.4.3  # MIT
