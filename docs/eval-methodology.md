@@ -182,7 +182,7 @@ from the final state, which a loop clears, so one approved rollback scored as un
 scorer was fixed, the saved run re-scored beside the original, and both numbers are shown. The
 held-out split (principle 3) was scored once on the frozen commit and gave the graph its only
 exact-cause misses, `schema_drift` labelled as the deploy that carried it; that stays a note.
-The eleven paid runs that got here, four of them failing on the harness's own code, are in
+The eleven live runs that got here, four of them failing on the harness's own code, are in
 [trace-mining.md](trace-mining.md).
 
 [studbook]: https://github.com/muhibm1/studbook

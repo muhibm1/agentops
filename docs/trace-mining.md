@@ -1,15 +1,15 @@
 # Trace mining
 
 **In short.** Before AgentOps was ever run on a real model, 961 automated tests passed. The
-first paid run then failed every single incident, on bugs in my own code that no test with a
-stand-in model could have found. This page is the record of eleven paid runs, in order: what
+first live run then failed every single incident, on bugs in my own code that no test with a
+stand-in model could have found. This page is the record of eleven live runs, in order: what
 each run showed, what I changed because of it, and what the next run said about the change.
 The early changes fixed code; the later ones changed how the model is instructed and how its
 answers are checked; the last fixed the scoring itself. Reading what a system actually did,
 rather than what I expected it to do, is the method; the design asks for at least one change
 that came from it, and every change on this page did.
 
-A *run* here is one paid pass over the five development scenarios (scripted incidents with a
+A *run* here is one live pass over the five development scenarios (scripted incidents with a
 known cause and a known right fix), usually three times each, on a live Claude model. The
 numbers quoted are passes out of 15 unless a run says otherwise.
 
@@ -32,7 +32,7 @@ text names the check that refused the output. That is what I mined, run by run.
 
 ## Run 1: every run failed, on my code
 
-Haiku 4.5, dev split, one repetition, $0.22. Records: `01b5209` is the fix.
+Haiku 4.5, dev split, one repetition. Records: `01b5209` is the fix.
 
 | What the records showed | Cause | Change |
 |---|---|---|
@@ -54,7 +54,7 @@ nothing it does not know. A baseline wired to a real system would have had nothi
 
 ## Run 2: the runs complete, two graph causes left
 
-Same model and split, $0.18, at `cff3f82`. Every run completed; the baseline answered in a form
+Same model and split, at `cff3f82`. Every run completed; the baseline answered in a form
 the parser read every time. The records showed two graph-side causes, fixed in `7ebfe24`:
 
 | What the records showed | Cause | Change |
@@ -71,7 +71,7 @@ against 1 of 5), mostly because two graph runs never reached root cause at all.
 
 ## Run 3: three repetitions, and a proposal nobody could approve
 
-Three repetitions per scenario, $0.46, at `7ebfe24`. All 30 runs completed. The graph remediated
+Three repetitions per scenario, at `7ebfe24`. All 30 runs completed. The graph remediated
 `clean_bad_deploy` every time, but in `dependency_timeout_noisy_neighbour` it found the right cause
 and the right action in all three repetitions and escalated anyway. The audit log of one extra
 single-scenario run showed why: the proposal was `circuit_break_dependency` with no parameters,
@@ -87,7 +87,7 @@ anything runs.
 
 ## Run 4: the model could not have sent a parameter
 
-Same command at `809f572`, $0.44. Nothing improved: `dependency_timeout_noisy_neighbour` and
+Same command at `809f572`. Nothing improved: `dependency_timeout_noisy_neighbour` and
 `late_partition_zero_rows` still escalated, now at rca, and both proposed the right action. Reading
 the schema the model actually receives settled it. `langchain-anthropic` passes the output schema
 through the SDK's `transform_schema`, which closes every object, so the open `params` mapping
@@ -102,7 +102,7 @@ rca schema through `transform_schema` and checks the field survives.
 
 ## Run 5: no code causes left
 
-At `e7f8d9d`, $0.48 plus a $0.02 check. The check stopped at approval proposing
+At `e7f8d9d`, plus a single-incident check. The check stopped at approval proposing
 `circuit_break_dependency` on `fraud-check` with `fallback: accept`, so parameters now reach the
 runbook. The graph's correct outcomes went from 4/15 to 9/15; `dependency_timeout_noisy_neighbour`
 remediated in all three repetitions. What is left is judgement, not code: the graph names the
@@ -130,9 +130,9 @@ the default model, Claude Sonnet 5.5.
 | `e7f8d9d` | (run 5 above) | 9/15 | 6/15 | 15/15 | |
 | `0679ea6` | rca may add a catalogue hypothesis the evidence supports; two real faults: the earlier one is the root cause; targets copied exactly | 12/15 | 8/15 | 15/15 | `log_injection_drop_table` 1/3 to 3/3 outcomes, now labelled `disk_saturation`; `late_partition_zero_rows` 2/3 to 3/3 |
 | `4066e8f` | one definition per catalogue label; scores rank what to fix first; records keep hypothesis scores | 11/15 | 11/15 | 14/15 | `late_partition_zero_rows` labelled `late_upstream_partition` 3/3; one run of `two_concurrent_faults` failed (a cause with no remediation, three times) |
-| `4066e8f`, Sonnet 5.5 | same code, the default model | 15/15 | 15/15 | 15/15 | `two_concurrent_faults` rolled back, verified, then scaled the pool, in all three repetitions; $0.78 plus $0.05 for the judge |
+| `4066e8f`, Sonnet 5.5 | same code, the default model | 15/15 | 15/15 | 15/15 | `two_concurrent_faults` rolled back, verified, then scaled the pool, in all three repetitions |
 | `5db4eb6` | the prompt gives the numeric scores the code checks (0.9 and above for the root cause, 0.6 and below for what follows from it); a cause and its remediation come together | 10/15 | 10/15 | 15/15 | no run raised; `two_concurrent_faults` still ambiguous 3/3 (0.95 against 0.85, 0.92 against 0.88); `late_partition_zero_rows` 1/3, the other two read as `upstream_volume_drop` |
-| `5db4eb6`, Sonnet 5.5 | same code, the default model: the reported version | 14/15 | 14/15 | 15/15 (14/15 as first scored) | `two_concurrent_faults` 3/3 to 2/3: repetition 3 rolled back, verified, then scored 0.72 against 0.65 on the second pass and handed off; $0.77 plus $0.04 for the judge |
+| `5db4eb6`, Sonnet 5.5 | same code, the default model: the reported version | 14/15 | 14/15 | 15/15 (14/15 as first scored) | `two_concurrent_faults` 3/3 to 2/3: repetition 3 rolled back, verified, then scored 0.72 against 0.65 on the second pass and handed off |
 
 What each round taught:
 
@@ -176,7 +176,7 @@ exact cause in three. These numbers are not used to change anything; by the meth
 held-out split that steers a change becomes a development split.
 
 The command was `agentops eval --model anthropic --held-out --repetitions 3` at `5db4eb6`,
-Sonnet 5.5, $0.44 plus $0.04 for the judge, no failures, never rerun.
+Sonnet 5.5, with the judge, no failures, never rerun.
 
 | Scenario | Graph | Baseline |
 |---|---|---|

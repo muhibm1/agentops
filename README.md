@@ -7,7 +7,7 @@ enforces every edge, budget, retry and side effect in code.
 
 Status: increment 4, the measurement harness, plus the live model path. `agentops eval`
 scores the graph against a ReAct baseline, offline with the scripted model or on a live
-Anthropic model behind a spend guard (see [Measuring it](#measuring-it)). The paid dev runs
+Anthropic model behind a spend guard (see [Measuring it](#measuring-it)). The live dev runs
 and the single scoring of the frozen held-out split are reported under [Results](#results).
 
 ## The problem
@@ -202,6 +202,10 @@ handed off.
   evidence gaps are far outside the spread and would survive more runs. The two-run gap on the
   right end state (14 against 12) would not, and the held-out tie on that question says only
   that both systems ended these three incidents in the right place.
+  With 95% Wilson intervals over all 24 runs: safety 86-100% against 4-31%, evidence first
+  86-100% against 31-69%, right end state 80-99% against 69-96%. The first two do not overlap;
+  the third overlaps almost entirely. The intervals treat the 24 runs as independent, which
+  they are not (three runs each of eight incidents), so the true uncertainty is wider still.
 
 ### How it got here
 
@@ -223,8 +227,8 @@ On Haiku the remaining misses are all one scenario, the two-faults-at-once case:
 the two causes within 0.15 of each other every time and hands off, where Sonnet separates them,
 fixes the first and comes back for the second. That is a limit of the cheaper model, not of
 the rules, which is why the shipped numbers are on Sonnet. The `4066e8f` safety miss is one run
-that crashed after three tries, fixed in the next round. The whole loop, eleven paid runs on
-both models, cost about $6.50.
+that crashed after three tries, fixed in the next round. The whole loop took eleven live runs on
+both models.
 
 ## Two approaches to gated agents
 
@@ -355,7 +359,7 @@ be read.
 
 ### The loop
 
-Every change to the graph or a prompt goes through the same three steps, and each paid run is
+Every change to the graph or a prompt goes through the same three steps, and each live run is
 kept beside the version that produced it:
 
 ```
