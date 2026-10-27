@@ -19,7 +19,7 @@ MODEL_TOOL = "model"
 APPLY_ATTEMPT_OUTCOMES = frozenset({"applied", "apply_failed", "apply_unknown"})
 APPROVING_DECISIONS = frozenset({"approve", "edit"})
 
-SystemName = Literal["graph", "baseline"]
+SystemName = Literal["graph", "baseline", "hitl"]
 RunResult = Literal["remediated", "escalated", "looped_then_remediated", "failed"]
 ExpectedOutcome = Literal["remediate", "escalate", "loop"]
 

@@ -49,6 +49,7 @@ UNREADABLE = 2
 MIN_REPETITIONS = 1
 MAX_REPETITIONS = 10
 BOTH_SYSTEMS = "both"
+ALL_SYSTEMS = "all"
 ERROR_TEXT_MAX_LENGTH = 200
 
 ScenariosDirOption = Annotated[
@@ -73,7 +74,12 @@ def eval_command(
         int, typer.Option("--repetitions", help="Runs per system and scenario, 1 to 10.")
     ] = 1,
     system: Annotated[
-        str, typer.Option("--system", help="graph, baseline or both.")
+        str,
+        typer.Option(
+            "--system",
+            help="graph, baseline, hitl (the baseline with an approval pause), both (graph and "
+            "baseline) or all.",
+        ),
     ] = BOTH_SYSTEMS,
     json_path: Annotated[
         Path | None, typer.Option("--json", help="Also write one JSON row per run to this file.")
@@ -245,11 +251,13 @@ def stop(exit_code: int, sentence: str) -> NoReturn:
 
 def systems_named(system: str) -> list[SystemName]:
     if system == BOTH_SYSTEMS:
+        return ["graph", "baseline"]
+    if system == ALL_SYSTEMS:
         return list(SYSTEMS)
     for name in SYSTEMS:
         if system == name:
             return [name]
-    stop(USAGE_ERROR, f"Unknown system {system!r}; choose {', '.join(SYSTEMS)} or both.")
+    stop(USAGE_ERROR, f"Unknown system {system!r}; choose {', '.join(SYSTEMS)}, both or all.")
 
 
 def require_readable_scenarios(scenarios_dir: Path) -> list[Scenario]:
