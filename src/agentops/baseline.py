@@ -6,6 +6,11 @@ directly, so both entry points refuse any source that is not a `SimulatorSource`
 module ships in the installed package, and without that check the first live `EvidenceSource`
 would turn it into an unapproved apply path against a real system.
 
+With `human_approval`, the same agent runs with LangChain's `HumanInTheLoopMiddleware` on the
+`apply` tool: every apply pauses on `interrupt()` and runs only once a decision comes back. This
+is the stock way to put a person in a `create_agent` loop, and the eval approves every pause, as
+it does the graph's, so the comparison measures what the graph adds beyond an approval step.
+
 `create_agent` accepts `ScriptedChatModel` with no provider profile and calls its `bind_tools`
 (confirmed by `tests/test_baseline.py`). Its tool node re-raises any tool exception other than
 an argument error (confirmed in `langgraph/prebuilt/tool_node.py`,
@@ -15,14 +20,20 @@ agent as text, which keeps the loop going.
 
 import hashlib
 import json
+import sqlite3
 from collections.abc import Callable, Sequence
+from contextlib import closing
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool, tool
+from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.types import Command
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from agentops.actions.registry import Registry, default_registry, describe_actions
@@ -101,6 +112,8 @@ class BaselineRun(StrictModel):
     output_tokens: int = Field(ge=0)
     # Tokens by the model id that answered each reply, for pricing (R10).
     usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
+    # Approval pauses the run stopped at; always 0 without `human_approval`.
+    approvals: int = Field(default=0, ge=0)
 
 
 @dataclass
@@ -111,6 +124,10 @@ class BaselineTrace:
     applies: list[ApplyAttempt] = field(default_factory=list)
     evidence_ids_before_apply: list[str] = field(default_factory=list)
     has_applied: bool = False
+    # True when every apply passes a human-approval pause first (`human_approval`).
+    applies_are_approved: bool = False
+    # How many approval pauses the run stopped at.
+    approvals: int = 0
 
     def run_tool(self, name: str, args: dict[str, Any], call: Callable[[], Any]) -> str:
         """Runs `call` and returns its result as JSON text, or the error as text for the
@@ -191,6 +208,12 @@ def baseline_tools(
     return [get_logs, get_metrics, get_deployments, get_config, get_dependency_health, apply]
 
 
+# The decision the eval gives at every approval pause.
+APPROVE = {"type": "approve"}
+# More pauses than this in one run is a loop; the run stops with what it has.
+MAX_APPROVALS = 10
+
+
 def run_baseline(
     scenario: Scenario,
     model: BaseChatModel,
@@ -198,25 +221,54 @@ def run_baseline(
     incident_id: str,
     source: EvidenceSource | None = None,
     middleware: Sequence[Any] = (),
+    human_approval: bool = False,
 ) -> BaselineRun:
     """Runs the ReAct baseline once over `source` (a fresh `SimulatorSource` of `scenario`
     when none is given) and returns what it did. `middleware` goes to `create_agent` as it is:
     the live models pass prompt caching, the scripted ones nothing.
 
+    With `human_approval`, `HumanInTheLoopMiddleware` pauses before every `apply` call and each
+    pause is approved, every apply is recorded as approved, and the run stops after
+    `MAX_APPROVALS` pauses.
+
     Raises `TypeError` when `source` is not a `SimulatorSource` (D19), before the model or the
     source is called. An exception from the model or the agent loop propagates.
     """
     simulator = require_simulator(source) if source is not None else SimulatorSource(scenario)
-    trace = BaselineTrace()
+    trace = BaselineTrace(applies_are_approved=human_approval)
     tools = baseline_tools(simulator, scenario.service, incident_id, trace)
-    agent = create_agent(
-        model,
-        tools,
-        system_prompt=baseline_prompt(default_registry()),
-        middleware=tuple(middleware),
-    )
-    result = agent.invoke({"messages": [HumanMessage(incident_report(scenario))]})
-    messages: list[BaseMessage] = result["messages"]
+    if not human_approval:
+        agent = create_agent(
+            model,
+            tools,
+            system_prompt=baseline_prompt(default_registry()),
+            middleware=tuple(middleware),
+        )
+        result = agent.invoke({"messages": [HumanMessage(incident_report(scenario))]})
+        messages: list[BaseMessage] = result["messages"]
+        return baseline_run(scenario, trace, messages, configured_model_id(model))
+    # The pause needs a checkpointer; one in-memory SQLite database lives for this run only.
+    with closing(sqlite3.connect(":memory:", check_same_thread=False)) as connection:
+        agent = create_agent(
+            model,
+            tools,
+            system_prompt=baseline_prompt(default_registry()),
+            middleware=(
+                *middleware,
+                HumanInTheLoopMiddleware(
+                    interrupt_on={"apply": {"allowed_decisions": ["approve", "reject"]}}
+                ),
+            ),
+            checkpointer=SqliteSaver(connection),
+        )
+        config: RunnableConfig = {"configurable": {"thread_id": incident_id}}
+        result = agent.invoke({"messages": [HumanMessage(incident_report(scenario))]}, config)
+        while result.get("__interrupt__") and trace.approvals < MAX_APPROVALS:
+            trace.approvals += 1
+            pending = result["__interrupt__"][0].value["action_requests"]
+            decisions = {"decisions": [APPROVE for _ in pending]}
+            result = agent.invoke(Command(resume=decisions), config)
+    messages = result["messages"]
     return baseline_run(scenario, trace, messages, configured_model_id(model))
 
 
@@ -252,7 +304,7 @@ def apply_unchecked(
             ApplyAttempt(
                 action=request.action,
                 target=request.target,
-                approved=False,
+                approved=trace.applies_are_approved,
                 in_registry=in_registry,
                 ok=ok,
             )
@@ -323,6 +375,7 @@ def baseline_run(
         usage_by_model=usage_by_model_of(
             usage_action(reply, 0.0, configured_model) for reply in replies
         ),
+        approvals=trace.approvals,
     )
 
 
