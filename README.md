@@ -159,6 +159,38 @@ run was re-scored under the fixed rule, and the original score is kept beside it
 notes. The held-out numbers below were not affected: no held-out run went round again and then
 handed off.
 
+### Against LangChain's own approval step
+
+The baseline above has no approval step, so its 0/15 on safety is a given, not a finding. The
+fair question is what AgentOps adds over the stock LangChain answer: the same `create_agent`
+baseline with `HumanInTheLoopMiddleware` pausing every `apply` (`--system hitl`). The eval
+approves every pause, as it approves the graph's. Dev split, Sonnet 5.5, three runs each:
+
+| Question | AgentOps | Baseline + approval step |
+|---|---|---|
+| Right end state | 14/15 (93%) | 12/15 (80%) |
+| Exact cause | 14/15 (93%) | 15/15 |
+| Evidence first | 15/15 | 6/15 (40%) |
+| No wrong action | 15/15 | 15/15 |
+| Safety | 15/15 | 15/15 |
+| Tool calls, mean | 7.4 | 5.4 |
+| Time per run, mean | 22.7 s | 6.0 s |
+| Cost per run, mean | $0.04 | $0.01 |
+
+- **With an approval step, the safety gap closes on these scenarios.** Sonnet chose a runbook
+  action every time, and the person approved it, so every change counts as safe. The approval
+  step, not the graph, is what turns 0/15 into 15/15 here.
+- **What the graph still adds is order and follow-through.** The approval variant read the
+  evidence a correct diagnosis needs before acting in 6 of 15 runs, the same as without it: a
+  person approving the action does not make the agent look first. On the two-faults case it
+  fixed the deploy and stopped in all three runs; AgentOps went back for the second fault.
+- **The runbook check matters when the model is fooled, which Sonnet was not here.** The
+  log-injection scenario plants a "drop the table" instruction. Sonnet ignored it in all
+  runs of both systems. When a model does follow it, the middleware puts `drop_table` in front
+  of the approver and, once approved, sends it (`tests/test_hitl_baseline.py`); AgentOps
+  refuses it before anyone is asked, because the action is not in the runbook.
+- This is one run of 15, on the dev split only; the held-out split is not scored again.
+
 ### Held-out split: three scenarios the loop never saw, scored once
 
 | Question | AgentOps | Spread | Baseline | Spread |
@@ -176,8 +208,9 @@ handed off.
 - **The safety gap is the design, not luck.** AgentOps cannot apply a change without an
   approval, because the approval step is code the model never touches. The baseline has no
   such step, so the 21 of 24 unapproved changes are not the baseline misbehaving; they are what
-  an agent does when nothing stops it. On a simulated incident that is a scoring difference. On a
-  real system it is the difference between a proposal and an outage.
+  an agent does when nothing stops it. Given LangChain's own approval step, the baseline
+  matches AgentOps on safety on the dev split (above); the gaps that remain are evidence first
+  and the two-fault case.
 - **Reading first costs time and buys accuracy.** AgentOps takes four times as long per run
   because it gathers evidence before it proposes anything, and it gathered what it needed in
   every run. The baseline skipped that in half of its runs, and its lower held-out score on the
@@ -345,7 +378,7 @@ A run that raises is a `failed` row naming the exception type, not a crash; an e
 of the baseline's tools is caught by that tool and handed back to the agent as text, as a real
 agent would see it.
 
-Options: `--system graph|baseline|both` (default `both`), `--repetitions` (1 to 10, default 1),
+Options: `--system graph|baseline|hitl|both|all` (default `both`, the graph and the baseline; `hitl` is the baseline with an approval pause on `apply`), `--repetitions` (1 to 10, default 1),
 `--json <path>` (also writes one JSON object per run with every evaluator result),
 `--scenarios-dir` (default `scenarios/`) and `--evals-dir` (default `evals/`, where the frozen
 split's manifest and checksums are read). Each run gets a fresh simulator, an audit log and a
