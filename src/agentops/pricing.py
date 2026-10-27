@@ -16,7 +16,7 @@ PRICES_AS_OF = "2026-10-09"
 PRICES_SOURCE = "https://platform.claude.com/docs/en/about-claude/pricing"
 
 # Design §11 upper bound, believed; replace with the measured mean after the first paid run.
-ESTIMATED_CALLS_PER_RUN = {"graph": 12, "baseline": 12}
+ESTIMATED_CALLS_PER_RUN = {"graph": 12, "baseline": 12, "hitl": 12}
 # Design §11 upper bound, believed; replace with the measured mean after the first paid run.
 ESTIMATED_INPUT_TOKENS_PER_CALL = 6_000
 # Design §11 upper bound, believed; replace with the measured mean after the first paid run.
@@ -86,9 +86,10 @@ def estimated_cost(
 ) -> float | Unpriced:
     """An upper-bound cost for the planned runs, priced role by role with each role's own id.
 
-    A graph run's estimated calls are split evenly over the four graph roles; a baseline run's
-    go to the baseline id; each judge call is priced at `ESTIMATED_JUDGE_TOKENS`. The first id
-    the table does not name makes the whole estimate `Unpriced`."""
+    A graph run's estimated calls are split evenly over the four graph roles; a baseline run's,
+    with or without the approval pause, go to the baseline id; each judge call is priced at
+    `ESTIMATED_JUDGE_TOKENS`. The first id the table does not name makes the whole estimate
+    `Unpriced`."""
     total = 0.0
     graph_runs = runs_per_system.get("graph", 0)
     if graph_runs:
@@ -98,12 +99,13 @@ def estimated_cost(
             if isinstance(cost, Unpriced):
                 return cost
             total += cost
-    baseline_runs = runs_per_system.get("baseline", 0)
-    if baseline_runs:
-        cost = call_cost(model_ids["baseline"], baseline_runs * ESTIMATED_CALLS_PER_RUN["baseline"])
-        if isinstance(cost, Unpriced):
-            return cost
-        total += cost
+    for system in ("baseline", "hitl"):  # the approval variant runs the baseline's model
+        runs = runs_per_system.get(system, 0)
+        if runs:
+            cost = call_cost(model_ids["baseline"], runs * ESTIMATED_CALLS_PER_RUN[system])
+            if isinstance(cost, Unpriced):
+                return cost
+            total += cost
     if judge_calls:
         cost = call_cost(model_ids["judge"], judge_calls, ESTIMATED_JUDGE_TOKENS)
         if isinstance(cost, Unpriced):

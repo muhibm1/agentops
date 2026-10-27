@@ -238,9 +238,35 @@ def run_baseline_once(
     return outcome_from_baseline(run, started, time.perf_counter())
 
 
+def run_hitl_once(
+    scenario: Scenario,
+    *,
+    config: RunnableConfig,
+    models: ModelFactory | None = None,
+    model_calls: Sequence[Action] = (),
+) -> RunOutcome:
+    """One run of the baseline with `HumanInTheLoopMiddleware` on its apply tool, approving
+    every pause as the graph's runs do, reduced to a `RunOutcome`. Same model and prompt as the
+    baseline. `models` defaults to the scripted fakes."""
+    models = models or ScriptedModels()
+    started = time.perf_counter()
+    hitl = RunnableLambda(
+        lambda _: run_baseline(
+            scenario,
+            models.baseline_model(scenario),
+            incident_id=f"eval-{scenario.id}",
+            middleware=models.baseline_middleware(),
+            human_approval=True,
+        )
+    )
+    run: BaselineRun = hitl.invoke(None, config)
+    return outcome_from_baseline(run, started, time.perf_counter(), system="hitl")
+
+
 RUNNERS: dict[SystemName, Callable[..., RunOutcome]] = {
     "graph": run_graph_once,
     "baseline": run_baseline_once,
+    "hitl": run_hitl_once,
 }
 
 
@@ -394,12 +420,14 @@ def has_decided(chunk: Any) -> bool:
     return chunk.get("remediation") is not None or chunk.get("escalation_reason") is not None
 
 
-def outcome_from_baseline(run: BaselineRun, started: float, finished: float) -> RunOutcome:
+def outcome_from_baseline(
+    run: BaselineRun, started: float, finished: float, system: SystemName = "baseline"
+) -> RunOutcome:
     proposed = [attempt.action for attempt in run.applies]
     if run.answer is not None and run.answer.action:
         proposed.append(run.answer.action)
     return RunOutcome(
-        system="baseline",
+        system=system,
         scenario_id=run.scenario_id,
         root_cause_label=run.root_cause_label,
         explanation=None,
