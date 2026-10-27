@@ -6,7 +6,7 @@ token is ever written here; the owner records the facts below in their own words
 ## Anthropic test workspace
 
 The live smoke test (`tests/test_live_smoke.py`, run by `.github/workflows/live-smoke.yml` or
-by hand) and the owner's paid experiments use a key from a separate Anthropic workspace, so a
+by hand) and the owner's live experiments use a key from a separate Anthropic workspace, so a
 leaked or runaway test key cannot touch the app's own spend. The app key must not be reused.
 
 | Field | Record |
