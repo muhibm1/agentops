@@ -25,7 +25,7 @@ jobs:
         with:
           python-version: "3.11"
 
-      - uses: muhibm1/flywheel@95340ef71a378ceb15e38a19d6861249cb1fd4f7 # main, 2026-10-25
+      - uses: muhibm1/flywheel@be3549cb777243cfa5f4571852c6e5bf6788b23e # main, 2026-10-25
         with:
           config: flywheel/flywheel.toml
           install: python -m pip install -r requirements.txt && python -m pip install --no-deps -e .
