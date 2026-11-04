@@ -9,6 +9,6 @@ langgraph-cli[inmem]==0.4.32  # MIT
 # Both are Elastic-2.0, a source-available licence (not OSI open source) that bars offering them
 # as a hosted service; fine for local development use, and never imported by the package.
 langgraph-api==0.15.1  # Elastic-2.0
-langgraph-runtime-inmem==0.35.1  # Elastic-2.0
+langgraph-runtime-inmem==0.36.5  # Elastic-2.0
 # Installs this package in editable mode so tests import the working tree.
 -e .
