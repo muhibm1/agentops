@@ -7,7 +7,14 @@
 # move the two together.
 name: flywheel
 
-on: [pull_request]
+# A push to main stores main's result, so a pull request reuses it instead of running main
+# again. `labeled` re-runs the gate when a person adds flywheel-grading-approved, the label that
+# approves a pull request's edits to its own checks.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 permissions:
   contents: read
