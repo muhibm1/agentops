@@ -46,11 +46,11 @@ errors) and fails when the count is below `MIN_TESTS`, set in the workflow's `en
 To raise it, change `MIN_TESTS` in `.github/workflows/ci.yml` in the same pull request that adds
 the tests. Lower it only on purpose, saying why in the commit body.
 
-`MIN_TESTS` is 700 as of increment 4. The rule since increment 3: the largest multiple of 10 at
+`MIN_TESTS` is 930 as of increment 4. The rule since increment 3: the largest multiple of 10 at
 or below 90 percent of the passing count on the branch, and never below 240.
-The suite passed 784 tests (1 skipped) when the floor was set, so 90 percent is 705.6 and the
-floor is 700. `tests/test_ci_workflow.py` recomputes the floor from that count. It was 450
-as of increment 3 (501 tests passed), and 80 in increment 2, when the suite had 76 tests at
+The suite passed 1037 tests (2 skipped) when the floor was set, so 90 percent is 933.3 and the
+floor is 930. It was raised on 2026-11-04 from 700, set when the suite passed 784 tests.
+`tests/test_ci_workflow.py` recomputes the floor from that count. It was 450 as of increment 3 (501 tests passed), and 80 in increment 2, when the suite had 76 tests at
 the end of increment 1.
 
 ## Re-resolving an action pin

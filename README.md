@@ -5,10 +5,30 @@ failure, proposes a remediation backed by cited evidence, stops for a human appr
 executes only allowlisted actions, each one exactly once. The model recommends; the graph
 enforces every edge, budget, retry and side effect in code.
 
-Status: increment 4, the measurement harness, plus the live model path. `agentops eval`
-scores the graph against a ReAct baseline, offline with the scripted model or on a live
-Anthropic model behind a spend guard (see [Measuring it](#measuring-it)). The live dev runs
-and the single scoring of the frozen held-out split are reported under [Results](#results).
+Status: increment 4 of the design is done. The graph, the approval step, crash-safe execution
+and the measurement harness are built and tested (about 1,000 tests, none of which call a
+model). `agentops eval` scores the graph against a ReAct baseline, offline with a scripted model
+or on a live Anthropic model behind a spend cap (see [Measuring it](#measuring-it)). The live
+results, on five development scenarios and on three held-out scenarios scored once, are under
+[Results](#results).
+
+## Try it in a minute
+
+No API key is needed: a scripted model stands in for the real one.
+
+```
+python -m venv .venv && source .venv/bin/activate
+python -m pip install -r requirements.txt -r requirements-dev.txt
+agentops run --scenario clean_bad_deploy --model scripted --thread demo
+agentops approve demo --decision approve
+agentops history demo
+```
+
+`run` investigates a bad deploy and stops at the approval step, showing the proposed rollback
+and the evidence it cites. `approve` approves it: the rollback is applied once, the symptoms
+are checked again, and a postmortem is written. `history` lists every saved step, newest
+first. Windows activates with `.venv\Scripts\activate`; the full setup is in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## The problem
 
@@ -301,11 +321,10 @@ would take it over is in [docs/handover.md](docs/handover.md).
 
 ## Running it
 
-The graph runs triage, parallel evidence
-collection (logs, metrics, deploys), a merge step with an investigation budget, root-cause
-analysis, a human approval, execution of an allowlisted action, verification and a postmortem,
-with an escalation path, over eight simulated scenarios with a scripted model, so no API key is
-needed: `clean_bad_deploy`, `deploy_red_herring_db`, `dependency_timeout_noisy_neighbour`,
+The graph runs triage, parallel evidence collection (logs, metrics, deploys), a merge step
+with an investigation budget, root-cause analysis, a human approval, execution of an
+allowlisted action, verification and a postmortem, with an escalation path. It runs over
+eight simulated scenarios with a scripted model, so no API key is needed: `clean_bad_deploy`, `deploy_red_herring_db`, `dependency_timeout_noisy_neighbour`,
 `late_partition_zero_rows`, `schema_drift_ingestion`, `two_concurrent_faults`,
 `ambiguous_two_causes` and `log_injection_drop_table`. A run first stops at
 `awaiting_approval` (a root cause and a remediation, citing evidence) or ends `escalated` (a
