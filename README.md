@@ -19,13 +19,15 @@ No API key is needed: a scripted model stands in for the real one.
 ```
 python -m venv .venv && source .venv/bin/activate
 python -m pip install -r requirements.txt -r requirements-dev.txt
-agentops run --scenario clean_bad_deploy --model scripted --thread demo
-agentops approve demo --decision approve
+agentops run --scenario clean_bad_deploy --model scripted --thread demo --watch
+agentops approve demo --decision approve --watch
 agentops history demo
 ```
 
 `run` investigates a bad deploy and stops at the approval step, showing the proposed rollback
-and the evidence it cites. `approve` approves it: the rollback is applied once, the symptoms
+and the evidence it cites. `--watch` streams the graph as it works, one line per node as it
+finishes (`triage: top recent_deploy_regression (0.70) ...`, `logs: +8 evidence from get_logs`, then
+`approval: paused for a person's decision`). `approve` approves it: the rollback is applied once, the symptoms
 are checked again, and a postmortem is written. `history` lists every saved step, newest
 first. Windows activates with `.venv\Scripts\activate`; the full setup is in
 [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -344,6 +346,13 @@ the repository root (`agentops eval` and `agentops dataset` are described in
 | `agentops resume <thread>` | Continues a thread that stopped before its end; a thread waiting for a decision is only shown |
 | `agentops history <thread>` | One line per checkpoint, newest first |
 | `agentops fork <thread> --at <checkpoint> --set <hypothesis>=<score>` | Starts a new thread from a past checkpoint with changed hypothesis scores |
+
+`run`, `approve`, `resume` and `fork` also take `--watch`, which streams the run with LangGraph's
+`stream_mode="updates"` and prints one line per node as it finishes: the node's name and what it
+wrote to the checkpoint (evidence read, the top hypotheses, the proposed action, the decision,
+whether the apply happened, the budget left). The report that follows is the same as without it.
+The README's flowchart above is checked against the compiled graph by
+`tests/test_readme_diagram.py`, so it cannot drift from the code.
 
 `python -m agentops` runs the same commands. Every command except `history` prints the thread
 id, status, loops, remaining budget, hypotheses and evidence count, then the pending proposal,
