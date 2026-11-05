@@ -70,7 +70,7 @@ from agentops.state import (
     OperatorRole,
     new_incident,
 )
-from agentops.watch import step_line
+from agentops.watch import custom_line, step_line
 
 USAGE_ERROR = 1
 RUN_FAILED = 2
@@ -410,13 +410,23 @@ class ThreadRun:
 
     def stream(self, value: Any, **switches: bool) -> None:
         """The same run as `invoke`, streamed: one line per node update, in the order LangGraph
-        finishes them (the three evidence reads run in one step, so their order may vary)."""
-        updates = self.graph.stream(
-            value, self.config(**switches), stream_mode="updates", durability="sync"
+        finishes them (the three evidence reads run in one step, so their order may vary), and
+        the reasons nodes give for their decisions (`stream_mode="custom"`)."""
+        chunks = self.graph.stream(
+            value, self.config(**switches), stream_mode=["updates", "custom"], durability="sync"
         )
-        for chunk in updates:
-            for node, update in chunk.items():
+        # A node's reasons arrive while it runs, before its update: held, then printed under it.
+        reasons: list[str] = []
+        for mode, chunk in chunks:
+            if mode == "custom":
+                reasons.append(custom_line(chunk))
+                continue
+            updates: dict[str, Any] = chunk  # type: ignore[assignment]
+            for node, update in updates.items():
                 typer.echo(escape_for_terminal(step_line(node, update)))
+            for line in reasons:
+                typer.echo(escape_for_terminal(line))
+            reasons.clear()
 
     def hint(self, error: Exception) -> str:
         """How to go on after the spend ladder stopped the run; empty for any other failure."""

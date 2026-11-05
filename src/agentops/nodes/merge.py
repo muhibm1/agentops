@@ -16,6 +16,7 @@ the sources that never answered.
 
 from typing import Any, Literal
 
+from langgraph.config import get_stream_writer
 from langgraph.types import Send
 
 from agentops.nodes.evidence import (
@@ -50,7 +51,30 @@ def merge(state: IncidentState) -> dict[str, Any]:
     }
     if next_step == "escalate":
         update["escalation_reason"] = reason_for_escalating_before_rca(state)
+    explain(decision_sentence(next_step, update))
     return update
+
+
+def decision_sentence(next_step: list[Send] | str, update: dict[str, Any]) -> str:
+    """Why merge routes where it does, in one sentence, for a watching operator."""
+    if isinstance(next_step, list):
+        sources = ", ".join(send.node for send in next_step)
+        return (
+            f"asking {sources} again: they may still hold evidence and the budget allows it "
+            f"({update['investigation_budget']} reads left)"
+        )
+    if next_step == "rca":
+        return "enough evidence: no source is left worth asking, so on to root cause"
+    return f"escalating before root cause: {update['escalation_reason']}"
+
+
+def explain(sentence: str) -> None:
+    """Send `sentence` to a run streamed with `stream_mode="custom"`; nothing otherwise."""
+    try:
+        writer = get_stream_writer()
+    except RuntimeError:  # called outside a graph run, as a unit test does
+        return
+    writer({"node": "merge", "why": sentence})
 
 
 def after_merge(state: IncidentState) -> list[Send] | str:
