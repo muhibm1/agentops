@@ -351,7 +351,10 @@ the repository root (`agentops eval` and `agentops dataset` are described in
 `run`, `approve`, `resume` and `fork` also take `--watch`, which streams the run with LangGraph's
 `stream_mode="updates"` and prints one line per node as it finishes: the node's name and what it
 wrote to the checkpoint (evidence read, the top hypotheses, the proposed action, the decision,
-whether the apply happened, the budget left). The report that follows is the same as without it.
+whether the apply happened, the budget left). Under the `merge` line it also prints why merge
+routed where it did, which the node sends through LangGraph's stream writer
+(`stream_mode="custom"`): asking sources again while the budget allows, moving on to root
+cause, or escalating early and why. The report that follows is the same as without it.
 The README's flowchart above is checked against the compiled graph by
 `tests/test_readme_diagram.py`, so it cannot drift from the code.
 

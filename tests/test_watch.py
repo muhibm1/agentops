@@ -5,9 +5,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from langgraph.types import Send
 from typer.testing import CliRunner
 
 from agentops.cli import app
+from agentops.nodes.merge import decision_sentence, explain
 from agentops.state import (
     RCA,
     Approval,
@@ -16,7 +18,7 @@ from agentops.state import (
     Hypothesis,
     Remediation,
 )
-from agentops.watch import INTERRUPT_KEY, step_line
+from agentops.watch import INTERRUPT_KEY, custom_line, step_line
 
 SCENARIOS_DIR = Path(__file__).resolve().parents[1] / "scenarios"
 NOW = datetime(2026, 11, 5, tzinfo=UTC)
@@ -178,3 +180,37 @@ class TestWatchedCommands:
         escalate = next(line for line in lines if line.startswith("escalate: "))
         assert "status escalated" in escalate
         assert "status: escalated" in output
+
+
+class TestDecisionReasons:
+    def test_merge_explains_going_on_to_root_cause(self) -> None:
+        assert decision_sentence("rca", {}) == (
+            "enough evidence: no source is left worth asking, so on to root cause"
+        )
+
+    def test_merge_explains_asking_again_with_the_budget_left(self) -> None:
+        sends = [Send("logs", {}), Send("metrics", {})]
+        assert decision_sentence(sends, {"investigation_budget": 5}) == (
+            "asking logs, metrics again: they may still hold evidence and the budget allows it "
+            "(5 reads left)"
+        )
+
+    def test_merge_explains_an_early_escalation_by_its_reason(self) -> None:
+        sentence = decision_sentence("escalate", {"escalation_reason": "budget_exhausted"})
+        assert sentence == "escalating before root cause: budget_exhausted"
+
+    def test_a_custom_event_prints_indented_under_its_node(self) -> None:
+        assert custom_line({"node": "merge", "why": "x"}) == "  merge: x"
+        assert custom_line("plain") == "  plain"
+
+    def test_explaining_outside_a_graph_run_does_nothing(self) -> None:
+        explain("nobody is listening")
+
+    def test_the_watched_run_prints_merges_reason_under_its_step(self, tmp_path: Path) -> None:
+        lines = invoke(
+            tmp_path, "run", "--scenario", "clean_bad_deploy", "--thread", "m", "--watch"
+        ).splitlines()
+        merge = next(index for index, line in enumerate(lines) if line.startswith("merge: "))
+        assert lines[merge + 1] == (
+            "  merge: enough evidence: no source is left worth asking, so on to root cause"
+        )

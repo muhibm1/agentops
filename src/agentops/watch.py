@@ -4,7 +4,9 @@ The thread commands normally print one report when the graph pauses or ends. Wit
 they stream the run instead (LangGraph's `stream_mode="updates"`): each node's update arrives
 as soon as the node finishes, and `step_line` turns it into one line naming the node and what
 it changed. The lines are read only from the update, so they show exactly what the node wrote
-to the checkpoint, nothing more.
+to the checkpoint, nothing more. A node can also say why it decided what it did, through
+LangGraph's stream writer (`stream_mode="custom"`); `merge` does, and `custom_line` prints it
+indented under the step.
 """
 
 from collections.abc import Mapping
@@ -24,6 +26,13 @@ def step_line(node: str, update: Any) -> str:
         return f"{node}: done"
     parts = [part for part in _parts(update) if part]
     return f"{node}: {'; '.join(parts)}" if parts else f"{node}: no change"
+
+
+def custom_line(event: Any) -> str:
+    """One line for an event a node sent with `get_stream_writer`: `  node: why`."""
+    if isinstance(event, Mapping) and "why" in event:
+        return f"  {event.get('node', '?')}: {event['why']}"
+    return f"  {event}"
 
 
 def _parts(update: Mapping[str, Any]) -> list[str]:
