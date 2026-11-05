@@ -68,6 +68,7 @@ from agentops.state import (
     OperatorRole,
     new_incident,
 )
+from agentops.watch import step_line
 
 USAGE_ERROR = 1
 RUN_FAILED = 2
@@ -103,6 +104,10 @@ ScenariosDirOption = Annotated[
     Path, typer.Option("--scenarios-dir", help="Directory holding the scenario files.")
 ]
 ThreadArgument = Annotated[str, typer.Argument(help="The thread id `run` printed.")]
+WatchOption = Annotated[
+    bool,
+    typer.Option("--watch", help="Print one line per graph step as it finishes."),
+]
 
 app = typer.Typer(help="Investigate a simulated production incident with cited evidence.")
 app.command("eval")(eval_command)
@@ -142,6 +147,7 @@ def run(
         str | None,
         typer.Option("--thread", help="Thread id for the new incident; generated when absent."),
     ] = None,
+    watch: WatchOption = False,
     scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
@@ -162,7 +168,7 @@ def run(
         thread_run = ThreadRun.start(loaded, incident["incident_id"], saver, audit_dir, models)
         if thread_run.exists():
             fail(USAGE_ERROR, f"Thread {thread_run.thread_id!r} already exists; choose another.")
-        thread_run.invoke(incident)
+        thread_run.invoke(incident, watch=watch)
         thread_run.print_outcome()
 
 
@@ -194,6 +200,7 @@ def approve(
     ] = False,
     model: ModelOption = SCRIPTED_MODEL,
     dev: DevOption = False,
+    watch: WatchOption = False,
     scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
@@ -206,7 +213,7 @@ def approve(
             fail(USAGE_ERROR, f"Thread {thread!r} is not waiting for approval.")
         # The crash switch reaches the executor only through this run's configurable (ADR 0002).
         switches = {"crash_after_apply": True} if crash_after_apply else {}
-        thread_run.invoke(Command(resume=answer), **switches)
+        thread_run.invoke(Command(resume=answer), watch=watch, **switches)
         thread_run.print_outcome()
         refusal = thread_run.refusal()
         if refusal is not None:
@@ -218,6 +225,7 @@ def resume(
     thread: ThreadArgument,
     model: ModelOption = SCRIPTED_MODEL,
     dev: DevOption = False,
+    watch: WatchOption = False,
     scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
@@ -227,7 +235,7 @@ def resume(
     with opened_thread(thread, state_db, audit_dir, scenarios_dir, models) as thread_run:
         snapshot = thread_run.snapshot()
         if snapshot.next and not snapshot.interrupts:
-            thread_run.invoke(None)
+            thread_run.invoke(None, watch=watch)
         thread_run.print_outcome()
 
 
@@ -257,6 +265,7 @@ def fork(
     ],
     model: ModelOption = SCRIPTED_MODEL,
     dev: DevOption = False,
+    watch: WatchOption = False,
     scenarios_dir: ScenariosDirOption = SCENARIOS_DIR,
     state_db: StateDbOption = STATE_DB,
     audit_dir: AuditDirOption = AUDIT_DIR,
@@ -272,7 +281,7 @@ def fork(
         fork_run.graph.update_state(
             fork_run.config(), {**snapshot.values, "hypotheses": hypotheses}, as_node="triage"
         )
-        fork_run.invoke(None)
+        fork_run.invoke(None, watch=watch)
         typer.echo(f"forked from thread {thread} at checkpoint {at}")
         fork_run.print_outcome()
 
@@ -343,18 +352,32 @@ class ThreadRun:
     def snapshot(self) -> StateSnapshot:
         return self.graph.get_state(self.config())
 
-    def invoke(self, value: Any, **switches: bool) -> None:
+    def invoke(self, value: Any, *, watch: bool = False, **switches: bool) -> None:
         """Run until the graph pauses or ends, saving each checkpoint before the next step, then
-        print on stderr the API credit the run used, when it made a paid or replayed call."""
+        print on stderr the API credit the run used, when it made a paid or replayed call. With
+        `watch`, stream the run and print one line per step as it finishes."""
         with spend.meter() as used:
             try:
-                self.graph.invoke(value, self.config(**switches), durability="sync")
+                if watch:
+                    self.stream(value, **switches)
+                else:
+                    self.graph.invoke(value, self.config(**switches), durability="sync")
             except Exception as error:  # the command's outer boundary: any failure becomes exit 2
                 print_credit(used)
                 text = str(error)[:ERROR_TEXT_MAX_LENGTH]
                 cause = f"{type(error).__name__}: {text}{self.hint(error)}"
                 fail(RUN_FAILED, f"The run failed: {cause}")
         print_credit(used)
+
+    def stream(self, value: Any, **switches: bool) -> None:
+        """The same run as `invoke`, streamed: one line per node update, in the order LangGraph
+        finishes them (the three evidence reads run in one step, so their order may vary)."""
+        updates = self.graph.stream(
+            value, self.config(**switches), stream_mode="updates", durability="sync"
+        )
+        for chunk in updates:
+            for node, update in chunk.items():
+                typer.echo(escape_for_terminal(step_line(node, update)))
 
     def hint(self, error: Exception) -> str:
         """How to go on after the spend ladder stopped the run; empty for any other failure."""
