@@ -335,7 +335,7 @@ hand-off summary and the reason, such as `budget_exhausted`, `ambiguous`, `no_ev
 again, and the thread ends `resolved` with a postmortem or goes back to investigate. Every
 command that calls a model also takes `--model anthropic`; see [The live model](#the-live-model).
 
-To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md). The five thread commands, run from
+To try it, follow the setup in [CONTRIBUTING.md](CONTRIBUTING.md). The thread commands, run from
 the repository root (`agentops eval` and `agentops dataset` are described in
 [Measuring it](#measuring-it)):
 
@@ -346,6 +346,7 @@ the repository root (`agentops eval` and `agentops dataset` are described in
 | `agentops resume <thread>` | Continues a thread that stopped before its end; a thread waiting for a decision is only shown |
 | `agentops history <thread>` | One line per checkpoint, newest first |
 | `agentops fork <thread> --at <checkpoint> --set <hypothesis>=<score>` | Starts a new thread from a past checkpoint with changed hypothesis scores |
+| `agentops incidents [--service <name>]` | Lists finished incidents, newest first, from the store every thread shares |
 
 `run`, `approve`, `resume` and `fork` also take `--watch`, which streams the run with LangGraph's
 `stream_mode="updates"` and prints one line per node as it finishes: the node's name and what it
@@ -353,6 +354,25 @@ wrote to the checkpoint (evidence read, the top hypotheses, the proposed action,
 whether the apply happened, the budget left). The report that follows is the same as without it.
 The README's flowchart above is checked against the compiled graph by
 `tests/test_readme_diagram.py`, so it cannot drift from the code.
+
+### Memory across incidents
+
+The checkpointer is each thread's short-term memory: one incident, step by step, resumable and
+forkable. LangGraph's store is its memory across threads. The command line compiles the graph
+with a `SqliteStore` in the same state file, and the two nodes that end an incident
+(`postmortem` and `escalate`) each write one record under `("incidents", <service>)`, keyed by
+the thread: how it ended, the cause, the action and whether it was applied, the escalation
+reason and the start of the summary. `agentops incidents` lists them:
+
+```
+2026-03-21T13:00:00+00:00 api-gateway i2  status: escalated  cause: -  action: -  reason: ambiguous
+2026-03-10T10:30:00+00:00 checkout i1  status: resolved  cause: recent_deploy_regression  action: rollback_deploy applied
+```
+
+The records are written, not yet read back. Showing triage a service's past incidents would
+change what the model sees, and so the measured results above, which describe the graph without
+it. That is the next change, and it would be measured like any other. A graph compiled without a
+store, as in the eval, writes nothing (`src/agentops/memory.py`, `tests/test_memory.py`).
 
 `python -m agentops` runs the same commands. Every command except `history` prints the thread
 id, status, loops, remaining budget, hypotheses and evidence count, then the pending proposal,

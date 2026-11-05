@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from agentops.actions.audit import AuditLog
 from agentops.actions.registry import idempotency_key
+from agentops.memory import remember_incident
 from agentops.nodes import (
     UNTRUSTED_DATA_RULE,
     ask_model,
@@ -71,12 +72,14 @@ def escalate(
     result, actions = hand_off_summary(state, model)
     reason = escalation_reason(state)
     audit.append(state["incident_id"], thread_id, escalation_record(state, reason))
-    return {
+    update = {
         "escalation": result,
         "escalation_reason": reason,
         "status": "escalated",
         "actions": actions,
     }
+    remember_incident({**state, **update})
+    return update
 
 
 def hand_off_summary(state: IncidentState, model: BaseChatModel) -> tuple[Escalation, list[Action]]:

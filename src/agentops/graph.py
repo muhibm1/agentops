@@ -22,6 +22,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.base import BaseStore
 from langgraph.types import RetryPolicy
 from pydantic import ValidationError
 
@@ -74,9 +75,11 @@ def build_graph(
     registry: Registry,
     audit: AuditLog,
     checkpointer: BaseCheckpointSaver,
+    store: BaseStore | None = None,
 ) -> CompiledStateGraph:
     """Compile the graph over `source` and `model`, with `registry` deciding what may run and
-    `audit` recording every proposal, decision, apply, verdict and hand-off.
+    `audit` recording every proposal, decision, apply, verdict and hand-off. With a `store`,
+    every finished incident is also remembered there across threads (`agentops.memory`).
 
     Raises ValueError when `checkpointer` is None: the approval pause needs one.
     """
@@ -86,7 +89,7 @@ def build_graph(
             "from the last checkpoint."
         )
     graph = build_state_graph(source, model, registry, audit)
-    return graph.compile(checkpointer=checkpointer)
+    return graph.compile(checkpointer=checkpointer, store=store)
 
 
 def build_state_graph(
