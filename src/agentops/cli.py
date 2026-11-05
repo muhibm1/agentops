@@ -40,6 +40,7 @@ import typer
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.sqlite import SqliteStore
 from langgraph.types import Command, StateSnapshot
 from pydantic import ValidationError
 
@@ -49,6 +50,7 @@ from agentops.actions.registry import default_registry
 from agentops.evals.commands import dataset_command, eval_command
 from agentops.evals.compare import compare_command
 from agentops.graph import build_graph, checkpoint_serializer
+from agentops.memory import past_incidents
 from agentops.models import (
     MissingApiKeyError,
     ModelFactory,
@@ -257,6 +259,42 @@ def history(
 
 
 @app.command()
+def incidents(
+    service: Annotated[
+        str | None, typer.Option("--service", help="Only this service's incidents.")
+    ] = None,
+    limit: Annotated[int, typer.Option("--limit", min=1, help="At most this many.")] = 20,
+    state_db: StateDbOption = STATE_DB,
+) -> None:
+    """List finished incidents, newest first, from the store shared by every thread."""
+    if not state_db.exists():
+        typer.echo("No incidents recorded yet.")
+        return
+    with open_checkpoints(state_db) as saver:
+        records = past_incidents(incident_store(saver), service, limit=limit)
+    if not records:
+        typer.echo("No incidents recorded yet.")
+    for record in records:
+        typer.echo(escape_for_terminal(incident_line(record)))
+
+
+def incident_line(record: dict[str, Any]) -> str:
+    """One finished incident on one line: when, which service, how it ended, cause and action."""
+    action = record.get("action")
+    if action is not None:
+        action = f"{action} {'applied' if record.get('applied') else 'not applied'}"
+    parts = [
+        f"{record.get('opened_at')} {record.get('service')} {record.get('thread_id')}",
+        f"status: {record.get('status')}",
+        f"cause: {record.get('root_cause') or '-'}",
+        f"action: {action or '-'}",
+    ]
+    if record.get("escalation_reason"):
+        parts.append(f"reason: {record['escalation_reason']}")
+    return "  ".join(parts)
+
+
+@app.command()
 def fork(
     thread: ThreadArgument,
     at: Annotated[str, typer.Option("--at", help="A checkpoint id printed by `history`.")],
@@ -327,6 +365,7 @@ class ThreadRun:
             default_registry(),
             AuditLog(audit_dir),
             saver,
+            store=incident_store(saver),
         )
         return cls(
             graph=graph,
@@ -430,6 +469,17 @@ def open_checkpoints(state_db: Path) -> Iterator[SqliteSaver]:
         except sqlite3.Error as error:
             fail(RUN_FAILED, f"The state file {state_db} cannot be used: {type(error).__name__}.")
         yield saver
+
+
+def incident_store(saver: SqliteSaver) -> SqliteStore:
+    """The store of finished incidents, in the same SQLite file as the checkpoints. Exits 2
+    when its tables cannot be made."""
+    store = SqliteStore(saver.conn)
+    try:
+        store.setup()
+    except sqlite3.Error as error:
+        fail(RUN_FAILED, f"The incident store cannot be used: {type(error).__name__}.")
+    return store
 
 
 @contextmanager

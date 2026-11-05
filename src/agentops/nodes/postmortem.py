@@ -10,6 +10,7 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from pydantic import ValidationError
 
+from agentops.memory import remember_incident
 from agentops.nodes import (
     UNTRUSTED_DATA_RULE,
     ask_model,
@@ -67,7 +68,9 @@ def postmortem(state: IncidentState, *, model: BaseChatModel) -> dict[str, Any]:
         result = candidate
         actions.append(action.model_copy(update={"attempt": attempt}))
         break
-    return {"postmortem": result, "status": "resolved", "actions": actions}
+    update = {"postmortem": result, "status": "resolved", "actions": actions}
+    remember_incident({**state, **update})
+    return update
 
 
 def postmortem_human_prompt(state: IncidentState, nonce: str) -> str:
