@@ -1,0 +1,89 @@
+{
+ "key": "0f80d64b53172b1e1eca21808ed5184dac248d74100b86eb87e4be474c3f30b7.r1",
+ "label": "agentops judge",
+ "model": "claude-sonnet-5-5",
+ "recorded_at": "2026-11-06T03:07:06+00:00",
+ "response": [
+  {
+   "id": [
+    "langchain",
+    "schema",
+    "output",
+    "ChatGeneration"
+   ],
+   "kwargs": {
+    "message": {
+     "id": [
+      "langchain",
+      "schema",
+      "messages",
+      "AIMessage"
+     ],
+     "kwargs": {
+      "content": "{\"score\":1,\"comment\":\"The answer names late_upstream_partition as the root cause and rests it on the discriminating evidence, citing rows_written stuck at 0 and growing ingestion lag to show the job succeeded on empty input before the upstream data arrived.\"}",
+      "id": "lc_run--01a1aed2-f90d-711b-a33f-28cf30cccd07-0",
+      "invalid_tool_calls": [],
+      "response_metadata": {
+       "container": null,
+       "diagnostics": null,
+       "id": "msg_011CgkwGVcQytibFGYskYceg",
+       "model": "claude-sonnet-5-5",
+       "model_name": "claude-sonnet-5-5",
+       "model_provider": "anthropic",
+       "stop_details": null,
+       "stop_reason": "end_turn",
+       "stop_sequence": null,
+       "usage": {
+        "cache_creation": {
+         "ephemeral_1h_input_tokens": 0,
+         "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 900,
+        "output_tokens": 89,
+        "output_tokens_details": {
+         "thinking_tokens": 0
+        },
+        "server_tool_use": null,
+        "service_tier": "standard",
+        "speed": "standard"
+       }
+      },
+      "tool_calls": [],
+      "type": "ai",
+      "usage_metadata": {
+       "input_token_details": {
+        "cache_creation": 0,
+        "cache_read": 0,
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "input_tokens": 900,
+       "output_token_details": {
+        "reasoning": 0
+       },
+       "output_tokens": 89,
+       "total_tokens": 989
+      }
+     },
+     "lc": 1,
+     "type": "constructor"
+    },
+    "text": "{\"score\":1,\"comment\":\"The answer names late_upstream_partition as the root cause and rests it on the discriminating evidence, citing rows_written stuck at 0 and growing ingestion lag to show the job succeeded on empty input before the upstream data arrived.\"}",
+    "type": "ChatGeneration"
+   },
+   "lc": 1,
+   "type": "constructor"
+  }
+ ],
+ "usage": {
+  "cache_read": 0,
+  "cache_write_1h": 0,
+  "cache_write_5m": 0,
+  "input": 900,
+  "output": 89,
+  "web_searches": 0
+ }
+}

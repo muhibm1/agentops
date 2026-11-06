@@ -262,6 +262,20 @@ approves every pause, as it approves the graph's. Dev split, Sonnet 5.5, three r
   the third overlaps almost entirely. The intervals treat the 24 runs as independent, which
   they are not (three runs each of eight incidents), so the true uncertainty is wider still.
 
+### A live run replayed on every commit
+
+The test suite runs on a scripted model, which cannot notice a prompt change. So one live eval of
+the graph is kept in the repository and replayed on every test run. On 2026-11-06 the graph ran
+once over the five dev scenarios on Claude Sonnet 5.5, on the current code, and every answer the
+model gave was recorded (21 calls, the explanation judge's included). It passed every question in
+all five runs. That is one run per scenario, so it is a regression check, not a new result.
+
+`tests/test_recorded_live_run.py` replays those answers with no key and no spend, while the
+graph's own code runs for real around them. A change to code that leaves every request as it was
+must still score 5 of 5. A change to anything the model sees (a prompt, the evidence shown, the
+answer schema, the model) asks a question that was never recorded, and the test fails naming the
+call. An intended prompt change then needs a fresh recording, which is where a live run belongs.
+
 ### How it got here
 
 The numbers above are the fourth version of the prompts and rules. Each version changed one

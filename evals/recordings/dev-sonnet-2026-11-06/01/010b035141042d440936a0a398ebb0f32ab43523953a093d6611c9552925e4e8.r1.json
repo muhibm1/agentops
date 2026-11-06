@@ -1,0 +1,99 @@
+{
+ "key": "010b035141042d440936a0a398ebb0f32ab43523953a093d6611c9552925e4e8.r1",
+ "label": "agentops judge",
+ "model": "claude-sonnet-5-5",
+ "recorded_at": "2026-11-06T03:08:04+00:00",
+ "response": [
+  {
+   "id": [
+    "langchain",
+    "schema",
+    "output",
+    "ChatGeneration"
+   ],
+   "kwargs": {
+    "message": {
+     "id": [
+      "langchain",
+      "schema",
+      "messages",
+      "AIMessage"
+     ],
+     "kwargs": {
+      "content": [
+       {
+        "signature": "CAQSqwoKEAgTGAI4AUIIdGhpbmtpbmcSDCWWGZxpHaXjaEvHvRoMQttO0hjbjqDnZLQ0IjAzuONVo3Rb5Zzg5CRCbu6LxSNSzscb8iVCPxM0tLVBqKGJIa4uLIjVF2kygI8dIjkqyAmt1nnpFwiQlJZx70b0JpMFaYVgjPkWYZPXd1RSkuN00a2CCIbQY9JO2sVFC1cRJoxa5YipXaJ8BUUk4cKIomm7rUJfkLYVGr345TBbaYJiEs5Z2nzAkdQur7COwLFjJpcOSespJJtEucoGBdmqL4zKO18hDZN7euWIQtJt6Zvmo9mr/LkV+pPxjCngGZdZkxsbdn5zQxm8TtToJPT18u6A9yEtdq8/FptXf0t4NZ978N2bHPJapnPOR1yE9crJog6dZIkc45EkxoampUdrrR0NtXUpJNGI3VpcZYffFD3YWTe9HmmNeRCcaVCYEGGf4AY+2bMdJHcWBSNj6MJTtBXOOW1/LW5BLJJOmFMi/OAZnCRPo05N5OySnO7yGd0JxnQIJqL551EjCZiMximAzCmnoIReUL2gXkGJPV2kD1PL/MYZlScBaoVroHHRVmpX2OnaYLMOHVpWaySgWHnH6EDtDz0fcA6JeUce4GmVz5mT+fiL9/2gMbIUo+fMpHQrFr+jT4HDbGkGtLw4S+5M+CEcyI7ymt3vM5ZLLq+BxrOuNdwE4RIxvlpDnue9bmyBs8IxKKlzOVRsY+zdDXlivuKoQHMTHZx5dKqDNmOcOXEeYXZmgpGv02VUmRllVtufBQn+3wggoyKa7JGVBhZQYp447Bz3kOAWHpbZFquUp+D1Z7mRXXHxj5mMtK0I0mTWokqKOtxlmcDaucK50AWc1NO3W1+VflsuTgtOfQNkkrbkMMY7XCBScqpW6ppRhmJfJD2mnk8gkB2A/w0GVaF4v40dY+9iGFOEvAg6CNqEMRtAIZjX0avpjLD3Z7DhApE/+d4tDQaEReF+BJkm/h8oPsIxc38WKujXJ6bsNG3a5OW+ByAYPr9cA9CSZJ8U94X9VgdQGBNLt2gZKcQoeTJCgIW0XVUV3N26mKzwKRKFvK30brFFQvQ9yw9UnLJxpjzM+7KWZfhKPSrAVZuEWOZCRiU53b7YiQpJR+IeMHJaz0Xl9WMUk8drSonGWmlQlxLyY9Ou+SpjlGnuaP5oSNSE0FeSfAp4l+vRS9VbCNe0gww3cpdnNKhw+OQhNRHUl4R4NX/r5N6qEdO50rMgy+3uM//u4852ALdjQqs22ficJdg196ByGqk0tBTIctoOyZGQnjLYB3KNMVFWxQTNUyVrEKeKWmxxu2VoWGi56sumgDG/xNN5bELp9pNs6qNQKq0XG6eB8mz1gdmJaBALs/9WQ0gq0cdtJQvvKAi4VFW8TuLI3aSZAUkXrDV212sT8VGAhYhqohCyEKO6uej19qG2B9HTnqR2pROnpLAcHFUyIzIvl/6F+nyN4/1cTU5y/bkUOO+IWDbzFUloNp69nF3L46qVz1LSeRrcR7j3MEcIH2Vvaxe8hm4hkeHmoyGvAbyIgyvgZgyAx3bTJo5xV0QHK/IomFhLiLvDfkb+LWSv6CPDgCxw4PviEYj+ICvc5zutR6MRF6gnEog5eZjcf57AaCW3aSayDbQZLUA4caEw/jCkrXGKfB6bWEtkWRiyC2QFGF7r4Wz+V8Jv8pM1gJNeM3VeNquYcNiL7MFAyWvGYDaXmhBkg91qsBQ136C47cpDw/JfGvC+BEC9P8hb7oaGazKMW0CxXaLSYJUYAQ==",
+        "thinking": "",
+        "type": "thinking"
+       },
+       {
+        "text": "{\"score\":1,\"comment\":\"The answer names the deploy regression as the root cause and cites deploy-001 and log-003. It also uses the db pool exhaustion evidence (48-connection pool, 97% utilisation) in its explanation, though it never cites metric-db_pool_utilisation by ID.\"}",
+        "type": "text"
+       }
+      ],
+      "id": "lc_run--01a1aed3-d597-7589-a01b-a9895aefe731-0",
+      "invalid_tool_calls": [],
+      "response_metadata": {
+       "container": null,
+       "diagnostics": null,
+       "id": "msg_011CgkwLfPPbR1mWmzox2ZwH",
+       "model": "claude-sonnet-5-5",
+       "model_name": "claude-sonnet-5-5",
+       "model_provider": "anthropic",
+       "stop_details": null,
+       "stop_reason": "end_turn",
+       "stop_sequence": null,
+       "usage": {
+        "cache_creation": {
+         "ephemeral_1h_input_tokens": 0,
+         "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 918,
+        "output_tokens": 379,
+        "output_tokens_details": {
+         "thinking_tokens": 277
+        },
+        "server_tool_use": null,
+        "service_tier": "standard",
+        "speed": "standard"
+       }
+      },
+      "tool_calls": [],
+      "type": "ai",
+      "usage_metadata": {
+       "input_token_details": {
+        "cache_creation": 0,
+        "cache_read": 0,
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "input_tokens": 918,
+       "output_token_details": {
+        "reasoning": 277
+       },
+       "output_tokens": 379,
+       "total_tokens": 1297
+      }
+     },
+     "lc": 1,
+     "type": "constructor"
+    },
+    "text": "{\"score\":1,\"comment\":\"The answer names the deploy regression as the root cause and cites deploy-001 and log-003. It also uses the db pool exhaustion evidence (48-connection pool, 97% utilisation) in its explanation, though it never cites metric-db_pool_utilisation by ID.\"}",
+    "type": "ChatGeneration"
+   },
+   "lc": 1,
+   "type": "constructor"
+  }
+ ],
+ "usage": {
+  "cache_read": 0,
+  "cache_write_1h": 0,
+  "cache_write_5m": 0,
+  "input": 918,
+  "output": 379,
+  "web_searches": 0
+ }
+}
