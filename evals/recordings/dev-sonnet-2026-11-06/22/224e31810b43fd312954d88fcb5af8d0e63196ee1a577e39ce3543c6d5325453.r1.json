@@ -1,0 +1,89 @@
+{
+ "key": "224e31810b43fd312954d88fcb5af8d0e63196ee1a577e39ce3543c6d5325453.r1",
+ "label": "agentops judge",
+ "model": "claude-sonnet-5-5",
+ "recorded_at": "2026-11-06T03:07:27+00:00",
+ "response": [
+  {
+   "id": [
+    "langchain",
+    "schema",
+    "output",
+    "ChatGeneration"
+   ],
+   "kwargs": {
+    "message": {
+     "id": [
+      "langchain",
+      "schema",
+      "messages",
+      "AIMessage"
+     ],
+     "kwargs": {
+      "content": "{\"score\":1,\"comment\":\"The answer names disk_saturation as the root cause and rests it on the discriminating evidence: metric-disk_io_utilisation (0.41 to 0.96) and log-002, tying it to the reindex job and the resulting latency rise, and it rules out the object-store dependency and the deploy.\"}",
+      "id": "lc_run--01a1aed3-4cbc-7168-b8a1-a9724c8296f2-0",
+      "invalid_tool_calls": [],
+      "response_metadata": {
+       "container": null,
+       "diagnostics": null,
+       "id": "msg_011CgkwJ59YqNnf4LbWfVWuX",
+       "model": "claude-sonnet-5-5",
+       "model_name": "claude-sonnet-5-5",
+       "model_provider": "anthropic",
+       "stop_details": null,
+       "stop_reason": "end_turn",
+       "stop_sequence": null,
+       "usage": {
+        "cache_creation": {
+         "ephemeral_1h_input_tokens": 0,
+         "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "global",
+        "input_tokens": 958,
+        "output_tokens": 108,
+        "output_tokens_details": {
+         "thinking_tokens": 0
+        },
+        "server_tool_use": null,
+        "service_tier": "standard",
+        "speed": "standard"
+       }
+      },
+      "tool_calls": [],
+      "type": "ai",
+      "usage_metadata": {
+       "input_token_details": {
+        "cache_creation": 0,
+        "cache_read": 0,
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "input_tokens": 958,
+       "output_token_details": {
+        "reasoning": 0
+       },
+       "output_tokens": 108,
+       "total_tokens": 1066
+      }
+     },
+     "lc": 1,
+     "type": "constructor"
+    },
+    "text": "{\"score\":1,\"comment\":\"The answer names disk_saturation as the root cause and rests it on the discriminating evidence: metric-disk_io_utilisation (0.41 to 0.96) and log-002, tying it to the reindex job and the resulting latency rise, and it rules out the object-store dependency and the deploy.\"}",
+    "type": "ChatGeneration"
+   },
+   "lc": 1,
+   "type": "constructor"
+  }
+ ],
+ "usage": {
+  "cache_read": 0,
+  "cache_write_1h": 0,
+  "cache_write_5m": 0,
+  "input": 958,
+  "output": 108,
+  "web_searches": 0
+ }
+}

@@ -1,0 +1,99 @@
+{
+ "key": "8c8aadb94fea142b3fb5b9d65dadb77e692c107ca61d1992ba6335d71b954659.r1",
+ "label": "agentops rca",
+ "model": "claude-sonnet-5-5",
+ "recorded_at": "2026-11-06T03:06:57+00:00",
+ "response": [
+  {
+   "id": [
+    "langchain",
+    "schema",
+    "output",
+    "ChatGeneration"
+   ],
+   "kwargs": {
+    "message": {
+     "id": [
+      "langchain",
+      "schema",
+      "messages",
+      "AIMessage"
+     ],
+     "kwargs": {
+      "content": [
+       {
+        "signature": "CAQSnhEKEAgTGAI4AUIIdGhpbmtpbmcSDCJmy/EXVKTPj4VfLRoMt3oJy/HJyEklAxpSIjDOiEo2xZR8DnU1GmKGXlHvmzWrRkDZ2MRX3hgPoCXCzDZYwgFdEGBxvyA+nBFYWSkquxAhoxs1C/Gi5D/K05VqZSspWHazFDEMuQau6dun/JqwizkLVCToO7N6gY74HghCFkuwn6souqtDGzPxp/XqZ/1/T63e5esP6MD3Yb8yFoDewpnCZUFJnmsgF83XjcAK16En6vmG9c8rniu9OC8SJeWEt8cSAs0MgHwg7k/uSiAXjgd4L1MbpTrH1XCXKm1ymsIiWTme3Ec3AL7pgWo77XosEzgfwy0BZ7wAJ6EK1tN9p888M0moIGCKl6QuMH1kmba6X8T3Nkjli9L4/tp3N+q3TTrJ3rY8M/NR4s/MO/zAt/DcElsTT7KOWvvtTYb74GZ5gZm/SzYYMkW96sSbgqu9A8Nocbu4UUUt5WxuBXBVqGkIZkpcrXpEKqBFafLeSMVo11+XVGgLxPdadiwOAs42KU/uVHHo832PhYcvDKvEPnwmtKzn3scZ/TGJpow0TGrvDOk7oYFmIblWLAuvNcKc6SUQ5MMLhkRBS1dw6RxOHOAuSX3Rc+xYk8yuLpMCW8CeDeN0hNNAdrTeDogKvczka8+b34JszodfS9023otCMCBhhGPYHq+2tHGM2LIdDYzBg/uxp0iAuaTlaFHEZ0ZMq/gs77M4JVTcVIEiy85816vYrAMPg/AThCAr70XGLVvhYGHv1mQ6HqxCmpuyGnTdb08wIEnfeZy4P6bCButxiCTLmLpX2aEcTFKAIMCszreYSBK2RWwyZg4i1+B2wk5x2sRjlo878SkoKQtmS7P6vtD80+vYjXj1qT/QUB7mIqP95+tS1WiwcfTba8UKuqK/Ps4xszb7/fkzT4CdChRvFmp3uJ6PgneNuGtef1NxsGLD2sbalDjyl76MnPnvTj/CriBlTuToD1b28ZKf5oGvVoMzxbAXYkGlDWBhUUSFFKK1+wTtZ7voFgHvd4P7aF1P8+Ma5EHR3yR15YeS5cXrjgF4rQ90Fl5tLrK0eA/weeXJcvJQbSFaN3QkeuACbCeSP8hrFQCcWDR9us/F8C8U+CbmIoQgoQwmntNh4rzEwDq9ds2Mb6s0Ram27XdkTzgdmSvjX4U1f+8RZrThqcQljp9uNshSn1uhAthIC+xgOlvCkkUmqOn1z1Gv8ysIsBgD9sqh8Tl9x40/Lg+tkz/T2Wa49nVc1vv6Gx4bmk8P7nfKP6MrJKho8xPzsrcFSwsf/VFzqOrLgorexNGKsohNK06P6N1MJille6Rwu0sfs7EmNJJcMHx0F7E9I2+ThzGrvwiajGmJJXPNMmH8CbHQ00tBEPzgbWowzly5ilHB5X0LeZNZWL3FX/tK5qq+qoalxvuYRJO7ewqIgrrBn0EvhRrHCx5uWauegPCqX/gFjdS0DGGLMja4LqfqDgF4reF4y9XN3rFW4awvVS7ooPlHjFwrQFN6TtZ+kAYEs4p/niYKCIe6PcSaKiW8HCBzJ7QbIyo0LfnL0vsml02o8LxdNepDOE6F16VEoAcTdvKRDaCEY8ghwNQeZxZpbNCs+HQYHYF2wIO+CjBETCnkO0MEKTwVP0laIWB3BlPDXxCne702Z2P15SEnjoHq00A/LO7KKzxx8HVHov+BgSXnalt31Tj0H0/l+h6WipbAWlgy4GrIlX+frtIPEcxH3CKjr6ajEMT95pAeU0Fhgv76nR/MNgSCPf4AWw2G/3NhFYyqxBocFTwjNDAQjbvnJoRNAHJCff8NQXzI4Nv7MnjJCVczF1IXqruRxawuCmjufDi/cP5aoJUBUvJqHu5lEQfuXh7MhxF20blq5PmZ9edZW4gg6e03Ud5IdrL9fmkBJKH32zRJE5FgrJMXDjvNGC3kIaj9KUEXnmOt8Mc1vrdyV1FJ7iSM/lFP8/gz6PpEzSHzloctAPQt5zaMzwQOhC6o+QVgQY5god8LyS4YsiUQJu4m8XLrgogcZDZxws5+m+vOqJLzOEE2odt6+BLD8kM9IA/36p4z4wiSUwyfs99TO10qjDfy+LWBhg/ZL6AvevE4sQFfinZtY7wDd3iT3c+uok8RFy1BlJhvUiN3tHki3X8ccl2tdx1l+rX4ZSUDQ5va2F/CffWJ0LXbEeaXsNWReU5X4PiHd397LcGBovd1WHZpekMEIEAPSh4DdIu215TmwZM2JdUXFouxZIFTPHYn2UGjIoeNi05kfUibNAJKT+gAq2tX+iedy2Zq/k8uopUTmJpf+IJ8+oSshJYDx0bw51/9ahgQyq1+q2LWn+mRWZQzp+wkcodSJAHBGkLGEcWjb3dWovqHQPvtz5BKzZ0HDn2BgFENXxQdxfLkhHlIxJVUa7RfMx/FVqbwVJy+25pUbCte/i9fKR7j7VqB/pvDmS0E3OlOYvOm+7Tm+w+QY4nB/GDYs/UOYThwEG46//VRc2vlMSEdBbrB0r9EmoKS59q0/EmR4G//xDDGcWa5g2BmOr++wnyUMuEDFYvw3ga5PC3HrNDhpVVzt/8Nio4KY78kAOfJ095hrGR5X0RrEKQ63preiemvQEXdPxjS4YSrPe4KDEwfWyFkTnnFn8LmmQu/Hvi+TuI+fBiJw8Q1lz3csFyW2i0BGZuSHRYbfkfC/xftSlvD3hzsQVL652f9FoNFOrA7MDaATysHEMSe7TNhW+wX41TIHNKm85uJvbfIdC1TtZGHVfmBWkPNShtOrfcZNSHxuq2V2zCQ2zI0rj/MJrCstEzNRTeGp5v+CBHJKiK38vJMJ9SF3Q3e7X+fif5pr3wFBAlpYiuhE2d23LI2qBiHCkqOCDCPnbOb81moDzC5Jkxspdr7WB7w2uIJ8OxPZ3JBAP8wdQ64kSZU0Y4nQKRCVjvKqQKi2E5FGAE=",
+        "thinking": "",
+        "type": "thinking"
+       },
+       {
+        "text": "{\"hypotheses\":[{\"name\":\"late_upstream_partition\",\"score\":0.9,\"supporting_evidence\":[\"log-002\",\"metric-rows_written\",\"metric-ingestion_lag_seconds\"],\"contradicting_evidence\":[]},{\"name\":\"upstream_volume_drop\",\"score\":0.35,\"supporting_evidence\":[\"metric-rows_written\",\"metric-ingestion_lag_seconds\"],\"contradicting_evidence\":[]},{\"name\":\"ingestion_job_failure\",\"score\":0.25,\"supporting_evidence\":[\"metric-ingestion_lag_seconds\"],\"contradicting_evidence\":[\"log-002\",\"log-003\"]},{\"name\":\"schema_drift\",\"score\":0.1,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-002\"]},{\"name\":\"recent_deploy_regression\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-002\",\"log-004\"]},{\"name\":\"config_change\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-002\",\"log-004\"]}],\"root_cause\":{\"label\":\"late_upstream_partition\",\"explanation\":\"The daily_revenue_rollup for partition 2026-03-18 started at 06:31 and reported success at 06:42, but rows_written stayed at 0. Ingestion lag was already about 6 hours at 06:40 and kept growing. The job therefore ran to completion before the upstream input for the period had arrived, succeeding on empty input and publishing an empty partition to the dashboard. The warehouse is healthy and the job logged no errors, which argues against a failure or a downstream fault.\",\"evidence_ids\":[\"log-002\",\"log-003\",\"metric-rows_written\",\"metric-ingestion_lag_seconds\"]},\"remediation\":{\"action\":\"rerun_partition\",\"target\":\"daily_revenue_rollup\",\"params\":[{\"name\":\"partition\",\"value\":\"2026-03-18\"}],\"reason\":\"Rerun the 2026-03-18 rollup once the upstream input has landed so the partition is rebuilt from complete data instead of the empty input it processed. Confirm that ingestion lag has dropped before rerunning, otherwise the rerun will write zero rows again.\",\"evidence_ids\":[\"log-002\",\"metric-rows_written\",\"metric-ingestion_lag_seconds\"],\"risk\":\"low\",\"rollback\":\"The rerun overwrites only the 2026-03-18 partition, which is currently empty. If the result is wrong, rerun again after the upstream data is corrected.\"}}",
+        "type": "text"
+       }
+      ],
+      "id": "lc_run--01a1aed2-b901-7590-8ff6-169d5f55b1db-0",
+      "invalid_tool_calls": [],
+      "response_metadata": {
+       "container": null,
+       "diagnostics": null,
+       "id": "msg_011CgkwFHZMGKP7xcP32owfX",
+       "model": "claude-sonnet-5-5",
+       "model_name": "claude-sonnet-5-5",
+       "model_provider": "anthropic",
+       "stop_details": null,
+       "stop_reason": "end_turn",
+       "stop_sequence": null,
+       "usage": {
+        "cache_creation": {
+         "ephemeral_1h_input_tokens": 0,
+         "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 2583,
+        "inference_geo": "global",
+        "input_tokens": 1392,
+        "output_tokens": 1456,
+        "output_tokens_details": {
+         "thinking_tokens": 618
+        },
+        "server_tool_use": null,
+        "service_tier": "standard",
+        "speed": "standard"
+       }
+      },
+      "tool_calls": [],
+      "type": "ai",
+      "usage_metadata": {
+       "input_token_details": {
+        "cache_creation": 0,
+        "cache_read": 2583,
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "input_tokens": 3975,
+       "output_token_details": {
+        "reasoning": 618
+       },
+       "output_tokens": 1456,
+       "total_tokens": 5431
+      }
+     },
+     "lc": 1,
+     "type": "constructor"
+    },
+    "text": "{\"hypotheses\":[{\"name\":\"late_upstream_partition\",\"score\":0.9,\"supporting_evidence\":[\"log-002\",\"metric-rows_written\",\"metric-ingestion_lag_seconds\"],\"contradicting_evidence\":[]},{\"name\":\"upstream_volume_drop\",\"score\":0.35,\"supporting_evidence\":[\"metric-rows_written\",\"metric-ingestion_lag_seconds\"],\"contradicting_evidence\":[]},{\"name\":\"ingestion_job_failure\",\"score\":0.25,\"supporting_evidence\":[\"metric-ingestion_lag_seconds\"],\"contradicting_evidence\":[\"log-002\",\"log-003\"]},{\"name\":\"schema_drift\",\"score\":0.1,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-002\"]},{\"name\":\"recent_deploy_regression\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-002\",\"log-004\"]},{\"name\":\"config_change\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-002\",\"log-004\"]}],\"root_cause\":{\"label\":\"late_upstream_partition\",\"explanation\":\"The daily_revenue_rollup for partition 2026-03-18 started at 06:31 and reported success at 06:42, but rows_written stayed at 0. Ingestion lag was already about 6 hours at 06:40 and kept growing. The job therefore ran to completion before the upstream input for the period had arrived, succeeding on empty input and publishing an empty partition to the dashboard. The warehouse is healthy and the job logged no errors, which argues against a failure or a downstream fault.\",\"evidence_ids\":[\"log-002\",\"log-003\",\"metric-rows_written\",\"metric-ingestion_lag_seconds\"]},\"remediation\":{\"action\":\"rerun_partition\",\"target\":\"daily_revenue_rollup\",\"params\":[{\"name\":\"partition\",\"value\":\"2026-03-18\"}],\"reason\":\"Rerun the 2026-03-18 rollup once the upstream input has landed so the partition is rebuilt from complete data instead of the empty input it processed. Confirm that ingestion lag has dropped before rerunning, otherwise the rerun will write zero rows again.\",\"evidence_ids\":[\"log-002\",\"metric-rows_written\",\"metric-ingestion_lag_seconds\"],\"risk\":\"low\",\"rollback\":\"The rerun overwrites only the 2026-03-18 partition, which is currently empty. If the result is wrong, rerun again after the upstream data is corrected.\"}}",
+    "type": "ChatGeneration"
+   },
+   "lc": 1,
+   "type": "constructor"
+  }
+ ],
+ "usage": {
+  "cache_read": 2583,
+  "cache_write_1h": 0,
+  "cache_write_5m": 0,
+  "input": 1392,
+  "output": 1456,
+  "web_searches": 0
+ }
+}

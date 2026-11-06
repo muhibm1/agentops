@@ -1,0 +1,99 @@
+{
+ "key": "4af87ee1c58667e3652903c706d9b6d39a1b2a009e5bbfc18f7a2db1536c7890.r1",
+ "label": "agentops rca",
+ "model": "claude-sonnet-5-5",
+ "recorded_at": "2026-11-06T03:06:34+00:00",
+ "response": [
+  {
+   "id": [
+    "langchain",
+    "schema",
+    "output",
+    "ChatGeneration"
+   ],
+   "kwargs": {
+    "message": {
+     "id": [
+      "langchain",
+      "schema",
+      "messages",
+      "AIMessage"
+     ],
+     "kwargs": {
+      "content": [
+       {
+        "signature": "CAQS7goKEAgTGAI4AUIIdGhpbmtpbmcSDEn9NGFGUnZpqIBQ8RoMjbmPhyf4Nen3dJoMIjB0Gb9xf29XOw3XWj0K7FWv2Lo2S3uqRCUreDw6e9wZL9wu58m+jAqNkLcG7Em2b0oqiwqGW6v7uFQ4FID9P40aLiWXFWnXVODB4aCDJ41QkXMsKa4aJ3qePsdlSnX6OyQCmr3CUzf8LSCHP01qkyx7WKXI34xdEHKVELhkRzTaSJwmGQlhhzpGvObG7cCLZO07y1wPR6K+0jsncstS0E1D7YKuKZueQtqdfqlg+d3mvyoGSW1L5xh5fQMP8lo2qlfQ9vRBUc8/f6XTLPPozBlQHhBeK4op0C5TkjVqNZfSGUVKupJPFe8NoRn7lk/hk3wV544+7XXM4o38mMjY/vS6mxKQXwXEBvD/GD1NfspQVT/qFu4v14a6lbfFptl2sGW8UXmOCGTJvNKIOftE69O03DD3LOhrOZ5amlHohj5wqRM4QRLmWZGF4TsvwYz570Xya5VreqXC+lAC3kTs1D9YTET2mV4EhicJtM46PdWl/vbpqsRiqso6mDupl75LPyZZ5La4eWAHjItRRo+z5qGSy4GVWcktNqhFFfCSSNI/8iAfdHBQfNhOOkDDpe6J3yRlmetc+g958Wg0+MGXAzYD16W2g/OzHv25TuJ+Ay2OCDBl4/6X6Luc3cd3tLxvJpA9haKehfLTznF+s5ZNCc4WvkeTdjh4ISW7BURuAyBvxelOJ3y0Q92+eFwkcGRTNd4UYJWZJEMqVpd9ylx3nDy/xGdK02/a2pHUxJLsgJ9euhMmfJHRFVK1JsCkhLnC8y8Xu+wgRKgSurfe75q30VBkTJWOI1h8l9BUfJ4xxO9oG5OEQtd0eilvVWOlDYce01gD4t2YXoG06CIvcaeOMC3CCMXJxzDkA0lTZkWoQdc6pCpnIhPCYlxe+j4f/9bdr78KyeIMYYsLvz0Y/o5L17aU1u4HHevEJ7BA9xS5Sa/76yJQ8IsbyOLEOxG+tSgoOLisfO9gDEAuqHnjn9bb4DPbrgp9DnGFXPOVVR+QZS3N9dYYCsp+KFA3L7d+dyh/9Xg78j7rZaZqwGYJt6vOuragBHnnLq4mBBOAJIAv6HevC4RntA2W7RgsTANtfQVlGlYiZIZGyMRCXyjn3uN6pCNJcMHMbUHkTvKjSYj05Od8aKrK8C22nzl5G2olA5tMt50hscV4YmO8JkEXX/UfHPZDDgPCbY94wbYqBKdUjEqeR8s6FKYjIZ9NuWNgC0XVUXXaEFCDfu0Bd84FH0x+wXmeWio6sPOyt5UYfl+OzGTbcvOh+y9/Xt1MPBcXpQaqmGe15Bas0U1ITDs8CmkKOXHrV5kpIRm4+bXd9+XM8l+8/rBKfyROgjsMFX32s8UMbMgSOWUYRjabFkCQ829L5IYuAPN3kFY1zH9AQ2rdJvcIXFpsIE5Tpsdcd0adUsac0/u/RR3z5QFVx75Y83kHbiL6h5rbobs96+8wHHBrIwkNfvfUUfeuzi0bsjhWSA3WVPi8ATgkCpWIl5NkC2jYQC3wunXrjOjDCdFzo8Jy1qpv202IcJ5A8vA6aLwK+lJ3mJj1FvD0u9IVNzKnAXaBO9WEgRkR+HwmC98JoBC5DUrak6oGrbbRVgV9dzYF06ZF0phFd+0Y9xR55Aot4VM8Mf1j7rvCeN8uWRvkHRX2FY/hBJIxDhijXkA9pH/8g0bilJPKPdzuo7k7KobCtPUVTyaeact6YJgcKFYDiCE/0P3muojAYszaRu/9yi1hK+KpCAd/z0O+gpUM88TPYPFZm+rcu6iH5eF5t7naN8BcRxXQowKS+jvgSE9lPXSWN7jaGAE=",
+        "thinking": "",
+        "type": "thinking"
+       },
+       {
+        "text": "{\"hypotheses\":[{\"name\":\"recent_deploy_regression\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"metric-dependency_p99_ms\"]},{\"name\":\"dependency_timeout\",\"score\":0.95,\"supporting_evidence\":[\"log-002\",\"log-003\",\"log-004\",\"log-006\",\"metric-dependency_p99_ms\",\"dep-fraud-check\",\"metric-error_rate\",\"metric-p99_latency_ms\"],\"contradicting_evidence\":[]},{\"name\":\"database_saturation\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-fraud-check\"]},{\"name\":\"config_change\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"metric-dependency_p99_ms\"]},{\"name\":\"traffic_spike\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-001\"]},{\"name\":\"memory_pressure\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-fraud-check\"]},{\"name\":\"noisy_neighbour\",\"score\":0.08,\"supporting_evidence\":[\"log-005\"],\"contradicting_evidence\":[\"log-005\",\"dep-fraud-check\"]},{\"name\":\"cache_eviction\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-fraud-check\"]},{\"name\":\"certificate_expiry\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-inventory\"]},{\"name\":\"network_partition\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-inventory\"]}],\"root_cause\":{\"label\":\"dependency_timeout\",\"explanation\":\"The fraud-check dependency degraded at about 15:41: its p99 rose from about 150 ms to 2400 ms and roughly 31% of calls time out at the 2000 ms limit. Checkout p99 latency and error rate rose at the same moment, and orders are held as unverifiable. The inventory dependency is healthy. The co-located recommendations-worker errors are not on the checkout request path.\",\"evidence_ids\":[\"log-002\",\"log-003\",\"log-004\",\"log-006\",\"metric-dependency_p99_ms\",\"dep-fraud-check\",\"metric-error_rate\",\"metric-p99_latency_ms\"]},\"remediation\":{\"action\":\"circuit_break_dependency\",\"target\":\"fraud-check\",\"params\":[{\"name\":\"fallback\",\"value\":\"manual_review_queue\"}],\"reason\":\"fraud-check is timing out on about 31% of calls and driving checkout latency and errors. Breaking the circuit stops requests from waiting on the 2000 ms timeout and routes orders to a fallback.\",\"evidence_ids\":[\"dep-fraud-check\",\"metric-dependency_p99_ms\",\"log-003\"],\"risk\":\"medium\",\"rollback\":\"Close the circuit breaker on fraud-check to restore the normal synchronous fraud check once the dependency recovers.\"}}",
+        "type": "text"
+       }
+      ],
+      "id": "lc_run--01a1aed2-60ea-7407-b39d-bda3511a1ee9-0",
+      "invalid_tool_calls": [],
+      "response_metadata": {
+       "container": null,
+       "diagnostics": null,
+       "id": "msg_011CgkwDd4oWEJPvs48MLRDg",
+       "model": "claude-sonnet-5-5",
+       "model_name": "claude-sonnet-5-5",
+       "model_provider": "anthropic",
+       "stop_details": null,
+       "stop_reason": "end_turn",
+       "stop_sequence": null,
+       "usage": {
+        "cache_creation": {
+         "ephemeral_1h_input_tokens": 0,
+         "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 2583,
+        "inference_geo": "global",
+        "input_tokens": 2060,
+        "output_tokens": 1352,
+        "output_tokens_details": {
+         "thinking_tokens": 335
+        },
+        "server_tool_use": null,
+        "service_tier": "standard",
+        "speed": "standard"
+       }
+      },
+      "tool_calls": [],
+      "type": "ai",
+      "usage_metadata": {
+       "input_token_details": {
+        "cache_creation": 0,
+        "cache_read": 2583,
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "input_tokens": 4643,
+       "output_token_details": {
+        "reasoning": 335
+       },
+       "output_tokens": 1352,
+       "total_tokens": 5995
+      }
+     },
+     "lc": 1,
+     "type": "constructor"
+    },
+    "text": "{\"hypotheses\":[{\"name\":\"recent_deploy_regression\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"metric-dependency_p99_ms\"]},{\"name\":\"dependency_timeout\",\"score\":0.95,\"supporting_evidence\":[\"log-002\",\"log-003\",\"log-004\",\"log-006\",\"metric-dependency_p99_ms\",\"dep-fraud-check\",\"metric-error_rate\",\"metric-p99_latency_ms\"],\"contradicting_evidence\":[]},{\"name\":\"database_saturation\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-fraud-check\"]},{\"name\":\"config_change\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"metric-dependency_p99_ms\"]},{\"name\":\"traffic_spike\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-001\"]},{\"name\":\"memory_pressure\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-fraud-check\"]},{\"name\":\"noisy_neighbour\",\"score\":0.08,\"supporting_evidence\":[\"log-005\"],\"contradicting_evidence\":[\"log-005\",\"dep-fraud-check\"]},{\"name\":\"cache_eviction\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-fraud-check\"]},{\"name\":\"certificate_expiry\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-inventory\"]},{\"name\":\"network_partition\",\"score\":0.05,\"supporting_evidence\":[],\"contradicting_evidence\":[\"dep-inventory\"]}],\"root_cause\":{\"label\":\"dependency_timeout\",\"explanation\":\"The fraud-check dependency degraded at about 15:41: its p99 rose from about 150 ms to 2400 ms and roughly 31% of calls time out at the 2000 ms limit. Checkout p99 latency and error rate rose at the same moment, and orders are held as unverifiable. The inventory dependency is healthy. The co-located recommendations-worker errors are not on the checkout request path.\",\"evidence_ids\":[\"log-002\",\"log-003\",\"log-004\",\"log-006\",\"metric-dependency_p99_ms\",\"dep-fraud-check\",\"metric-error_rate\",\"metric-p99_latency_ms\"]},\"remediation\":{\"action\":\"circuit_break_dependency\",\"target\":\"fraud-check\",\"params\":[{\"name\":\"fallback\",\"value\":\"manual_review_queue\"}],\"reason\":\"fraud-check is timing out on about 31% of calls and driving checkout latency and errors. Breaking the circuit stops requests from waiting on the 2000 ms timeout and routes orders to a fallback.\",\"evidence_ids\":[\"dep-fraud-check\",\"metric-dependency_p99_ms\",\"log-003\"],\"risk\":\"medium\",\"rollback\":\"Close the circuit breaker on fraud-check to restore the normal synchronous fraud check once the dependency recovers.\"}}",
+    "type": "ChatGeneration"
+   },
+   "lc": 1,
+   "type": "constructor"
+  }
+ ],
+ "usage": {
+  "cache_read": 2583,
+  "cache_write_1h": 0,
+  "cache_write_5m": 0,
+  "input": 2060,
+  "output": 1352,
+  "web_searches": 0
+ }
+}

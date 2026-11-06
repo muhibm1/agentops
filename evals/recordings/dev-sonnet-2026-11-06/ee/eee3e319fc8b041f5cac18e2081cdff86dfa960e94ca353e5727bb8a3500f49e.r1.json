@@ -1,0 +1,99 @@
+{
+ "key": "eee3e319fc8b041f5cac18e2081cdff86dfa960e94ca353e5727bb8a3500f49e.r1",
+ "label": "agentops rca",
+ "model": "claude-sonnet-5-5",
+ "recorded_at": "2026-11-06T03:07:38+00:00",
+ "response": [
+  {
+   "id": [
+    "langchain",
+    "schema",
+    "output",
+    "ChatGeneration"
+   ],
+   "kwargs": {
+    "message": {
+     "id": [
+      "langchain",
+      "schema",
+      "messages",
+      "AIMessage"
+     ],
+     "kwargs": {
+      "content": [
+       {
+        "signature": "CAQS9woKEAgTGAI4AUIIdGhpbmtpbmcSDLWPPJbj/RHlayr94RoMMPujeDvPxNCaKsz0IjDlmYMT3CImAIJzxm1SkwHHUHY+kz+ReuOYbM9YyN4LGUde7S/QaDIZjNTau13wiCAqlAomMjX83j78u2aictBM+Lz5QMOcEeOxhhZFs6eV7WrYrIoQlYN5rvQqekwbb2B4Dz/qr9lYZSn1qVVV2Dq+L02yO7Y3JepCtljDFeDqaX0XYbI9yx/o5lEv/xEPrr2RGVMI3IRFQGJH7NbYWbUhyBmi2M+7qeTcxj8qJybKhKK6RFPKEU1kvD4xzmHmkNDbCKpHKeN5iQDXU/0SCDd+cYA+8zgRDTryAhFEk7Mmi/VWKcyDc8qTCp8Z28StHfnjkyOsE6g7ilAJdhK82asVwL3ck0AUOHoA8sPRJAD2SvRqNzEFJzdoo+gfM5eoBJXzorGphc81X+Ljc9ckVJ8cjIGJbY5jRfetUiokK/Ix6DwRdnj+3Gb7VhiPX3tEBFEe+tPkR3SwbzpDagNonpsGXXvCZ6Nb64wVkkGEnQct1NnHtr2oXAIvvqvsuP+GLzQMk3CO8VAYdybDkJyzZL0LQ9RyRiFvup9Qs6eO8sImjLMMTqF/ls23ZxBbbSlWFsRj3HRpP5X7gk1uLq0zbH5SB+d76e5hELlKZhumKlmV4VNhGBR0BCzKchuoKhpD4AzXnyN1N++4H0xkqL+5ZgGLSz712pryEPbHagncah+rVTiGtiAWaDjd2E5cnA4DXYYIKGEt3kzjeLEPWyHHuoqBvi8XtmjWzkRfuDeZa9kFw2JPEsHJoNa3aUDJBBQVDvbkMBm5Dyi/VQXEdOPA1jopXNpMtn+psGgMnPA1i1ksuSnrML96XqlpUk9dS26T/hOrdmiwItYEkjq+BJOu0xxfeWvXfGCYKtCyuszDfz2vxl9e0679IOAwdYmV+M9d+zkNdAK+ip7DFVO1pYMVaSYZsIftzV86xebAYOhJUHcMlavttEv8Acf5qMSQVcLyGz7lwTw7MRU95xKZVJKA/uzzheQ/zfUNybj9fROyaEVEzl02SgxZ1S2cZ18P+TGhpkiFYsrD7G0uU7e+vcYF3YXe+p5hEXKOqFjEva1xupFZURlSHPUGqfBbWD03r6auUO7AWikGjNO0Xlm4xcMQHaVyyytVcIUELxdRiSu1UaWY/NpIsfc4VbrcDhxDWYFul1FNY85JAWvIFwmhW5UGZy7/G8HqlbBtx/sWuMe1qyYsUmfD3mQId6YM8RTaQEhyis2rfj5dXwqIF11lBtJJdl1JqJyA2LVnL/aogYLhaLe9RH5sShsX42P/naFrRhckGoD80mzCRRdZUbAnm9GaNP6XbcpIxzwvXd3gwL7/J2JMaf0YsrvyOtVbr2aqVx69SaoCPp4DSs4KA6cSTAv0pC/Civ5FCSVnzYhp4XemDadbw4iiATzrca4trJ9IXcOcpuG4gOxM4/s4fhNqKLuIjTU8MQjXTB6M2BUB+KeU0wU192oMbiY3oXrzriHb/U/H4+24CQ2F+/tuQugbKcEIgwvKYEvIB+9wm9/GL1nu7+giGW5YUVyQAtCw54P04wUXAJ8EmSLlfsGupC087U0smB1LUTKfXTUCKLgedELx7NfqGlfOMe0rRBCqBH2o3JgMHpaxxOJiWONrhky3yJXimCcIzqN5HLe2dxLiOjyOU+QsP/M+S1LZ2oyKQAjFAPHLa6fSkK05L6tnbutPnrr7v4N1ZdbckPgconJaIMl9g1Qxst0wCn3RKTkm6ISVn+/XhfcaVHC1CnAVOXdidwMZoULFSMh0QY6woMZ1oFGPp6hjfLVL9Xs27WL9ApsaUSFlaJE/IUg3XfcCGAE=",
+        "thinking": "",
+        "type": "thinking"
+       },
+       {
+        "text": "{\"hypotheses\":[{\"name\":\"recent_deploy_regression\",\"score\":0.95,\"supporting_evidence\":[\"deploy-001\",\"log-002\",\"log-003\",\"log-005\",\"metric-db_pool_utilisation\",\"metric-error_rate\",\"metric-p99_latency_ms\"],\"contradicting_evidence\":[]},{\"name\":\"database_saturation\",\"score\":0.55,\"supporting_evidence\":[\"log-004\",\"log-006\",\"metric-db_pool_utilisation\",\"dep-postgres\"],\"contradicting_evidence\":[\"deploy-001\"]},{\"name\":\"dependency_timeout\",\"score\":0.1,\"supporting_evidence\":[\"dep-postgres\"],\"contradicting_evidence\":[\"log-004\",\"deploy-001\"]},{\"name\":\"config_change\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"deploy-001\"]},{\"name\":\"traffic_spike\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-001\"]},{\"name\":\"memory_pressure\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-003\",\"log-004\"]},{\"name\":\"noisy_neighbour\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"deploy-001\"]},{\"name\":\"cache_eviction\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"deploy-001\"]}],\"root_cause\":{\"label\":\"recent_deploy_regression\",\"explanation\":\"Version v7.8.0 was deployed at 11:02 and rewrote apply_discount_rules to run a discount query per line item, and it does not handle orders with no discount record. Errors began right after the deploy (NullPointerException in apply_discount_rules at 11:04). The extra queries per order exhausted the 48-connection pool, with utilisation jumping from 0.55 to 0.98 at 11:05 and requests waiting 3000 ms for a connection. That drove p99 latency up 5x and the error rate to 8%. Database saturation is a consequence of the deploy, not an independent cause.\",\"evidence_ids\":[\"deploy-001\",\"log-002\",\"log-003\",\"log-004\",\"metric-db_pool_utilisation\"]},\"remediation\":{\"action\":\"rollback_deploy\",\"target\":\"deploy-001\",\"params\":[{\"name\":\"to_version\",\"value\":\"v7.7.3\"}],\"reason\":\"Rolling back v7.8.0 to v7.7.3 removes the per-line-item discount queries and the unhandled null case, which should relieve connection pool exhaustion and the NullPointerExceptions.\",\"evidence_ids\":[\"deploy-001\",\"log-002\",\"log-003\",\"metric-db_pool_utilisation\"],\"risk\":\"low\",\"rollback\":\"Redeploy v7.8.0 if the rollback does not restore latency and error rate.\"}}",
+        "type": "text"
+       }
+      ],
+      "id": "lc_run--01a1aed3-5f92-77b5-9f02-ebb1980cef4d-0",
+      "invalid_tool_calls": [],
+      "response_metadata": {
+       "container": null,
+       "diagnostics": null,
+       "id": "msg_011CgkwJRqWbRvtEpGzGMPgo",
+       "model": "claude-sonnet-5-5",
+       "model_name": "claude-sonnet-5-5",
+       "model_provider": "anthropic",
+       "stop_details": null,
+       "stop_reason": "end_turn",
+       "stop_sequence": null,
+       "usage": {
+        "cache_creation": {
+         "ephemeral_1h_input_tokens": 0,
+         "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 2583,
+        "inference_geo": "global",
+        "input_tokens": 2061,
+        "output_tokens": 1286,
+        "output_tokens_details": {
+         "thinking_tokens": 338
+        },
+        "server_tool_use": null,
+        "service_tier": "standard",
+        "speed": "standard"
+       }
+      },
+      "tool_calls": [],
+      "type": "ai",
+      "usage_metadata": {
+       "input_token_details": {
+        "cache_creation": 0,
+        "cache_read": 2583,
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+       },
+       "input_tokens": 4644,
+       "output_token_details": {
+        "reasoning": 338
+       },
+       "output_tokens": 1286,
+       "total_tokens": 5930
+      }
+     },
+     "lc": 1,
+     "type": "constructor"
+    },
+    "text": "{\"hypotheses\":[{\"name\":\"recent_deploy_regression\",\"score\":0.95,\"supporting_evidence\":[\"deploy-001\",\"log-002\",\"log-003\",\"log-005\",\"metric-db_pool_utilisation\",\"metric-error_rate\",\"metric-p99_latency_ms\"],\"contradicting_evidence\":[]},{\"name\":\"database_saturation\",\"score\":0.55,\"supporting_evidence\":[\"log-004\",\"log-006\",\"metric-db_pool_utilisation\",\"dep-postgres\"],\"contradicting_evidence\":[\"deploy-001\"]},{\"name\":\"dependency_timeout\",\"score\":0.1,\"supporting_evidence\":[\"dep-postgres\"],\"contradicting_evidence\":[\"log-004\",\"deploy-001\"]},{\"name\":\"config_change\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"deploy-001\"]},{\"name\":\"traffic_spike\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-001\"]},{\"name\":\"memory_pressure\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"log-003\",\"log-004\"]},{\"name\":\"noisy_neighbour\",\"score\":0.03,\"supporting_evidence\":[],\"contradicting_evidence\":[\"deploy-001\"]},{\"name\":\"cache_eviction\",\"score\":0.04,\"supporting_evidence\":[],\"contradicting_evidence\":[\"deploy-001\"]}],\"root_cause\":{\"label\":\"recent_deploy_regression\",\"explanation\":\"Version v7.8.0 was deployed at 11:02 and rewrote apply_discount_rules to run a discount query per line item, and it does not handle orders with no discount record. Errors began right after the deploy (NullPointerException in apply_discount_rules at 11:04). The extra queries per order exhausted the 48-connection pool, with utilisation jumping from 0.55 to 0.98 at 11:05 and requests waiting 3000 ms for a connection. That drove p99 latency up 5x and the error rate to 8%. Database saturation is a consequence of the deploy, not an independent cause.\",\"evidence_ids\":[\"deploy-001\",\"log-002\",\"log-003\",\"log-004\",\"metric-db_pool_utilisation\"]},\"remediation\":{\"action\":\"rollback_deploy\",\"target\":\"deploy-001\",\"params\":[{\"name\":\"to_version\",\"value\":\"v7.7.3\"}],\"reason\":\"Rolling back v7.8.0 to v7.7.3 removes the per-line-item discount queries and the unhandled null case, which should relieve connection pool exhaustion and the NullPointerExceptions.\",\"evidence_ids\":[\"deploy-001\",\"log-002\",\"log-003\",\"metric-db_pool_utilisation\"],\"risk\":\"low\",\"rollback\":\"Redeploy v7.8.0 if the rollback does not restore latency and error rate.\"}}",
+    "type": "ChatGeneration"
+   },
+   "lc": 1,
+   "type": "constructor"
+  }
+ ],
+ "usage": {
+  "cache_read": 2583,
+  "cache_write_1h": 0,
+  "cache_write_5m": 0,
+  "input": 2061,
+  "output": 1286,
+  "web_searches": 0
+ }
+}
