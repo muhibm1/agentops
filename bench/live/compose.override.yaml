@@ -1,0 +1,42 @@
+# Local overrides for running the OpenTelemetry demo in a container with no IPv6.
+# telemetry-docs (static docs behind nginx) binds [::]:8000 and crash-loops without IPv6; the
+# front proxy waits for it to be healthy. It serves documentation only, so a stub replaces it.
+services:
+  telemetry-docs:
+    image: busybox:1.37
+    command: ["httpd", "-f", "-p", "8000", "-h", "/tmp"]
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      retries: 1
+  # The sandbox refuses memlock rlimits; OpenSearch runs without locking its heap.
+  opensearch:
+    ulimits: !reset {}
+    environment:
+      bootstrap.memory_lock: "false"
+  # Same IPv6 problem: the image provider's nginx also listens on [::]; this copy drops that line.
+  image-provider:
+    volumes:
+      - /home/user/agentops/bench/live/image-provider.nginx.conf.template:/nginx.conf.template:ro
+  # Grafana tries to download a plugin at start and fails behind the sandbox proxy. Dashboards are
+  # not used here; a stub keeps the front proxy's dependency satisfied.
+  grafana:
+    image: busybox:1.37
+    command: ["httpd", "-f", "-p", "3000", "-h", "/tmp"]
+    environment: !reset {}
+    volumes: !reset []
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      retries: 1
+  # The flag UI's start script raises ulimits, which the sandbox refuses. Flags are switched by
+  # editing src/flagd/demo.flagd.json, which flagd watches, so the UI is stubbed.
+  flagd-ui:
+    image: busybox:1.37
+    command: ["httpd", "-f", "-p", "4000", "-h", "/tmp"]
+    environment: !reset {}
+    volumes: !reset []
+    healthcheck:
+      test: ["CMD", "true"]
+      interval: 5s
+      retries: 1
