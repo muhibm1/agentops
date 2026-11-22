@@ -5,12 +5,9 @@ failure, proposes a remediation backed by cited evidence, stops for a human appr
 executes only allowlisted actions, each one exactly once. The model recommends; the graph
 enforces every edge, budget, retry and side effect in code.
 
-Status: increment 4 of the design is done. The graph, the approval step, crash-safe execution
-and the measurement harness are built and tested (about 1,000 tests, none of which call a
-model). `agentops eval` scores the graph against a ReAct baseline, offline with a scripted model
-or on a live Anthropic model behind a spend cap (see [Measuring it](#measuring-it)). The live
-results, on five development scenarios and on three held-out scenarios scored once, are under
-[Results](#results).
+**Result.** Tested on eight made-up production incidents, each run three times, against the simpler kind of agent most teams build first (a ReAct agent that reads evidence and then acts on its own). Across 24 runs AgentOps never changed anything without a person's approval; the simpler agent did in 21 of its 24. AgentOps also ended more incidents in the right place, 23 of 24 against 21 of 24, and its one miss stopped and asked for help instead of acting. Three of the eight incidents were held out and scored once. Details under [Results](#results).
+
+Built and tested in code: the graph, the approval step, crash-safe execution and the measurement harness, with about 1,000 tests that need no model or API key.
 
 ## Try it in a minute
 
@@ -299,23 +296,11 @@ the rules, which is why the shipped numbers are on Sonnet. The `4066e8f` safety 
 that crashed after three tries, fixed in the next round. The whole loop took eleven live runs on
 both models.
 
-## Two approaches to gated agents
+## What a fake model hid
 
-I built [WorkHorse](https://github.com/muhibm1/workhorse) first: a delivery pipeline
-that gates software changes at two human approvals using hooks that run before every tool call. AgentOps gates an incident response the same
-way, with a different mechanism, and the contrast is the useful part.
+About 1,000 tests cover the graph, and none of them call a model: a scripted model stands in. They passed, and the first live run still failed 10 of 10. The code enforced rules the prompts never stated, and a strict parser rejected answer shapes the scripted model never produced, because the tests' fake model answers in exactly the shape the code expects.
 
-| Question | WorkHorse (tool-call hooks) | AgentOps (LangGraph) |
-|---|---|---|
-| Where is state? | Files and gate documents on disk, control state under `.git/workhorse/` | Typed state in a SQLite checkpointer |
-| How is a gate enforced? | A hook blocks the tool call | `interrupt()` pauses the graph |
-| How do you resume? | Re-run from the gate document | Resume the thread from its checkpoint |
-| How do you debug a bad run? | Read the record | Fork from any checkpoint |
-| Where does it break? | Gate state is local: an approval recorded on one machine stayed there when I moved this very change to the cloud, and had to be given again | The fake model hid prompt bugs: the first live run failed 10 of 10 on rules the code enforced but the prompts never stated, and on a strict parser that scripted answers never exercised |
-
-The lesson I take from the last row: an agent's control flow can be tested to a high standard
-without a model, and still fail on the first real call, because the tests' fake model answers
-in exactly the shape the code expects. A cheap live smoke run belongs in the loop from the start.
+The lesson: an agent's control flow can be tested to a high standard without a model and still fail on the first real call. A cheap live smoke run belongs in the loop from the start, and this repository now replays a recorded live run on every test run.
 
 ## What I deliberately did not build
 
@@ -683,5 +668,5 @@ nothing again and ends `resolved`. The ledger and the audit log each hold one ap
 The design, its decisions and the plan for each increment are in
 [docs/superpowers/specs/2026-09-29-agentops-design.md](docs/superpowers/specs/2026-09-29-agentops-design.md).
 How the code is laid out is in [docs/sdlc/codebase-map.md](docs/sdlc/codebase-map.md).
-What CI checks, and the known gaps it accepts, are in [docs/ci.md](docs/ci.md). Licensed under
+What CI checks, and the known gaps it accepts, are in [docs/ci.md](docs/ci.md). Status: increment 4 of the design plan is done. Licensed under
 the [MIT License](LICENSE).
