@@ -668,5 +668,5 @@ nothing again and ends `resolved`. The ledger and the audit log each hold one ap
 The design, its decisions and the plan for each increment are in
 [docs/superpowers/specs/2026-09-29-agentops-design.md](docs/superpowers/specs/2026-09-29-agentops-design.md).
 How the code is laid out is in [docs/sdlc/codebase-map.md](docs/sdlc/codebase-map.md).
-What CI checks, and the known gaps it accepts, are in [docs/ci.md](docs/ci.md). Licensed under
+What CI checks, and the known gaps it accepts, are in [docs/ci.md](docs/ci.md). Status: increment 4 of the design plan is done. Licensed under
 the [MIT License](LICENSE).
