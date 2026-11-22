@@ -1,0 +1,54 @@
+{
+  "incidents": [
+    {
+      "flag": "productCatalogLockContention",
+      "variant": "on",
+      "open_after_s": 221
+    },
+    {
+      "flag": "paymentUnreachable",
+      "variant": "on",
+      "open_after_s": 257
+    },
+    {
+      "flag": "productCatalogLockContention",
+      "variant": "on",
+      "open_after_s": 282
+    },
+    {
+      "flag": "paymentUnreachable",
+      "variant": "on",
+      "open_after_s": 254
+    },
+    {
+      "flag": "productCatalogFailure",
+      "variant": "on",
+      "open_after_s": 219
+    },
+    {
+      "flag": "adHighCpu",
+      "variant": "on",
+      "open_after_s": 188
+    },
+    {
+      "flag": "paymentFailure",
+      "variant": "50%",
+      "open_after_s": 270
+    },
+    {
+      "flag": "recommendationCacheFailure",
+      "variant": "on",
+      "open_after_s": 191
+    },
+    {
+      "flag": "emailMemoryLeak",
+      "variant": "10000x",
+      "open_after_s": 278
+    },
+    {
+      "flag": "adHighCpu",
+      "variant": "on",
+      "open_after_s": 190
+    }
+  ]
+}
