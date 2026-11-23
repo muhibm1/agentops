@@ -88,3 +88,14 @@ prints, a reason from the system's vocabulary, a well-formed time). Nothing was 
 sample; the constants fitted on Market cloudbed-1 apply unchanged. Re-reducing cloudbed-1 from its
 raw CSVs with the generalised code and re-running every stage gives byte-identical statistics
 answers and requests to the Market-only code (strict 30/70).
+
+## Freeze (2026-11-23)
+
+Development on Market cloudbed-1 ended here (`results/dev-cb1/`). Strict accuracy with Microsoft's
+scorer, 70 queries: statistics alone 0.429; statistics plus the model step (the code's answer is
+the default, the model may change a field only by citing evidence ids from the request) 0.486. On
+the 32 clean windows: 0.562 and 0.625. The model step changed 17 answers. `FREEZE.sha256` holds the
+hash of every file in this directory; nothing in it changes before the test is scored.
+
+Test plan, to keep within the week's usage: the statistics arm and the statistics-plus-model arm
+are scored on all test queries. The model-only ablation is not run on the test.
