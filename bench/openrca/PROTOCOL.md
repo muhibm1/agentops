@@ -67,3 +67,24 @@ Final per field (all 70): time 39/55, component 41/54, reason 27/55; partial 0.6
 `requests/<q>.md` (shortlist with code scores) and `requests-model-only/<q>.md` (same evidence,
 no scores, alphabetical) plus `answer.schema.json`; `run.py answers` validates
 `answers/<q>.json` and falls back to the statistics answer when invalid.
+
+## Adapters for the sealed systems (Bank, Telecom), built label-free
+
+`systems.py` holds one adapter per system: the reason vocabulary (the `POSSIBLE ROOT CAUSE
+REASONS` list of OpenRCA's `rca/baseline/rca_agent/prompt/basic_prompt_<System>.py`, fetched
+2026-11-23; the candidate-component lists there are not used), the KPI-kind tables, the reason
+signatures and the component naming. Bank and Telecom tables and signatures were written from
+their KPI names and telemetry schemas only. `reduce.py` recognises each system's trace and wide
+metric columns from the file header and converts millisecond timestamps; `run.py extract
+--system Bank|Telecom` selects the adapter, which the later stages read back from the evidence.
+
+**Sample, for crash-testing only** (`/home/user/rca-data/openrca/sample/<System>/`): one date's
+metric files (Bank 2021_03_04, Telecom 2020_04_11), the first 200 MB of that date's trace file
+(and, for Bank, of its log file), and `query.csv` filtered on download to `task_index` and
+`instruction`. No `scoring_points` were written to disk and no `record.csv` was downloaded. The
+pipeline ran end to end on the queries of those dates (Bank 16, Telecom 6) with
+`--skip-missing-days`, and every prediction validated (right count, a component the telemetry
+prints, a reason from the system's vocabulary, a well-formed time). Nothing was tuned on the
+sample; the constants fitted on Market cloudbed-1 apply unchanged. Re-reducing cloudbed-1 from its
+raw CSVs with the generalised code and re-running every stage gives byte-identical statistics
+answers and requests to the Market-only code (strict 30/70).

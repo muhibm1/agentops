@@ -17,17 +17,27 @@ Log lines are quoted as untrusted data.
 
 from __future__ import annotations
 
+import json
 import math
 
+from . import systems
 from .query import FIELDS, Query, to_local
-from .rank import REASONS, Candidate, signal_value
+from .rank import Candidate, signal_value
 
 ANSWER_KEYS = ("root cause occurrence datetime", "root cause component", "root cause reason")
 SHORTLIST = 10
 LINES_PER_COMPONENT = 5
 LOGS_PER_COMPONENT = 3
 
-ANSWER_SCHEMA = {
+
+def answer_schema(reasons: list[str]) -> dict:
+    """The JSON schema of one answer file, for a system's reason vocabulary."""
+    schema = json.loads(json.dumps(_SCHEMA))
+    schema["properties"]["failures"]["items"]["properties"]["reason"] = {"enum": list(reasons)}
+    return schema
+
+
+_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "title": "OpenRCA answer for one query",
     "type": "object",
@@ -49,7 +59,7 @@ ANSWER_SCHEMA = {
                         "description": "Root cause occurrence, local time (UTC+8).",
                     },
                     "component": {"type": "string"},
-                    "reason": {"enum": REASONS},
+                    "reason": {"enum": []},
                 },
             },
         },
@@ -123,11 +133,9 @@ def request_text(
         "## Answer format",
         f"Return JSON with exactly {q.failures} object(s) in `failures`, each with `datetime` "
         "(YYYY-MM-DD HH:MM:SS, local time), `component` and `reason`. Give all three fields even "
-        "if fewer are asked. A component is a node (node-N), a pod (as printed in the telemetry) "
-        "or a service (a pod name without its copy number and index, e.g. pod `xservice-1` and "
-        "`xservice2-0` -> service `xservice`; answer the service when all its pods are faulty).",
+        "if fewer are asked. " + systems.current().component_help,
         "Reason must be exactly one of:",
-        *[f"- {r}" for r in REASONS],
+        *[f"- {r}" for r in systems.current().reasons],
         "",
         f"Components emitting telemetry ({len(ev['components'])}): " + ", ".join(ev["components"]),
         "",

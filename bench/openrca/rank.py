@@ -30,70 +30,21 @@ was chosen on cloudbed-1 only.
 from __future__ import annotations
 
 import math
-import re
 from dataclasses import dataclass, field
 
 from rcaeval.rank import KIND_WEIGHT, SCORE_CAP
 
+from . import systems
 from .evidence import WEIGHT_KEY, Scored, service_of
 
-REASONS = [
-    "container CPU load",
-    "container memory load",
-    "container network packet retransmission",
-    "container network packet corruption",
-    "container network latency",
-    "container packet loss",
-    "container process termination",
-    "container read I/O load",
-    "container write I/O load",
-    "node CPU load",
-    "node CPU spike",
-    "node memory consumption",
-    "node disk read I/O consumption",
-    "node disk write I/O consumption",
-    "node disk space consumption",
-]
+# The reason vocabulary, the signatures (reason -> (level or None for any, [(KPI name pattern,
+# direction)])) and the host-counter network markers belong to the active system
+# (`systems.current()`); Market's are the ones developed on cloudbed-1.
 
-# reason -> (level, [(KPI name pattern, direction)]). "node CPU spike" and "container packet
-# loss" share their neighbours' signatures and are told apart afterwards.
-SIGNATURES: dict[str, tuple[str, list[tuple[str, int]]]] = {
-    "node CPU load": ("node", [(r"^system\.cpu\.(pct_usage|user)$", 1)]),
-    "node memory consumption": ("node", [(r"^system\.mem\.(pct_usage|used|real\.used)$", 1)]),
-    "node disk read I/O consumption": ("node", [(r"^system\.io\.(rkb_s|r_s)$", 1)]),
-    "node disk write I/O consumption": ("node", [(r"^system\.io\.(w_s|w_await)$", 1)]),
-    "node disk space consumption": ("node", [(r"^system\.disk\.(pct_usage|used)$", 1)]),
-    "container CPU load": ("pod", [(r"^container_cpu_(usage|user)_seconds$", 1)]),
-    "container memory load": (
-        "pod",
-        [(r"^container_memory_(rss|working_set_MB|usage_MB)$", 1)],
-    ),
-    "container read I/O load": ("pod", [(r"^container_fs_reads(_MB)?\./dev/vda$", 1)]),
-    "container write I/O load": ("pod", [(r"^container_fs_writes(_MB)?\./dev/vda$", 1)]),
-    "container network latency": (
-        "pod",
-        [(r"^trace_self_p50$", 1), (r"^mesh_rt\.", 1), (r"^proxy_mean_ms$", 1)],
-    ),
-    "container network packet corruption": (
-        "pod",
-        [(r"^(log_error_lines|mesh_bad_requests|proxy_bad_responses|trace_own_errors)$", 1)],
-    ),
-    "container network packet retransmission": (
-        "pod",
-        [(r"^container_network_(transmit|receive)_packets\.eth0$", 1)],
-    ),
-    "container process termination": (
-        "pod",
-        [(r"^container_threads$", -1), (r"^trace_spans$", -1)],
-    ),
-}
 
-# Host protocol counter kind -> the pod-level network reason it marks, in order of precedence.
-# Retransmissions rising without receive errors as "container packet loss" was measured and
-# dropped: it relabelled latency faults (cloudbed-1 reason 27 -> 26 of 55).
-NET_MARKERS = {
-    "net-rx-error": "container network packet corruption",
-}
+def reasons() -> list[str]:
+    return systems.current().reasons
+
 
 # Fitted on cloudbed-1.
 DOM_WEIGHT = 2.0
@@ -130,33 +81,22 @@ def signal_value(s: Scored, direction: int) -> float:
     return base + DOM_WEIGHT * math.log2(max(dom, 1 / 16))
 
 
-def _compiled() -> list[tuple[str, str, re.Pattern, int]]:
-    out = []
-    for reason, (level, pats) in SIGNATURES.items():
-        for pat, d in pats:
-            out.append((reason, level, re.compile(pat), d))
-    return out
-
-
-_SIGS = _compiled()
-SIGNATURE_REASONS = set(REASONS)
-
-
 def pod_candidates(scored: list[Scored]) -> dict[tuple[str, str], Candidate]:
     """One candidate per (component, reason). Each series may be scored against two baselines
     (the day, and the hours before the window); a candidate keeps the stronger score per series."""
     cands: dict[tuple[str, str], Candidate] = {}
     best: dict[tuple[str, str], dict[str, tuple[float, Scored]]] = {}
+    system = systems.current()
     for s in scored:
-        for reason, level, pat, d in _SIGS:
-            if s.level != level or not pat.search(s.name):
+        for reason, level, pat, d in system.compiled():
+            if (level is not None and s.level != level) or not pat.search(s.name):
                 continue
             v = signal_value(s, d) + REASON_PRIOR.get(reason, 0.0)
             per = best.setdefault((s.comp, reason), {})
             if s.name not in per or v > per[s.name][0]:
                 per[s.name] = (v, s)
     for (comp, reason), per in best.items():
-        level = SIGNATURES[reason][0]
+        level = system.signatures[reason][0] or system.level_of(comp)
         vals = sorted(per.values(), key=lambda vs: -vs[0])
         c = Candidate(comp, level, reason, vals[0][0], None, [s for _, s in vals])
         strong = [s for v, s in vals if v >= STRONG_FRACTION * c.value and s.onset_min]
@@ -168,22 +108,23 @@ def pod_candidates(scored: list[Scored]) -> dict[tuple[str, str], Candidate]:
 def network_candidates(
     cands: dict[tuple[str, str], Candidate], scored: list[Scored], host: dict[str, str]
 ) -> list[Candidate]:
-    """A network fault on a pod shows on its host's protocol counters, which no pod KPI carries:
-    receive errors rising mark corruption, retransmissions rising without receive errors mark
-    loss (`NET_MARKERS`). Each marked node's fault is attributed to the pod on that node whose own
-    signals are strongest; that pod gets the marker's reason, valued at its strongest signal."""
+    """A network fault on a pod shows on its host's protocol counters, which no pod KPI carries
+    (in Market, UDP receive errors rising mark corruption; the system's `net_markers`). Each
+    marked node's fault is attributed to the pod on that node whose own signals are strongest;
+    that pod gets the marker's reason, valued at its strongest signal."""
+    markers = systems.current().net_markers
     marks: dict[str, dict[str, Scored]] = {}
     for s in scored:
-        if s.level != "node" or s.kind not in NET_MARKERS or s.onset_min is None:
+        if s.level != "node" or s.kind not in markers or s.onset_min is None:
             continue
-        if s.sig.direction <= 0 or NET_MARKERS[s.kind] not in SIGNATURE_REASONS:
+        if s.sig.direction <= 0 or markers[s.kind] not in reasons():
             continue
         mine = marks.setdefault(s.comp, {})
         if s.kind not in mine or s.sig.score > mine[s.kind].sig.score:
             mine[s.kind] = s
     out = []
     for node, mine in sorted(marks.items()):
-        kind = next((k for k in NET_MARKERS if k in mine), None)
+        kind = next((k for k in markers if k in mine), None)
         if kind is None:
             continue
         pods = {p for p, n in host.items() if n == node}
@@ -196,7 +137,7 @@ def network_candidates(
             Candidate(
                 lead.comp,
                 "pod",
-                NET_MARKERS[kind],
+                markers[kind],
                 lead.value + 0.5,
                 lead.onset,
                 [mark, *lead.evidence],

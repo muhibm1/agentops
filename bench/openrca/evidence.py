@@ -6,12 +6,16 @@ component becomes one per-minute series, tagged with the component, the level it
 (pod, service or node) and a kind:
 
     cpu, mem, disk-read, disk-write, disk-space, disk-io, net, process   (resource KPIs)
+    net-rx-error, net-tx-error, net-retrans                              (host network counters)
+    jvm-cpu, jvm-mem, db-session, db-state                               (Bank and Telecom)
     latency, error, load                                                  (traffic KPIs)
 
-The component names come from the telemetry itself (`cmdb_id` and the service names in the
-service metrics). No list of answer components is used anywhere: a pod's service and a node are
-derived from the names the telemetry prints (`node-6.cartservice-0` is pod `cartservice-0` on
-`node-6`; pod `cartservice-0` belongs to service `cartservice`).
+Which files exist, how KPI names map to kinds and how components are named depend on the system
+(`systems.py`); Market's layout is described here. The component names come from the telemetry
+itself (`cmdb_id` and the service names in the service metrics). No list of answer components is
+used anywhere: a pod's service and a node are derived from the names the telemetry prints
+(`node-6.cartservice-0` is pod `cartservice-0` on `node-6`; pod `cartservice-0` belongs to service
+`cartservice`).
 
 Scoring reuses the frozen RCAEval statistics unchanged (`rcaeval.evidence._robust` through
 `rcaeval.spans._signal`): a robust median and spread of the baseline, the shift of the window's
@@ -32,32 +36,11 @@ import pandas as pd
 from rcaeval.evidence import MetricSignal
 from rcaeval.spans import _signal
 
+from . import systems
 from .query import Query, to_epoch
 
-# Metric name -> kind. First match wins. KPIs not listed (limits, specs, constants) are ignored.
-CONTAINER_KINDS: list[tuple[str, str]] = [
-    (r"^container_cpu_(usage|user|system)_seconds$|^container_cpu_cfs_throttled_seconds$", "cpu"),
-    (r"^container_cpu_load_average_10s$", "cpu"),
-    (r"^container_memory_(usage_MB|working_set_MB|rss|cache|failcnt)$", "mem"),
-    (r"^container_fs_(reads|reads_MB)\./dev/vda$", "disk-read"),
-    (r"^container_fs_(sector_reads|read_seconds)", "disk-read"),
-    (r"^container_fs_(writes|writes_MB)\./dev/vda$", "disk-write"),
-    (r"^container_fs_(sector_writes|write_seconds)", "disk-write"),
-    (r"^container_network_", "net"),
-    (r"^container_(threads|sockets|file_descriptors|last_seen|start_time_seconds)$", "process"),
-    (r"^container_tasks_state\.(running|sleeping|uninterruptible|iowaiting)$", "process"),
-]
-NODE_KINDS: list[tuple[str, str]] = [
-    (r"^system\.cpu\.(pct_usage|user|system|iowait)$|^system\.load\.1$", "cpu"),
-    (r"^system\.mem\.(used|pct_usage|real\.used|real\.pct_useage|free|usable)$", "mem"),
-    (r"^system\.io\.(r_s|rkb_s|r_await)$", "disk-read"),
-    (r"^system\.io\.(w_s|w_await)$", "disk-write"),
-    (r"^system\.io\.(util|avg_q_sz|await|svctm)$", "disk-io"),
-    (r"^system\.disk\.(pct_usage|used|free)$|^system\.fs\.inodes\.(used|in_use)$", "disk-space"),
-    (r"^system\.net\.udp\.in_errors$", "net-rx-error"),
-    (r"^system\.net\.tcp\.retrans_segs$", "net-retrans"),
-    (r"^system\.(net|tcp)\.", "net"),
-]
+# Metric name -> kind tables live with each system's adapter (`systems.py`). First match wins;
+# KPIs not listed (limits, specs, constants) are ignored.
 # How each kind is weighted by the frozen RCAEval rank weights (KIND_WEIGHT keys).
 WEIGHT_KEY = {
     "cpu": "cpu",
@@ -69,7 +52,12 @@ WEIGHT_KEY = {
     "net": "net",
     "net-rx-error": "net",
     "net-retrans": "net",
+    "net-tx-error": "net",
     "process": "error",
+    "jvm-cpu": "cpu",
+    "jvm-mem": "mem",
+    "db-session": "error",
+    "db-state": "error",
     "latency": "latency",
     "error": "error",
     "load": "load",
@@ -78,33 +66,15 @@ WEIGHT_KEY = {
 # stronger of the two scores kept per series: strict 28 -> 27 of 70 alone, 30 -> 29 with the
 # service and onset changes, so it is off (0). Set seconds here to turn it back on.
 LOCAL_BASELINE_S = 0
-RESOURCE = {
-    "cpu",
-    "mem",
-    "disk-read",
-    "disk-write",
-    "disk-space",
-    "disk-io",
-    "net",
-    "net-rx-error",
-    "net-retrans",
-    "process",
-}
-
-POD = re.compile(r"^(?P<svc>[a-z][a-z0-9-]*?)(?P<copy>\d*)-(?P<idx>\d+)$")
-NODE = re.compile(r"^node-\d+$")
 
 
-def service_of(pod: str) -> str | None:
-    """The service a pod belongs to: `cartservice-1` and `cartservice2-0` -> `cartservice`."""
-    m = POD.match(pod)
-    return m.group("svc") if m else None
+def service_of(comp: str) -> str | None:
+    """The service a pod belongs to, under the active system's naming (None when it has none)."""
+    return systems.current().service_of(comp)
 
 
 def level_of(comp: str) -> str:
-    if NODE.match(comp):
-        return "node"
-    return "pod" if POD.match(comp) else "service"
+    return systems.current().level_of(comp)
 
 
 def _kind(name: str, table: list[tuple[str, str]]) -> str | None:
@@ -160,9 +130,76 @@ def load_day(reduced: Path, date: str) -> DayFrame:
             )
         )
 
+    system = systems.current()
+    if system.name == "Market":
+        _market_metrics(m, add, host, system)
+    else:
+        _generic_metrics(m, add, system)
+    del m
+
+    if (d / "trace_comp.parquet").exists():
+        tr = pd.read_parquet(d / "trace_comp.parquet")
+        tr["comp"] = tr["comp"].astype(str)
+        for col, kind in (
+            ("self_p50", "latency"),
+            ("dur_p95", "latency"),
+            ("own_errors", "error"),
+            ("spans", "load"),
+        ):
+            x = tr[["minute", "comp", col]].rename(columns={col: "value"})
+            add(x, x["comp"], [kind] * len(x), ["trace_" + col] * len(x), "trace")
+
+    lg = None
+    if (d / "log_service.parquet").exists():
+        lg = pd.read_parquet(d / "log_service.parquet")
+        lg["comp"] = lg["comp"].astype(str)
+        e = lg[lg["error"]].groupby(["minute", "comp"], as_index=False)["lines"].sum()
+        e = e.rename(columns={"lines": "value"})
+        add(e, e["comp"], ["error"] * len(e), ["log_error_lines"] * len(e), "log")
+
+    px_path = d / "log_proxy.parquet"
+    if px_path.exists():
+        px = pd.read_parquet(px_path)
+        px["comp"] = px["comp"].astype(str)
+        ok = px["code"].astype(str).str.match(r"^[23]\d\d$") & (px["flags"].astype(str) == "-")
+        http = px[px["code"].astype(str) != "none"]
+        g = http.groupby(["minute", "comp"], as_index=False)[["lines", "dur_ms_sum"]].sum()
+        g["value"] = g["dur_ms_sum"] / g["lines"].clip(lower=1)
+        add(g, g["comp"], ["latency"] * len(g), ["proxy_mean_ms"] * len(g), "proxy")
+        b = px[~ok & (px["code"].astype(str) != "none")]
+        b = b[b["code"].astype(str) != "0"]
+        b = b.groupby(["minute", "comp"], as_index=False)["lines"].sum()
+        b = b.rename(columns={"lines": "value"})
+        add(b, b["comp"], ["error"] * len(b), ["proxy_bad_responses"] * len(b), "proxy")
+
+    df = pd.concat(parts, ignore_index=True)
+    df = df[(df["minute"] >= minutes[0]) & (df["minute"] <= minutes[-1])]
+    values, keys = _pivot(df, minutes)
+    meta = pd.DataFrame(keys, columns=["comp", "kind", "name", "source"])
+    meta["level"] = meta["comp"].map(level_of)
+    # A count that is simply missing in a minute (no error lines, no bad responses) is zero.
+    zero_fill = (
+        meta["name"]
+        .isin(
+            [
+                "log_error_lines",
+                "proxy_bad_responses",
+                "mesh_bad_requests",
+                "trace_own_errors",
+                "trace_spans",
+            ]
+        )
+        .to_numpy()
+    )
+    values[:, zero_fill] = np.nan_to_num(values[:, zero_fill], nan=0.0)
+    return DayFrame(date, minutes, values, meta, host, lg)
+
+
+def _market_metrics(m: pd.DataFrame, add, host: dict[str, str], system) -> None:
+    """Market's metric files: container (`<node>.<pod>` ids), node, service and mesh."""
     # Container metrics: cmdb_id is "<node>.<pod>".
     c = m[m["file"] == "container"].copy()
-    kinds = {k: _kind(k, CONTAINER_KINDS) for k in c["kpi_name"].unique()}
+    kinds = {k: _kind(k, system.kinds["container"]) for k in c["kpi_name"].unique()}
     c["kind"] = c["kpi_name"].map(kinds)
     c = c[c["kind"].notna()]
     split = c["cmdb_id"].str.split(".", n=1, expand=True)
@@ -172,7 +209,7 @@ def load_day(reduced: Path, date: str) -> DayFrame:
     add(c, c["comp"], c["kind"], c["kpi_name"], "container")
 
     nd = m[m["file"] == "node"].copy()
-    kinds = {k: _kind(k, NODE_KINDS) for k in nd["kpi_name"].unique()}
+    kinds = {k: _kind(k, system.kinds["node"]) for k in nd["kpi_name"].unique()}
     nd["kind"] = nd["kpi_name"].map(kinds)
     nd = nd[nd["kind"].notna()]
     add(nd, nd["cmdb_id"], nd["kind"], nd["kpi_name"], "node")
@@ -224,61 +261,29 @@ def load_day(reduced: Path, date: str) -> DayFrame:
     tcp = me[me["kpi_name"].str.startswith("istio_tcp")]
     tcp = tcp.groupby(["minute", "comp"], as_index=False)["value"].sum()
     add(tcp, tcp["comp"], ["net"] * len(tcp), ["mesh_tcp_bytes"] * len(tcp), "mesh")
-    del m
 
-    tr = pd.read_parquet(d / "trace_comp.parquet")
-    tr["comp"] = tr["comp"].astype(str)
-    for col, kind in (
-        ("self_p50", "latency"),
-        ("dur_p95", "latency"),
-        ("own_errors", "error"),
-        ("spans", "load"),
-    ):
-        x = tr[["minute", "comp", col]].rename(columns={col: "value"})
-        add(x, x["comp"], [kind] * len(x), ["trace_" + col] * len(x), "trace")
 
-    lg = pd.read_parquet(d / "log_service.parquet")
-    lg["comp"] = lg["comp"].astype(str)
-    e = lg[lg["error"]].groupby(["minute", "comp"], as_index=False)["lines"].sum()
-    e = e.rename(columns={"lines": "value"})
-    add(e, e["comp"], ["error"] * len(e), ["log_error_lines"] * len(e), "log")
-
-    px_path = d / "log_proxy.parquet"
-    if px_path.exists():
-        px = pd.read_parquet(px_path)
-        px["comp"] = px["comp"].astype(str)
-        ok = px["code"].astype(str).str.match(r"^[23]\d\d$") & (px["flags"].astype(str) == "-")
-        http = px[px["code"].astype(str) != "none"]
-        g = http.groupby(["minute", "comp"], as_index=False)[["lines", "dur_ms_sum"]].sum()
-        g["value"] = g["dur_ms_sum"] / g["lines"].clip(lower=1)
-        add(g, g["comp"], ["latency"] * len(g), ["proxy_mean_ms"] * len(g), "proxy")
-        b = px[~ok & (px["code"].astype(str) != "none")]
-        b = b[b["code"].astype(str) != "0"]
-        b = b.groupby(["minute", "comp"], as_index=False)["lines"].sum()
-        b = b.rename(columns={"lines": "value"})
-        add(b, b["comp"], ["error"] * len(b), ["proxy_bad_responses"] * len(b), "proxy")
-
-    df = pd.concat(parts, ignore_index=True)
-    df = df[(df["minute"] >= minutes[0]) & (df["minute"] <= minutes[-1])]
-    values, keys = _pivot(df, minutes)
-    meta = pd.DataFrame(keys, columns=["comp", "kind", "name", "source"])
-    meta["level"] = meta["comp"].map(level_of)
-    # A count that is simply missing in a minute (no error lines, no bad responses) is zero.
-    zero_fill = (
-        meta["name"]
-        .isin(
-            [
-                "log_error_lines",
-                "proxy_bad_responses",
-                "mesh_bad_requests",
-                "trace_own_errors",
-                "trace_spans",
-            ]
-        )
-        .to_numpy()
-    )
-    values[:, zero_fill] = np.nan_to_num(values[:, zero_fill], nan=0.0)
-    return DayFrame(date, minutes, values, meta, host, lg)
+def _generic_metrics(m: pd.DataFrame, add, system) -> None:
+    """Long metric files (`cmdb_id`, `kpi_name`, `value`) mapped through the system's KPI-kind
+    tables, and wide app files through its app table. The component is the `cmdb_id`."""
+    for file, table in system.kinds.items():
+        x = m[m["file"] == file]
+        if x.empty:
+            continue
+        kinds = {k: _kind(k, table) for k in x["kpi_name"].unique()}
+        x = x.assign(kind=x["kpi_name"].map(kinds))
+        x = x[x["kind"].notna()]
+        add(x, x["cmdb_id"], x["kind"], x["kpi_name"], file)
+    for file, cols in system.app.items():
+        x = m[m["file"] == file]
+        for col, (kind, name, fn) in cols.items():
+            y = x[x["kpi_name"] == col]
+            if y.empty:
+                continue
+            y = y.groupby(["minute", "cmdb_id"], as_index=False, observed=True)["value"].mean()
+            if fn is not None:
+                y["value"] = y["value"].map(fn)
+            add(y, y["cmdb_id"], [kind] * len(y), [name] * len(y), file)
 
 
 @dataclass
@@ -414,7 +419,7 @@ def new_templates(day: DayFrame, start: int, end: int) -> dict[str, list[tuple[s
     seen = set(zip(lg.loc[~inside, "comp"], lg.loc[~inside, "template"], strict=True))
     win = lg[inside]
     mask = [k not in seen for k in zip(win["comp"], win["template"], strict=True)]
-    win = win[mask]
+    win = win[np.asarray(mask, dtype=bool)]
     out: dict[str, list[tuple[str, int]]] = {}
     for (comp, tmpl), n in win.groupby(["comp", "template"])["lines"].sum().items():
         out.setdefault(comp, []).append((tmpl, int(n)))

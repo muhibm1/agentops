@@ -1,6 +1,7 @@
 """Run AgentOps' root-cause method on OpenRCA queries, in stages.
 
     python -m openrca.run extract  --data SYSTEM_DIR --reduced REDUCED_DIR --work WORK
+                                   [--system Market|Bank|Telecom]
     python -m openrca.run stats    --work WORK
     python -m openrca.run requests --work WORK
     (the model step answers each WORK/requests/<query>.md into WORK/answers/<query>.json)
@@ -33,12 +34,21 @@ from pathlib import Path
 import pandas as pd
 
 from . import evaluate as ms
-from .digest import ANSWER_SCHEMA, request_text
+from . import systems
+from .digest import answer_schema, request_text
 from .evidence import DayFrame, load_day, new_templates, score_window
 from .query import Query, parse, to_local
-from .rank import REASONS, Candidate, all_candidates, answer_time, choose, final_reason
+from .rank import Candidate, all_candidates, answer_time, choose, final_reason
 
-BENCH_FILES = ["query.py", "reduce.py", "evidence.py", "rank.py", "digest.py", "run.py"]
+BENCH_FILES = [
+    "query.py",
+    "reduce.py",
+    "systems.py",
+    "evidence.py",
+    "rank.py",
+    "digest.py",
+    "run.py",
+]
 KEYS = ("root cause occurrence datetime", "root cause component", "root cause reason")
 
 
@@ -59,7 +69,9 @@ def read_queries(data: Path) -> list[tuple[str, Query]]:
 def _day(cache: dict[str, DayFrame], reduced: Path, work: Path, date: str) -> DayFrame:
     if date not in cache:
         # Keyed by the loader's own hash, so a changed KPI table never reuses a stale cache.
-        p = work / "days" / f"{date}-{fingerprint()['evidence.py']}.pkl"
+        fp = fingerprint()
+        key = hashlib.sha256((fp["evidence.py"] + fp["systems.py"]).encode()).hexdigest()[:16]
+        p = work / "days" / f"{systems.current().name}-{date}-{key}.pkl"
         if p.exists():
             cache[date] = pickle.load(open(p, "rb"))
         else:
@@ -85,6 +97,7 @@ def evidence_for(day: DayFrame, q: Query) -> dict:
         "new_logs": new_templates(day, q.start, q.end),
         "host": day.host,
         "components": sorted(set(day.meta["comp"])),
+        "system": systems.current().name,
     }
 
 
@@ -118,7 +131,7 @@ def stats_answer(ev: dict) -> list[dict[str, str]]:
             }
         )
     while len(out) < q.failures:  # never fewer objects than failures
-        out.append({KEYS[0]: to_local(q.start), KEYS[1]: "", KEYS[2]: REASONS[0]})
+        out.append({KEYS[0]: to_local(q.start), KEYS[1]: "", KEYS[2]: systems.current().reasons[0]})
     return out
 
 
@@ -126,21 +139,36 @@ def prediction_text(objs: list[dict[str, str]]) -> str:
     return json.dumps({str(i + 1): {k: o[k] for k in KEYS} for i, o in enumerate(objs)})
 
 
+def load_evidence(work: Path) -> dict:
+    """The stored evidence, with its system made active."""
+    evs = pickle.load(open(work / "evidence.pkl", "rb"))
+    first = next(iter(evs.values()), {})
+    systems.use(first.get("system", "Market"))
+    return evs
+
+
 def cmd_extract(a) -> None:
+    systems.use(a.system)
     work = Path(a.work)
     work.mkdir(parents=True, exist_ok=True)
     cache: dict[str, DayFrame] = {}
     evs = {}
+    skipped = []
     for qid, q in read_queries(Path(a.data)):
+        if a.skip_missing_days and not (Path(a.reduced) / q.date).is_dir():
+            skipped.append(qid)
+            continue
         day = _day(cache, Path(a.reduced), work, q.date)
         evs[qid] = evidence_for(day, q)
         print(qid, q.date, q.failures, ",".join(q.fields), flush=True)
     pickle.dump(evs, open(work / "evidence.pkl", "wb"))
+    if skipped:
+        print(f"{len(skipped)} queries skipped, no reduced telemetry for their date", flush=True)
 
 
 def cmd_stats(a) -> None:
     work = Path(a.work)
-    evs = pickle.load(open(work / "evidence.pkl", "rb"))
+    evs = load_evidence(work)
     rows = [{"id": qid, "prediction": prediction_text(stats_answer(ev))} for qid, ev in evs.items()]
     pd.DataFrame(rows).to_csv(work / "stats.csv", index=False)
     print(f"{len(rows)} statistics answers -> {work / 'stats.csv'}")
@@ -148,7 +176,7 @@ def cmd_stats(a) -> None:
 
 def cmd_requests(a) -> None:
     work = Path(a.work)
-    evs = pickle.load(open(work / "evidence.pkl", "rb"))
+    evs = load_evidence(work)
     for variant, folder in (("both", "requests"), ("model-only", "requests-model-only")):
         out = work / folder
         out.mkdir(parents=True, exist_ok=True)
@@ -156,7 +184,8 @@ def cmd_requests(a) -> None:
             text = request_text(qid, ev, candidates(ev), variant, stats_answer(ev))
             (out / f"{qid}.md").write_text(text)
     (work / "answers").mkdir(exist_ok=True)
-    (work / "answer.schema.json").write_text(json.dumps(ANSWER_SCHEMA, indent=1))
+    schema = answer_schema(systems.current().reasons)
+    (work / "answer.schema.json").write_text(json.dumps(schema, indent=1))
     json.dump(
         {"fingerprint": fingerprint(), "queries": len(evs)},
         open(work / "freeze.json", "w"),
@@ -182,7 +211,7 @@ def validate(obj, q: Query, components: set[str]) -> list[dict[str, str]] | None
         dt, comp, reason = f.get("datetime"), f.get("component"), f.get("reason")
         if not (isinstance(dt, str) and DT.match(dt)):
             return None
-        if reason not in REASONS or not isinstance(comp, str):
+        if reason not in systems.current().reasons or not isinstance(comp, str):
             return None
         if comp not in components:
             return None
@@ -239,7 +268,7 @@ def cmd_answers(a) -> None:
     """Validate the model's answers; fall back to the statistics answer when one is invalid or,
     in the `both` variant, changes the code answer without citing evidence for it."""
     work = Path(a.work)
-    evs = pickle.load(open(work / "evidence.pkl", "rb"))
+    evs = load_evidence(work)
     rows, fallbacks, overridden = [], [], []
     for qid, ev in evs.items():
         path = work / a.answers / f"{qid}.json"
@@ -334,6 +363,12 @@ def main() -> None:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("extract")
+    e.add_argument("--system", choices=sorted(systems.SYSTEMS), default="Market")
+    e.add_argument(
+        "--skip-missing-days",
+        action="store_true",
+        help="leave out queries whose date has no reduced telemetry (a partial sample only)",
+    )
     e.add_argument("--data", required=True)
     e.add_argument("--reduced", required=True)
     e.add_argument("--work", required=True)
