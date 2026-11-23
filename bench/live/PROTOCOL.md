@@ -38,3 +38,31 @@ schedule is opened only by `live.score`, once, after the last incident ends.
 **Reported per incident:** right service proposed; statistics-only top service (ablation); fixed
 (the fault's flag turned off by an approved action); changes applied without approval (must be
 0); verify's verdict; minutes from injection to the proposal.
+
+## Test 2 (after test 1 was scored; test 1 is now development data)
+
+Test 1 scored 6/10 (`results/test-1/`), with 0 unapproved changes. Every miss had the same cause:
+the statistics blamed the caller of a failing service. Test 1 also had two false recoveries and
+one fault that never fired (`productCatalogFailure` is switched by a targeting rule, not its
+default variant). Changes, designed before any re-run and checked only on test-1 replays and
+dev flags:
+
+- `edges.py`: call edges between services, recovered from client span names and the HTTP client
+  metric's `server_address`, with no service-specific rules.
+- `blame.py`: a caller's errors and latency move to a callee only over an impaired edge, and only
+  when the callee shows the fault itself: its own error or latency shift, a counted rise in its
+  failed server calls, calls it no longer serves (vanished), or a container restart. Ties go to
+  the service with more failed calls. The RCAEval scores are unchanged.
+- `source.py`: the model sees each service's status, score, signals and these reasons. Evidence
+  windows are clipped to the incident's own baseline. After a change, verify observes at least
+  180 s after a 150 s settle, waits up to 6 minutes for impaired edges to carry traffic, and
+  reports the worst rise in any edge's error ratio and the worst edge p99, not only the
+  storefront's.
+- Fault injection and the fix also set the flag's targeting rule.
+
+Replay on test 1: 9 of 10 top-1 (the 10th never fired). Dev: `cartFailure` found and fixed; a
+wrong-target change that fixed nothing reported error_rate 0.33, so verify does not clear it.
+
+Test 2: 15 incidents from the same 9 flags, written by a separate agent, every flag at least
+once, variants drawn fresh, page 180 to 240 s after the fault, 16 minutes of rest between
+incidents. Scored once.

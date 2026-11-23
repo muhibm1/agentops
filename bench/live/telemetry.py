@@ -159,3 +159,15 @@ def scalar_series(query: str, start: float, end: float) -> dict[str, list[tuple[
 P99 = 'histogram_quantile(0.99, sum by (service_name, le) (rate(traces_span_metrics_duration_milliseconds_bucket{span_kind="SPAN_KIND_SERVER",service_name="%s"}[2m])))'
 ERRS = 'sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER",status_code="STATUS_CODE_ERROR",service_name="%s"}[2m]))'
 CALLS = 'sum by (service_name) (rate(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER",service_name="%s"}[2m]))'
+
+
+def instant_p99(service: str, start: float, end: float) -> float | None:
+    """The service's server p99 over the whole window, in ms."""
+    rng = f"{max(int(end - start), 60)}s"
+    q = f'histogram_quantile(0.99, sum by (le) (increase(traces_span_metrics_duration_milliseconds_bucket{{span_kind="SPAN_KIND_SERVER",service_name="{service}"}}[{rng}])))'
+    r = urllib.request.urlopen(f"{PROMETHEUS}/api/v1/query?" + urllib.parse.urlencode({"query": q, "time": end}), timeout=30)
+    res = json.load(r)["data"]["result"]
+    if not res:
+        return None
+    v = float(res[0]["value"][1])
+    return v if v == v else None

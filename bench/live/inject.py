@@ -16,7 +16,7 @@ import json
 import time
 from pathlib import Path
 
-from .source import SERVICE_FLAGS
+from .source import SERVICE_FLAGS, set_targeted_variant
 
 FLAG_FILE = Path("/home/user/otel-demo/src/flagd/demo.flagd.json")
 
@@ -33,6 +33,7 @@ def set_flag(name: str, variant: str) -> None:
     if name not in doc["flags"] or variant not in doc["flags"][name]["variants"]:
         raise SystemExit("unknown flag or variant")
     doc["flags"][name]["defaultVariant"] = variant
+    set_targeted_variant(doc["flags"][name], variant)
     write(doc)
 
 
@@ -41,6 +42,7 @@ def reset() -> None:
     for flags in SERVICE_FLAGS.values():
         for name in flags:
             doc["flags"][name]["defaultVariant"] = "off"
+            set_targeted_variant(doc["flags"][name], "off")
     write(doc)
 
 
