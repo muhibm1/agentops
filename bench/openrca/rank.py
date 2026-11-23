@@ -14,12 +14,13 @@ ties: dominance is how far this window's excursion goes compared with the larges
 any other half hour of the same day. A fault is usually the biggest thing that happens to its
 own KPI that day; routine bursts are not.
 
-Levels: a node's own KPIs make node candidates. Container KPIs make pod candidates; when two or
-more pods of one service carry the same reason strongly, the service replaces its pods (the
-benchmark answers "the service" when all its pods are faulty).
+Levels: a node's own KPIs make node candidates. Container KPIs make pod candidates; a host's
+network receive-error counter marks packet corruption on its strongest pod. When two or more pods
+of one service are hot with onsets together, under any reason, the service replaces its pods and
+outranks the best of them (the benchmark answers "the service" when all its pods are faulty).
 
-The occurrence time is the earliest sustained out-of-band minute among the chosen candidate's
-strong signature KPIs, plus a fixed offset fitted on Market cloudbed-1 only.
+The occurrence time is the earliest sustained out-of-band minute among the chosen component's
+strong KPIs of any kind, plus a fixed offset fitted on Market cloudbed-1 only.
 
 The reason vocabulary is the answer format the benchmark declares for Market (OpenRCA's own
 prompt, `rca/baseline/rca_agent/prompt/basic_prompt_Market.py`). Every constant marked "fitted"
@@ -87,10 +88,18 @@ SIGNATURES: dict[str, tuple[str, list[tuple[str, int]]]] = {
     ),
 }
 
+# Host protocol counter kind -> the pod-level network reason it marks, in order of precedence.
+# Retransmissions rising without receive errors as "container packet loss" was measured and
+# dropped: it relabelled latency faults (cloudbed-1 reason 27 -> 26 of 55).
+NET_MARKERS = {
+    "net-rx-error": "container network packet corruption",
+}
+
 # Fitted on cloudbed-1.
 DOM_WEIGHT = 2.0
 HOT = 12.0  # a pod "carries" a reason when its candidate value reaches this
 SERVICE_MIN_PODS = 2
+SAME_ONSET_S = 60  # pods whose hot onsets are this close are hot together (0-120 s all equal)
 STRONG_FRACTION = 0.6  # signature KPIs within this fraction of the best set the onset
 SPIKE_MAX_MINUTES = 2  # node CPU out of band for at most this many minutes -> spike
 TIME_OFFSET_S = 0  # added to the onset minute's timestamp
@@ -130,54 +139,119 @@ def _compiled() -> list[tuple[str, str, re.Pattern, int]]:
 
 
 _SIGS = _compiled()
+SIGNATURE_REASONS = set(REASONS)
 
 
 def pod_candidates(scored: list[Scored]) -> dict[tuple[str, str], Candidate]:
+    """One candidate per (component, reason). Each series may be scored against two baselines
+    (the day, and the hours before the window); a candidate keeps the stronger score per series."""
     cands: dict[tuple[str, str], Candidate] = {}
+    best: dict[tuple[str, str], dict[str, tuple[float, Scored]]] = {}
     for s in scored:
         for reason, level, pat, d in _SIGS:
             if s.level != level or not pat.search(s.name):
                 continue
             v = signal_value(s, d) + REASON_PRIOR.get(reason, 0.0)
-            c = cands.get((s.comp, reason))
-            if c is None:
-                c = cands[(s.comp, reason)] = Candidate(s.comp, level, reason, -1e9, None)
-            c.evidence.append(s)
-            if v > c.value:
-                c.value = v
-    for c in cands.values():
-        d = dict((r, dd) for r, _, _, dd in _SIGS)
-        vals = [(signal_value(s, d.get(c.reason, 1)), s) for s in c.evidence]
+            per = best.setdefault((s.comp, reason), {})
+            if s.name not in per or v > per[s.name][0]:
+                per[s.name] = (v, s)
+    for (comp, reason), per in best.items():
+        level = SIGNATURES[reason][0]
+        vals = sorted(per.values(), key=lambda vs: -vs[0])
+        c = Candidate(comp, level, reason, vals[0][0], None, [s for _, s in vals])
         strong = [s for v, s in vals if v >= STRONG_FRACTION * c.value and s.onset_min]
         c.onset = min((s.onset_min for s in strong), default=None)
-        c.evidence.sort(key=lambda s: -signal_value(s, d.get(c.reason, 1)))
+        cands[(comp, reason)] = c
     return cands
 
 
-def all_candidates(scored: list[Scored], window_start: int | None = None) -> list[Candidate]:
-    """Pod and node candidates, with services replacing pods that share a strong reason."""
+def network_candidates(
+    cands: dict[tuple[str, str], Candidate], scored: list[Scored], host: dict[str, str]
+) -> list[Candidate]:
+    """A network fault on a pod shows on its host's protocol counters, which no pod KPI carries:
+    receive errors rising mark corruption, retransmissions rising without receive errors mark
+    loss (`NET_MARKERS`). Each marked node's fault is attributed to the pod on that node whose own
+    signals are strongest; that pod gets the marker's reason, valued at its strongest signal."""
+    marks: dict[str, dict[str, Scored]] = {}
+    for s in scored:
+        if s.level != "node" or s.kind not in NET_MARKERS or s.onset_min is None:
+            continue
+        if s.sig.direction <= 0 or NET_MARKERS[s.kind] not in SIGNATURE_REASONS:
+            continue
+        mine = marks.setdefault(s.comp, {})
+        if s.kind not in mine or s.sig.score > mine[s.kind].sig.score:
+            mine[s.kind] = s
+    out = []
+    for node, mine in sorted(marks.items()):
+        kind = next((k for k in NET_MARKERS if k in mine), None)
+        if kind is None:
+            continue
+        pods = {p for p, n in host.items() if n == node}
+        own = [c for c in cands.values() if c.comp in pods]
+        if not own:
+            continue
+        lead = max(own, key=lambda c: (c.value, c.comp))
+        mark = mine[kind]
+        out.append(
+            Candidate(
+                lead.comp,
+                "pod",
+                NET_MARKERS[kind],
+                lead.value + 0.5,
+                lead.onset,
+                [mark, *lead.evidence],
+            )
+        )
+    return out
+
+
+def all_candidates(
+    scored: list[Scored], window_start: int | None = None, host: dict[str, str] | None = None
+) -> list[Candidate]:
+    """Pod and node candidates, network faults read from host counters, and services replacing
+    pods that are hot together."""
     cands = pod_candidates(scored)
     if window_start is not None:
         for c in cands.values():
             if c.onset is None or c.onset < window_start + EARLY_MINUTES * 60:
                 c.value -= EARLY_PENALTY
-    by_service: dict[tuple[str, str], list[Candidate]] = {}
-    for c in cands.values():
-        if c.level == "pod":
+    if host:
+        for c in network_candidates(cands, scored, host):
+            cands[(c.comp, c.reason)] = c
+    out = list(cands.values())
+    out += service_candidates(cands.values())
+    out.sort(key=lambda c: (-c.value, c.comp, c.reason))
+    return out
+
+
+def service_candidates(cands) -> list[Candidate]:
+    """A service replaces its pods when two or more of them are hot with onsets at most
+    `SAME_ONSET_S` apart, under any reason: the benchmark answers the service when all its pods
+    are faulty, and a fault that hits every pod starts on all of them together. The service
+    takes the strongest of those pods' reasons and outranks that pod."""
+    by_service: dict[str, list[Candidate]] = {}
+    for c in cands:
+        if c.level == "pod" and c.value >= HOT and c.onset is not None:
             svc = service_of(c.comp)
             if svc:
-                by_service.setdefault((svc, c.reason), []).append(c)
-    out = list(cands.values())
-    for (svc, reason), pods in by_service.items():
-        hot = sorted((p for p in pods if p.value >= HOT), key=lambda p: -p.value)
-        if len(hot) >= SERVICE_MIN_PODS:
-            value = sum(p.value for p in hot[:2]) / 2
-            onset = min((p.onset for p in hot if p.onset), default=None)
-            ev = [e for p in hot for e in p.evidence[:2]]
-            out.append(
-                Candidate(svc, "service", reason, value + 0.5, onset, ev, [p.comp for p in hot])
-            )
-    out.sort(key=lambda c: (-c.value, c.comp, c.reason))
+                by_service.setdefault(svc, []).append(c)
+    out = []
+    for svc, hot in by_service.items():
+        hot.sort(key=lambda c: (-c.value, c.comp, c.reason))
+        best: Candidate | None = None
+        pods: list[str] = []
+        for lead in hot:
+            group = [o for o in hot if abs(o.onset - lead.onset) <= SAME_ONSET_S]
+            names = sorted({o.comp for o in group})
+            if len(names) >= SERVICE_MIN_PODS:
+                best, pods = lead, names
+                break
+        if best is None:
+            continue
+        group = [o for o in hot if o.comp in pods and abs(o.onset - best.onset) <= SAME_ONSET_S]
+        onset = min(o.onset for o in group)
+        ev = [e for o in group for e in o.evidence[:2]]
+        out.append(Candidate(svc, "service", best.reason, best.value + 0.5, onset, ev, pods))
     return out
 
 
@@ -231,6 +305,27 @@ def final_reason(c: Candidate, cands: list[Candidate] | None = None) -> str:
     return c.reason
 
 
-def answer_time(c: Candidate, window_start: int) -> int:
-    t = c.onset if c.onset is not None else window_start
+def component_onset(c: Candidate, scored: list[Scored]) -> int | None:
+    """The earliest sustained out-of-band minute among the chosen component's strong KPIs: every
+    series of the component (a service's own and its pods'), of any kind, valued in its own
+    direction, within `STRONG_FRACTION` of the component's strongest."""
+    names = {c.comp, *c.pods}
+    best: dict[tuple[str, str], tuple[float, Scored]] = {}
+    for s in scored:
+        if s.comp not in names:
+            continue
+        v = signal_value(s, s.sig.direction)
+        k = (s.comp, s.name)
+        if k not in best or v > best[k][0]:
+            best[k] = (v, s)
+    if not best:
+        return c.onset
+    top = max(v for v, _ in best.values())
+    strong = [s.onset_min for v, s in best.values() if v >= STRONG_FRACTION * top and s.onset_min]
+    return min(strong, default=c.onset)
+
+
+def answer_time(c: Candidate, window_start: int, scored: list[Scored] | None = None) -> int:
+    t = component_onset(c, scored) if scored else c.onset
+    t = t if t is not None else window_start
     return t + TIME_OFFSET_S

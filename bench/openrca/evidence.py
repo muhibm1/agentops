@@ -54,6 +54,8 @@ NODE_KINDS: list[tuple[str, str]] = [
     (r"^system\.io\.(w_s|w_await)$", "disk-write"),
     (r"^system\.io\.(util|avg_q_sz|await|svctm)$", "disk-io"),
     (r"^system\.disk\.(pct_usage|used|free)$|^system\.fs\.inodes\.(used|in_use)$", "disk-space"),
+    (r"^system\.net\.udp\.in_errors$", "net-rx-error"),
+    (r"^system\.net\.tcp\.retrans_segs$", "net-retrans"),
     (r"^system\.(net|tcp)\.", "net"),
 ]
 # How each kind is weighted by the frozen RCAEval rank weights (KIND_WEIGHT keys).
@@ -65,12 +67,29 @@ WEIGHT_KEY = {
     "disk-space": "disk",
     "disk-io": "disk",
     "net": "net",
+    "net-rx-error": "net",
+    "net-retrans": "net",
     "process": "error",
     "latency": "latency",
     "error": "error",
     "load": "load",
 }
-RESOURCE = {"cpu", "mem", "disk-read", "disk-write", "disk-space", "disk-io", "net", "process"}
+# A second, local baseline (the two hours before the window) was measured on cloudbed-1 with the
+# stronger of the two scores kept per series: strict 28 -> 27 of 70 alone, 30 -> 29 with the
+# service and onset changes, so it is off (0). Set seconds here to turn it back on.
+LOCAL_BASELINE_S = 0
+RESOURCE = {
+    "cpu",
+    "mem",
+    "disk-read",
+    "disk-write",
+    "disk-space",
+    "disk-io",
+    "net",
+    "net-rx-error",
+    "net-retrans",
+    "process",
+}
 
 POD = re.compile(r"^(?P<svc>[a-z][a-z0-9-]*?)(?P<copy>\d*)-(?P<idx>\d+)$")
 NODE = re.compile(r"^node-\d+$")
@@ -283,6 +302,7 @@ class Scored:
     dom_up: float = 0.0
     dom_down: float = 0.0
     out_minutes: int = 0
+    baseline: str = "day"  # "day": the day outside the window; "local": the hours before it
 
 
 def _sustained_onset(dev: np.ndarray, need: int) -> int | None:
@@ -309,57 +329,87 @@ def _block_peaks(z: np.ndarray, t: np.ndarray, start: int, end: int) -> tuple[fl
 
 
 def score_window(
-    day: DayFrame, start: int, end: int, after_from: int | None = None, sustain: int = 2
+    day: DayFrame,
+    start: int,
+    end: int,
+    after_from: int | None = None,
+    sustain: int = 2,
+    local_s: int = LOCAL_BASELINE_S,
 ) -> list[Scored]:
-    """Score every series: baseline = the day outside [start, end); after = [after_from, end)."""
+    """Score every series twice: against the day outside [start, end) and against the
+    `local_s` seconds before `start`; after = [after_from, end). A series yields one `Scored` per
+    baseline that has enough points; the ranking keeps the stronger of the two."""
     t = day.minutes
     inside = (t >= start) & (t < end)
-    base = ~inside
     a0 = start if after_from is None else after_from
     after = (t >= a0) & (t < end)
+    bases = [("day", ~inside)]
+    if local_s > 0:
+        bases.append(("local", (t >= start - local_s) & (t < start)))
     out: list[Scored] = []
     for j in range(day.values.shape[1]):
         x = day.values[:, j]
-        xb, xa = x[base], x[after]
-        if np.isfinite(xa).sum() < 3 or np.isfinite(xb).sum() < 10:
+        xa = x[after]
+        if np.isfinite(xa).sum() < 3:
             continue
-        xb = xb[np.isfinite(xb)]
-        xa_f = pd.Series(xa).ffill().bfill().to_numpy()
         whole = x[np.isfinite(x)]
         if np.nanmax(whole) == np.nanmin(whole):
             continue
+        xa_f = pd.Series(xa).ffill().bfill().to_numpy()
         r = day.meta.iloc[j]
-        sig = _signal(f"{r.comp}|{r['name']}", r.comp, r.kind, xb, xa_f, whole, 60)
-        if sig is None:
-            continue
-        z = (x - sig.baseline_median) / sig.baseline_spread
-        up_in, up_out = _block_peaks(z, t, a0, end)
-        dn_in, dn_out = _block_peaks(-z, t, a0, end)
-        za = (xa_f - sig.baseline_median) / sig.baseline_spread * sig.direction
-        i = _sustained_onset(za > 3, sustain)
-        onset = int(t[after][i]) if i is not None else None
-        out.append(
-            Scored(
-                j,
-                r.comp,
-                r.level,
-                r.kind,
-                r["name"],
-                sig,
-                onset,
-                dom_up=max(up_in, 0.0) / max(up_out, 1.0),
-                dom_down=max(dn_in, 0.0) / max(dn_out, 1.0),
-                out_minutes=int((za > 3).sum()),
+        dom: tuple[float, float] | None = None  # from the day baseline, shared by both
+        for bname, base in bases:
+            xb = x[base]
+            xb = xb[np.isfinite(xb)]
+            if len(xb) < 10:
+                continue
+            sig = _signal(f"{r.comp}|{r['name']}", r.comp, r.kind, xb, xa_f, whole, 60)
+            if sig is None:
+                continue
+            if dom is None:
+                z = (x - sig.baseline_median) / sig.baseline_spread
+                up_in, up_out = _block_peaks(z, t, a0, end)
+                dn_in, dn_out = _block_peaks(-z, t, a0, end)
+                dom = (max(up_in, 0.0) / max(up_out, 1.0), max(dn_in, 0.0) / max(dn_out, 1.0))
+            za = (xa_f - sig.baseline_median) / sig.baseline_spread * sig.direction
+            i = _sustained_onset(za > 3, sustain)
+            onset = int(t[after][i]) if i is not None else None
+            out.append(
+                Scored(
+                    j,
+                    r.comp,
+                    r.level,
+                    r.kind,
+                    r["name"],
+                    sig,
+                    onset,
+                    dom_up=dom[0],
+                    dom_down=dom[1],
+                    out_minutes=int((za > 3).sum()),
+                    baseline=bname,
+                )
             )
-        )
     return out
 
 
+# Any token that still carries a masked digit run (`#`), such as the remains of a UUID, a user or
+# trace id, or a hex blob, is an identifier: it becomes one `#`, so lines that differ only by id
+# share a template.
+ID_TOKEN = re.compile(r"[\w-]*#[\w#-]*")
+
+
+def mask_ids(template: str) -> str:
+    """A log template with every identifier-like token collapsed to `#`."""
+    return ID_TOKEN.sub("#", template)
+
+
 def new_templates(day: DayFrame, start: int, end: int) -> dict[str, list[tuple[str, int]]]:
-    """Per component, log templates printed inside the window and never outside it that day."""
+    """Per component, log templates (ids masked) printed inside the window and never outside it
+    that day."""
     lg = day.log_templates
     if lg is None or lg.empty:
         return {}
+    lg = lg.assign(template=lg["template"].astype(str).map(mask_ids))
     inside = (lg["minute"] >= start) & (lg["minute"] < end)
     seen = set(zip(lg.loc[~inside, "comp"], lg.loc[~inside, "template"], strict=True))
     win = lg[inside]

@@ -2,10 +2,12 @@
 
 Two variants of the same digest:
 
-- `both` (statistics + model): the code's shortlist of (component, reason) candidates, strongest
-  first, with code scores, numbered evidence lines and onset clusters.
-- `model-only` (ablation): the same evidence lines, but with no code score, no candidate reason
-  and no order: components are listed alphabetically.
+- `both` (statistics + model): the code's final answer (component, reason, time for each failure),
+  which is the default answer, then the code's shortlist of (component, reason) candidates,
+  strongest first, with code scores, numbered evidence lines and onset clusters. The model may
+  change the code answer only by citing evidence ids (`run.py answers` enforces it).
+- `model-only` (ablation): the same evidence lines, but with no code answer, no code score, no
+  candidate reason and no order: components are listed alphabetically.
 
 Neither variant carries the benchmark's task id, the scoring points or the official list of
 candidate components. Components are the names the telemetry prints (plus each pod's service and
@@ -20,6 +22,7 @@ import math
 from .query import FIELDS, Query, to_local
 from .rank import REASONS, Candidate, signal_value
 
+ANSWER_KEYS = ("root cause occurrence datetime", "root cause component", "root cause reason")
 SHORTLIST = 10
 LINES_PER_COMPONENT = 5
 LOGS_PER_COMPONENT = 3
@@ -77,6 +80,8 @@ def _line(eid: str, s, with_dom: bool = True) -> str:
     g = s.sig
     dom = s.dom_up if g.direction > 0 else s.dom_down
     extra = f"  vs-rest-of-day {dom:.1f}x" if with_dom else ""
+    if s.baseline != "day":
+        extra += f"  baseline {s.baseline}"
     return (
         f"   [{eid}] {s.comp} {s.name} ({s.kind}): {_fmt(g.baseline_median)} -> "
         f"{_fmt(g.after_median)}  {'up' if g.direction > 0 else 'down'}  shift "
@@ -96,7 +101,15 @@ def onset_clusters(cands: list[Candidate], top: int = 15, gap_s: int = 180) -> l
     return [[f"{_hhmm(t)} {comp}" for t, comp in cl] for cl in clusters]
 
 
-def request_text(qid: str, ev: dict, cands: list[Candidate], variant: str) -> str:
+def request_text(
+    qid: str,
+    ev: dict,
+    cands: list[Candidate],
+    variant: str,
+    code_answer: list[dict[str, str]] | None = None,
+) -> str:
+    """The request for one query. `code_answer` (the statistics answer, as `run.KEYS` dicts) is
+    shown in the `both` variant only."""
     q: Query = ev["query"]
     asked = ", ".join(f for f in FIELDS if f in q.fields)
     lines = [
@@ -127,6 +140,7 @@ def request_text(qid: str, ev: dict, cands: list[Candidate], variant: str) -> st
             break
     n = 0
     if variant == "both":
+        lines += _code_answer(code_answer or [], comps)
         lines.append(
             "## Code shortlist (strongest first). Per evidence line: id, component, KPI (kind): "
             "baseline median -> window median, direction, robust shift in baseline spreads, how "
@@ -178,6 +192,23 @@ def request_text(qid: str, ev: dict, cands: list[Candidate], variant: str) -> st
         '"component": "...", "reason": "..."}], "cites": ["e1"], "why": "<one sentence>"}',
     ]
     return "\n".join(lines) + "\n"
+
+
+def _code_answer(answer: list[dict[str, str]], comps: list[str]) -> list[str]:
+    """The code's final answer, which stands unless cited evidence shows it is wrong."""
+    out = [
+        "## Code answer (the default)",
+        "The statistics step's final answer. Return it unchanged unless the evidence lines below "
+        "show it is wrong. To change any field of any failure, cite in `cites` the evidence ids "
+        "(e.g. e3) that support your answer, including at least one line of the component you "
+        "answer (its own KPIs, or its pods' or node's); an answer that changes the code answer "
+        "without such citations is discarded and the code answer is used.",
+    ]
+    for i, a in enumerate(answer, 1):
+        dt, comp, reason = (a[k] for k in ANSWER_KEYS)
+        where = f" (shortlist #{comps.index(comp) + 1})" if comp in comps else ""
+        out.append(f"{i}. datetime {dt}, component {comp}{where}, reason {reason}")
+    return out + [""]
 
 
 def _logs(ev: dict, comp: str, c: Candidate) -> list[str]:

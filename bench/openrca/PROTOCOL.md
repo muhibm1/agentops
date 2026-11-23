@@ -20,8 +20,10 @@ reads only the `instruction` (date, 30-minute window, failure count, fields aske
 each node) against the same day outside the window, with the frozen RCAEval `_robust`/`_signal`
 statistics, in two passes (window start, then the detected onset), and adds dominance (window peak
 against the largest excursion of any other half hour that day). `rank.py` matches reason
-signatures, merges pods into their service when two or more carry the same reason, and answers
-time = earliest sustained out-of-band minute + 0 s. `bench/rcaeval/` is imported, not changed.
+signatures, reads pod network corruption from the host node's receive-error counter, replaces pods
+with their service when two or more are hot with onsets within 60 s (any reason; the service
+outranks its best pod), and answers time = the earliest sustained out-of-band minute among the
+chosen component's strong KPIs (any kind) + 0 s. `bench/rcaeval/` is imported, not changed.
 
 **Scorer.** `evaluate.py` is Microsoft's `main/evaluate.py` from github.com/microsoft/OpenRCA
 (branch `main`, fetched 2026-11-23, sha256 9a1c2351...d53f1), unmodified except that the
@@ -41,6 +43,25 @@ first 2 minutes), `TIME_OFFSET_S` 0, `SPIKE_MAX_MINUTES` 2, `SPACE_DOMINANCE` 1,
 ten minutes before it, holds more than one recorded fault; 38 overlapping, 32 clean):
 all strict 0.400 (partial 0.616), clean strict 0.562 (partial 0.667). Per field (all): time
 38/55, component 37/54, reason 28/55.
+
+**Review round 1 (2026-11-23), statistics only, official scorer, strict all-70 / clean-32.**
+Baseline 28/70 (0.400) / 18/32 (0.562).
+1. Local baseline (120 min before the window) beside the day baseline, stronger score kept per
+   series: 27/70 (0.386) / 17/32 with the day's dominance, 26/70 with its own; with 2 and 3 on, 29
+   against 30. Rejected (lowers strict); `LOCAL_BASELINE_S = 0`, code kept.
+2. Service outranks its pods when two or more are hot at the same onset (60 s; 0 to 120 s equal),
+   any reason: 29/70 (0.414) / 18/32 (0.562). Kept.
+3. Time = earliest onset among the chosen component's strong KPIs: 30/70 (0.429) / 18/32. Kept.
+4. Host counters: `net-rx-error` (UDP receive errors) rising marks packet corruption on the
+   strongest pod of that node: 30/70 / 18/32, no change (corruption was already found from
+   error KPIs). Kept. Retransmissions without receive errors as packet loss: strict unchanged but
+   reason 27 -> 26 of 55 (relabelled latency faults); dropped.
+5. Model step: the request shows the code's final answer as the default; `run.py answers` keeps a
+   changed answer only when it cites evidence ids of the request, one on each changed component;
+   the "moved first" guidance is gone from `answerer_prompt.md`; log templates have ids masked.
+   The model-only variant is unchanged (no code answer, scores or order).
+Final per field (all 70): time 39/55, component 41/54, reason 27/55; partial 0.641. Work folder
+`/home/user/rca-data/openrca/work-cb1-v2/` (the earlier `work-cb1/` keeps the first model step).
 
 **Arms.** Statistics only: `run.py stats`. Model step: `run.py requests` writes
 `requests/<q>.md` (shortlist with code scores) and `requests-model-only/<q>.md` (same evidence,

@@ -4,7 +4,7 @@
     python -m openrca.run stats    --work WORK
     python -m openrca.run requests --work WORK
     (the model step answers each WORK/requests/<query>.md into WORK/answers/<query>.json)
-    python -m openrca.run answers  --work WORK
+    python -m openrca.run answers  --work WORK [--answers DIR --variant both|model-only]
     python -m openrca.run score    --data SYSTEM_DIR --work WORK [--pred stats.csv]
 
 Run from `bench/` with the benchmark environment (`bench/rcaeval/requirements.txt`).
@@ -15,7 +15,9 @@ reduced telemetry (`reduce.py`). `score` is the only stage that opens the answer
 `record.csv`, used only to label a query "overlapping" when its window holds more faults than the
 query says. A model answer that is not valid JSON, breaks the schema, has the wrong number of
 objects or uses a component that emitted no telemetry falls back to the statistics answer for that
-query, and the fallback is counted.
+query, and the fallback is counted. In the `both` variant the request shows the statistics answer
+as the default, and a model answer that changes it must cite evidence ids from the request (one of
+them on each changed component), or it falls back too.
 """
 
 from __future__ import annotations
@@ -56,7 +58,8 @@ def read_queries(data: Path) -> list[tuple[str, Query]]:
 
 def _day(cache: dict[str, DayFrame], reduced: Path, work: Path, date: str) -> DayFrame:
     if date not in cache:
-        p = work / "days" / f"{date}.pkl"
+        # Keyed by the loader's own hash, so a changed KPI table never reuses a stale cache.
+        p = work / "days" / f"{date}-{fingerprint()['evidence.py']}.pkl"
         if p.exists():
             cache[date] = pickle.load(open(p, "rb"))
         else:
@@ -69,7 +72,7 @@ def _day(cache: dict[str, DayFrame], reduced: Path, work: Path, date: str) -> Da
 def evidence_for(day: DayFrame, q: Query) -> dict:
     """Pass 1 splits at the window start; pass 2 re-scores from each picked candidate's onset."""
     pass1 = score_window(day, q.start, q.end)
-    cands1 = all_candidates(pass1, q.start)
+    cands1 = all_candidates(pass1, q.start, day.host)
     onsets = sorted({c.onset for c in choose(cands1, q.failures) if c.onset is not None})
     pass2: dict[int, list] = {}
     for o in onsets:
@@ -89,7 +92,7 @@ def candidates(ev: dict) -> list[Candidate]:
     """Merge both passes: a candidate keeps its stronger value and the earlier onset."""
     best: dict[tuple[str, str], Candidate] = {}
     for scored in [ev["pass1"], *ev["pass2"].values()]:
-        for c in all_candidates(scored, ev["query"].start):
+        for c in all_candidates(scored, ev["query"].start, ev["host"]):
             k = (c.comp, c.reason)
             if k not in best or c.value > best[k].value:
                 if k in best and best[k].onset is not None:
@@ -104,11 +107,12 @@ def stats_answer(ev: dict) -> list[dict[str, str]]:
     q: Query = ev["query"]
     cands = candidates(ev)
     picked = choose(cands, q.failures)
+    scored = [s for sc in [ev["pass1"], *ev["pass2"].values()] for s in sc]
     out = []
     for c in picked:
         out.append(
             {
-                KEYS[0]: to_local(answer_time(c, q.start)),
+                KEYS[0]: to_local(answer_time(c, q.start, scored)),
                 KEYS[1]: c.comp,
                 KEYS[2]: final_reason(c, cands),
             }
@@ -149,7 +153,8 @@ def cmd_requests(a) -> None:
         out = work / folder
         out.mkdir(parents=True, exist_ok=True)
         for qid, ev in evs.items():
-            (out / f"{qid}.md").write_text(request_text(qid, ev, candidates(ev), variant))
+            text = request_text(qid, ev, candidates(ev), variant, stats_answer(ev))
+            (out / f"{qid}.md").write_text(text)
     (work / "answers").mkdir(exist_ok=True)
     (work / "answer.schema.json").write_text(json.dumps(ANSWER_SCHEMA, indent=1))
     json.dump(
@@ -195,24 +200,72 @@ def known_components(ev: dict) -> set[str]:
     return comps
 
 
+EVIDENCE_LINE = re.compile(r"^\s+\[(e\d+)\] (\S+) ", re.MULTILINE)
+
+
+def cited_components(text: str, cites) -> set[str] | None:
+    """The components named by the cited evidence lines of a request, or None when `cites` is
+    not a list of ids that all appear in it."""
+    lines = dict(EVIDENCE_LINE.findall(text))
+    if not isinstance(cites, list) or not cites:
+        return None
+    if not all(isinstance(c, str) and c in lines for c in cites):
+        return None
+    return {lines[c] for c in cites}
+
+
+def override_ok(obj: dict, objs, code, text: str, host: dict[str, str]) -> bool:
+    """A model answer that differs from the code answer stands only when it cites evidence ids
+    from its request, and, for every changed component, at least one cited line belongs to that
+    component (its own KPIs, its pods' or its node's)."""
+    if objs == code:
+        return True
+    named = cited_components(text, obj.get("cites"))
+    if named is None:
+        return False
+    from .evidence import service_of
+
+    for mine, theirs in zip(objs, code, strict=True):
+        comp = mine[KEYS[1]]
+        if comp == theirs[KEYS[1]]:
+            continue
+        own = {n for n in named if comp in (n, service_of(n), host.get(n)) or host.get(comp) == n}
+        if not own:
+            return False
+    return True
+
+
 def cmd_answers(a) -> None:
+    """Validate the model's answers; fall back to the statistics answer when one is invalid or,
+    in the `both` variant, changes the code answer without citing evidence for it."""
     work = Path(a.work)
     evs = pickle.load(open(work / "evidence.pkl", "rb"))
-    rows, fallbacks = [], []
+    rows, fallbacks, overridden = [], [], []
     for qid, ev in evs.items():
         path = work / a.answers / f"{qid}.json"
-        objs = None
+        code = stats_answer(ev)
+        objs, raw = None, None
         if path.exists():
             try:
-                objs = validate(json.loads(path.read_text()), ev["query"], known_components(ev))
+                raw = json.loads(path.read_text())
+                objs = validate(raw, ev["query"], known_components(ev))
             except (json.JSONDecodeError, UnicodeDecodeError):
                 objs = None
+        if objs is not None and a.variant == "both":
+            text = request_text(qid, ev, candidates(ev), "both", code)
+            if not override_ok(raw, objs, code, text, ev["host"]):
+                objs = None
+            elif objs != code:
+                overridden.append(qid)
         if objs is None:
             fallbacks.append(qid)
-            objs = stats_answer(ev)
+            objs = code
         rows.append({"id": qid, "prediction": prediction_text(objs)})
     pd.DataFrame(rows).to_csv(work / a.out, index=False)
-    print(f"{len(rows)} answers -> {work / a.out}; fallbacks {len(fallbacks)}: {fallbacks}")
+    print(
+        f"{len(rows)} answers -> {work / a.out}; fallbacks {len(fallbacks)}: {fallbacks}; "
+        f"code answer changed with citations {len(overridden)}: {overridden}"
+    )
 
 
 def overlap_flags(data: Path, queries: list[tuple[str, Query]]) -> dict[str, bool]:
@@ -292,6 +345,12 @@ def main() -> None:
     an.add_argument("--work", required=True)
     an.add_argument("--answers", default="answers")
     an.add_argument("--out", default="final.csv")
+    an.add_argument(
+        "--variant",
+        choices=["both", "model-only"],
+        default="both",
+        help="both: a changed code answer must cite evidence; model-only: no code answer shown",
+    )
     sc = sub.add_parser("score")
     sc.add_argument("--data", required=True)
     sc.add_argument("--work", required=True)
