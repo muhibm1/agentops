@@ -76,7 +76,10 @@ def window(start: float, end: float) -> Window:
     rng = f"{max(int(end - start), 60)}s"
     w = Window()
     server_spans: dict[str, str] = {}
-    for r in instant(f'sum by (service_name, span_name, status_code) (increase(traces_span_metrics_calls_total{{span_kind="SPAN_KIND_SERVER"}}[{rng}]))', end):
+    for r in instant(
+        f'sum by (service_name, span_name, status_code) (increase(traces_span_metrics_calls_total{{span_kind="SPAN_KIND_SERVER"}}[{rng}]))',  # noqa: E501
+        end,
+    ):
         svc, span = r["metric"].get("service_name"), r["metric"].get("span_name", "")
         if svc not in SERVICES:
             continue
@@ -85,7 +88,10 @@ def window(start: float, end: float) -> Window:
         if r["metric"].get("status_code") == "STATUS_CODE_ERROR":
             w.server_errors[svc] = w.server_errors.get(svc, 0.0) + _val(r)
     # Server span names seen any time in the last day, so a callee that went silent still maps.
-    for r in instant('count by (service_name, span_name) (last_over_time(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[1d]))', end):
+    for r in instant(
+        'count by (service_name, span_name) (last_over_time(traces_span_metrics_calls_total{span_kind="SPAN_KIND_SERVER"}[1d]))',  # noqa: E501
+        end,
+    ):
         svc = r["metric"].get("service_name")
         if svc in SERVICES:
             server_spans.setdefault(r["metric"].get("span_name", ""), svc)
@@ -93,7 +99,10 @@ def window(start: float, end: float) -> Window:
     def edge(caller: str, callee: str) -> Edge:
         return w.edges.setdefault((caller, callee), Edge(caller, callee))
 
-    for r in instant(f'sum by (service_name, span_name, status_code) (increase(traces_span_metrics_calls_total{{span_kind="SPAN_KIND_CLIENT"}}[{rng}]))', end):
+    for r in instant(
+        f'sum by (service_name, span_name, status_code) (increase(traces_span_metrics_calls_total{{span_kind="SPAN_KIND_CLIENT"}}[{rng}]))',  # noqa: E501
+        end,
+    ):
         caller = r["metric"].get("service_name")
         callee = _callee_of(r["metric"].get("span_name", ""), server_spans)
         if caller not in SERVICES or callee is None or callee == caller:
@@ -102,7 +111,10 @@ def window(start: float, end: float) -> Window:
         e.calls += _val(r)
         if r["metric"].get("status_code") == "STATUS_CODE_ERROR":
             e.errors += _val(r)
-    for r in instant(f'histogram_quantile(0.99, sum by (service_name, span_name, le) (increase(traces_span_metrics_duration_milliseconds_bucket{{span_kind="SPAN_KIND_CLIENT"}}[{rng}])))', end):
+    for r in instant(
+        f'histogram_quantile(0.99, sum by (service_name, span_name, le) (increase(traces_span_metrics_duration_milliseconds_bucket{{span_kind="SPAN_KIND_CLIENT"}}[{rng}])))',  # noqa: E501
+        end,
+    ):
         caller = r["metric"].get("service_name")
         callee = _callee_of(r["metric"].get("span_name", ""), server_spans)
         if (caller, callee) in w.edges and _val(r) > 0:
@@ -110,14 +122,20 @@ def window(start: float, end: float) -> Window:
             e.p99_ms = max(e.p99_ms or 0.0, _val(r))
     # HTTP clients whose spans carry no callee name: the stock HTTP client metric has the address.
     http: dict[tuple[str, str], Edge] = {}
-    for r in instant(f'sum by (service_name, server_address, error_type) (increase(http_client_request_duration_seconds_count[{rng}]))', end):
+    for r in instant(
+        f"sum by (service_name, server_address, error_type) (increase(http_client_request_duration_seconds_count[{rng}]))",  # noqa: E501
+        end,
+    ):
         caller, callee = r["metric"].get("service_name"), r["metric"].get("server_address")
         if caller in SERVICES and callee in SERVICES and callee != caller:
             e = http.setdefault((caller, callee), Edge(caller, callee))
             e.calls += _val(r)
             if r["metric"].get("error_type"):
                 e.errors += _val(r)
-    for r in instant(f'histogram_quantile(0.99, sum by (service_name, server_address, le) (increase(http_client_request_duration_seconds_bucket[{rng}])))', end):
+    for r in instant(
+        f"histogram_quantile(0.99, sum by (service_name, server_address, le) (increase(http_client_request_duration_seconds_bucket[{rng}])))",  # noqa: E501
+        end,
+    ):
         key = (r["metric"].get("service_name"), r["metric"].get("server_address"))
         if key in http and _val(r) > 0:
             http[key].p99_ms = _val(r) * 1000

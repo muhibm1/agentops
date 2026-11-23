@@ -13,7 +13,9 @@ def analyse_at(opened: float, recent_s: int, baseline_s: int):
     split = opened - recent_s
     start = split - baseline_s
     ev = stats.evidence(telemetry.metrics_frame(start, opened), split)
-    return blame.analyse(ev, edges.window(start, split), edges.window(split, opened), recent_s, baseline_s)
+    return blame.analyse(
+        ev, edges.window(start, split), edges.window(split, opened), recent_s, baseline_s
+    )
 
 
 def main() -> None:
@@ -24,7 +26,11 @@ def main() -> None:
     p.add_argument("--baseline", type=int, default=600)
     p.add_argument("--exclude", default="frontend")
     a = p.parse_args()
-    truth = {r["incident"]: r["truth"] for r in json.loads(Path(a.truth).read_text())} if a.truth else {}
+    truth = (
+        {r["incident"]: r["truth"] for r in json.loads(Path(a.truth).read_text())}
+        if a.truth
+        else {}
+    )
     hits = n = 0
     for meta in sorted(Path(a.work).glob("*/meta.json")):
         inc = meta.parent.name
@@ -34,7 +40,14 @@ def main() -> None:
         ok = t is not None and hs[0].service == t
         hits += ok
         n += t is not None
-        print(inc, "truth", t, "top", [(h.service, round(h.score, 1), h.status) for h in hs[:3]], "OK" if ok else "")
+        print(
+            inc,
+            "truth",
+            t,
+            "top",
+            [(h.service, round(h.score, 1), h.status) for h in hs[:3]],
+            "OK" if ok else "",
+        )
         for h in hs[:3]:
             for r in h.reasons:
                 print("    ", h.service, "|", r[:150])

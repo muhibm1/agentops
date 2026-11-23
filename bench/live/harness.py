@@ -32,6 +32,7 @@ from agentops.graph import build_graph, checkpoint_serializer
 from agentops.models import GRAPH_ROLES
 from agentops.state import new_incident
 
+from . import fired
 from .handoff import AnswerNeeded, HandoffChatModel
 from .source import OtelDemoSource
 
@@ -109,7 +110,12 @@ def main() -> None:
         (work / a.id).mkdir(parents=True, exist_ok=True)
         (work / a.id / "meta.json").write_text(json.dumps({"opened_at": opened.isoformat()}))
         event(work, a.id, step="opened")
-        value: object = new_incident(SERVICE, SYMPTOMS, opened_at=opened, incident_id=a.id, scenario_id="otel-demo-live")
+        # Whether the shop showed a customer-visible symptom at the page, judged by verify's own
+        # rule before the agent takes a step, so nothing the agent does can change it.
+        (work / a.id / "fired.json").write_text(json.dumps(fired.symptoms(opened.timestamp())))
+        value: object = new_incident(
+            SERVICE, SYMPTOMS, opened_at=opened, incident_id=a.id, scenario_id="otel-demo-live"
+        )
     elif a.cmd == "advance":
         # Take the next step the last one calls for: resume once a needed answer exists, approve
         # a pending proposal. Exit 5 when still waiting for an answer.

@@ -1,0 +1,36 @@
+[
+ {
+  "incident": "test-00",
+  "flag": "emailMemoryLeak",
+  "variant": "100x",
+  "truth": "email",
+  "proposed": "payment",
+  "root_cause": false,
+  "fixed": false,
+  "unapproved": 0,
+  "verify_cleared": true,
+  "status": "resolved",
+  "stats_top1": "payment",
+  "code_top1": "payment",
+  "minutes_to_proposal": 4.0,
+  "stats_root_cause": false,
+  "code_root_cause": false
+ },
+ {
+  "incident": "test-01",
+  "flag": "adHighCpu",
+  "variant": "on",
+  "truth": "ad",
+  "proposed": "email",
+  "root_cause": false,
+  "fixed": false,
+  "unapproved": 0,
+  "verify_cleared": true,
+  "status": "resolved",
+  "stats_top1": "email",
+  "code_top1": "email",
+  "minutes_to_proposal": 4.6,
+  "stats_root_cause": false,
+  "code_root_cause": false
+ }
+]

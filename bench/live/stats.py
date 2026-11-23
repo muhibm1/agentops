@@ -15,14 +15,20 @@ from collections import Counter
 
 import numpy as np
 import pandas as pd
-
 from rcaeval.evidence import CaseEvidence, MetricSignal, _robust
 from rcaeval.rank import service_scores
 
 from .telemetry import SERVICES, LogRow
 
-KINDS = {"load": "load", "error": "error", "clienterror": "error", "latency": "latency",
-         "cpu": "cpu", "mem": "mem", "net": "net"}
+KINDS = {
+    "load": "load",
+    "error": "error",
+    "clienterror": "error",
+    "latency": "latency",
+    "cpu": "cpu",
+    "mem": "mem",
+    "net": "net",
+}
 SMOOTH_ROWS = 4
 MIN_ROWS_BEFORE = 10
 MIN_ROWS_AFTER = 4
@@ -31,7 +37,7 @@ MIN_ROWS_AFTER = 4
 def column_kind(column: str) -> tuple[str, str] | None:
     for svc in sorted(SERVICES, key=len, reverse=True):
         if column.startswith(svc + "_"):
-            kind = KINDS.get(column[len(svc) + 1:])
+            kind = KINDS.get(column[len(svc) + 1 :])
             return (svc, kind) if kind else None
     return None
 
@@ -67,7 +73,9 @@ def evidence(df: pd.DataFrame, split: float, label: str = "live") -> CaseEvidenc
         out_band = np.where(np.abs(xs - med) > 3 * spread)[0]
         onset = float(t[after][out_band[0]] - split) if len(out_band) else None
         ratio = after_med / med if abs(med) > 1e-9 else math.inf if after_med > 0 else 1.0
-        signals.append(MetricSignal(col, service, kind, med, spread, after_med, score, direction, onset, ratio))
+        signals.append(
+            MetricSignal(col, service, kind, med, spread, after_med, score, direction, onset, ratio)
+        )
     return CaseEvidence(label, sorted(services), int(split), signals)
 
 
@@ -84,7 +92,9 @@ def template(body: str) -> str:
     return _VARIABLE.sub("#", body)[:160]
 
 
-def new_log_lines(before: list[LogRow], after: list[LogRow], per_service: int = 3) -> dict[str, list[str]]:
+def new_log_lines(
+    before: list[LogRow], after: list[LogRow], per_service: int = 3
+) -> dict[str, list[str]]:
     """Per service, up to `per_service` WARN-or-worse messages whose pattern never appeared in
     the normal period, most frequent first."""
     seen = {(r.service, template(r.body)) for r in before}

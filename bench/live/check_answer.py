@@ -1,4 +1,7 @@
-"""Check a model answer against the schema its request names: `python -m live.check_answer KEY --work W`."""
+"""Check a model answer against the schema its request names.
+
+python -m live.check_answer KEY --work W
+"""
 
 import argparse
 import json

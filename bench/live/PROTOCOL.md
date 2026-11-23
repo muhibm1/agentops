@@ -66,3 +66,50 @@ wrong-target change that fixed nothing reported error_rate 0.33, so verify does 
 Test 2: 15 incidents from the same 9 flags, written by a separate agent, every flag at least
 once, variants drawn fresh, page 180 to 240 s after the fault, 16 minutes of rest between
 incidents. Scored once.
+
+**Test 2 was stopped after 2 of 15 incidents** (`results/test-2-stopped/`), 0 of 2, both marked
+recovered by verify though neither was fixed, 0 unapproved changes. It is now development data.
+
+- test-00, `emailMemoryLeak` 100x: the agent proposed payment (score 5.8 against email's 5.2).
+  The storefront's p99 was 49 ms before, during and after: no customer-visible symptom at all.
+- test-01, `adHighCpu`: the email leak from test-00 is memory inside the email process, which a
+  flag reset does not free, so email's latency was still raised and email ranked first (17.5)
+  over ad (16.2). The storefront's p99 went from 50 to 96 ms and stayed at 96 after the wrong
+  change; verify cleared it because 96 ms is under the catalogue's absolute 500 ms.
+
+## Test 3 (designed after test 2 was stopped, reviewed before any re-run)
+
+Changes, all in the harness and the source adapter; the graph, the ranking statistics and the
+blame rules are unchanged, so test2-00's ranking miss is a real miss that stays:
+
+- **Restart between incidents.** After resetting every flag, `episode.sh` restarts the 14 shop
+  containers and rests 18 minutes, so an in-process fault cannot leak into the next incident.
+  This is harness hygiene between incidents, not something the agent does or knows about.
+- **Quiet-shop gate.** Before each injection, `live.fired gate` must find no symptom over the
+  last 3 minutes against the 10 before; it retries every 5 minutes three times, then voids the
+  incident without injecting. Voids are reported.
+- **Verify latency relative to baseline.** After a change, the source reports the paged
+  storefront's p99 against its own pre-incident limit, max(1.5 x baseline p99, baseline p99 +
+  25 ms), on verify's scale: the value is 500 plus the excess over that limit, so verify's
+  unchanged 500 ms threshold falls exactly on the limit. The series id carries the measured p99
+  and the limit, so the audit log shows what was measured. On every past incident this passes the
+  six fixed ones (tightest 72 ms against 85.5) and fails test2-01 (96 against 75).
+- **Fired, decided at the page.** `live.fired` applies verify's checks (error-ratio rise over
+  0.01 on any call edge or the storefront, storefront p99 over its limit, any edge p99 over
+  1000 ms, a new ERROR log pattern) to the 3 minutes before the page against the 10 before that.
+  `harness open` writes the verdict to `fired.json` before the agent takes a step. This rule was
+  written after test2-00, which it would exclude, and it is reported as such.
+- **Scoring.** Right service and fixed is reported over all incidents and over fired incidents,
+  side by side. If fewer than 10 of 15 fire, the all-incidents figure is the headline. For an
+  incident that did not fire, verify's verdict is reported as "cannot judge", never "cleared",
+  because a fix cannot be told from a fault nobody could see. The fired-only figure leaves out
+  the subtlest faults and is biased upward.
+- **"Fixed" for `emailMemoryLeak`** means the agent's approved action turned the flag off. The
+  memory already leaked stays until the next restart, so verify may still see slowness.
+- **Calibration with no fault**, before the test: 5 idle cycles under the same restart and rest,
+  each judged as if paged and, 390 to 570 s later, as if a change had been made
+  (`calibrate.sh`). The false "fired" and false "not cleared" rates are published with the test.
+
+The schedule writer is told nothing new: 15 incidents from the same 9 flags, variants drawn
+fresh, page 180 to 240 s after the fault, written by a separate agent and opened only by
+`live.score`.

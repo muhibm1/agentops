@@ -60,7 +60,9 @@ def impaired(after: Edge, before: Edge | None) -> str | None:
     return None
 
 
-def analyse(ev: CaseEvidence, before: Window, after: Window, after_s: float, before_s: float) -> list[Health]:
+def analyse(
+    ev: CaseEvidence, before: Window, after: Window, after_s: float, before_s: float
+) -> list[Health]:
     by = ev.by_service()
     services = sorted(set(ev.services) | {s for e in after.edges for s in e})
     local: dict[str, float] = {}
@@ -71,33 +73,44 @@ def analyse(ev: CaseEvidence, before: Window, after: Window, after_s: float, bef
         local[s] = max((signal_value(g) for g in sigs if g.kind not in PROPAGATING), default=0.0)
         prop[s] = max((signal_value(g) for g in sigs if g.kind in PROPAGATING), default=0.0)
         own_server_shift[s] = max(
-            (signal_value(g) for g in sigs if g.kind in PROPAGATING and not g.column.endswith("_clienterror")),
+            (
+                signal_value(g)
+                for g in sigs
+                if g.kind in PROPAGATING and not g.column.endswith("_clienterror")
+            ),
             default=0.0,
         )
     reasons: dict[str, list[str]] = {s: [] for s in services}
 
     inbound: dict[str, float] = {}
-    for (c, x), e in after.edges.items():
+    for (_c, x), e in after.edges.items():
         inbound[x] = inbound.get(x, 0.0) + e.calls
     inbound_errors: dict[str, float] = {}
-    for (c, x), e in after.edges.items():
+    for (_c, x), e in after.edges.items():
         inbound_errors[x] = inbound_errors.get(x, 0.0) + e.errors
     # Vanished: callers still try and fail, but the service now serves under 10% of the calls it
     # served at its normal rate (a dead upstream would stop the attempts, not fail them).
     vanished = {
-        x for x in services
+        x
+        for x in services
         if (expected := before.served.get(x, 0.0) * after_s / max(before_s, 1.0)) >= MIN_CALLS
         and inbound_errors.get(x, 0.0) > 0
         and after.served.get(x, 0.0) < SERVED_FRACTION * max(expected, inbound.get(x, 0.0))
     }
     restarted = {
-        x for x in services
+        x
+        for x in services
         if after.restarts.get(x, 0.0) > 0 or (x in after.uptime and after.uptime[x] < after_s)
     }
     for x in vanished:
-        reasons[x].append(f"received {after.served.get(x, 0):.0f} calls while callers attempted {inbound[x]:.0f}")
+        reasons[x].append(
+            f"received {after.served.get(x, 0):.0f} calls while callers attempted {inbound[x]:.0f}"
+        )
     for x in restarted:
-        reasons[x].append(f"container restarted ({after.restarts.get(x, 0):.0f} resets; up {after.uptime.get(x, 0):.0f} s)")
+        reasons[x].append(
+            f"container restarted ({after.restarts.get(x, 0):.0f} resets;"
+            f" up {after.uptime.get(x, 0):.0f} s)"
+        )
 
     # Counted, not median-of-rates: the share of a service's own server calls that failed, against
     # its share before. Rates lag a fault by their window; counts do not.
@@ -112,11 +125,16 @@ def analyse(ev: CaseEvidence, before: Window, after: Window, after_s: float, bef
     }
     for x, rise in error_rise.items():
         if rise >= 0.05:
-            reasons[x].append(f"{after.server_errors[x]:.0f} of its {after.served[x]:.0f} served calls failed ({rise:+.0%} on before)")
+            reasons[x].append(
+                f"{after.server_errors[x]:.0f} of its {after.served[x]:.0f} served calls failed"
+                f" ({rise:+.0%} on before)"
+            )
 
     def corroborated(x: str) -> bool:
         return (
-            x in vanished or x in restarted or own_server_shift.get(x, 0.0) >= DEGRADED_SCORE
+            x in vanished
+            or x in restarted
+            or own_server_shift.get(x, 0.0) >= DEGRADED_SCORE
             or error_rise.get(x, 0.0) >= 0.05
         )
 
@@ -142,7 +160,7 @@ def analyse(ev: CaseEvidence, before: Window, after: Window, after_s: float, bef
     received: dict[str, float] = {}
     for _ in range(4):
         changed = False
-        for (c, x), why in bad_edges.items():
+        for c, x in bad_edges:
             if not corroborated(x):
                 continue
             carried = max(prop[c], received.get(c, 0.0))
@@ -164,13 +182,17 @@ def analyse(ev: CaseEvidence, before: Window, after: Window, after_s: float, bef
     for (c, x), why in bad_edges.items():
         reasons[c].append(f"calls to {x}: {why}")
     for c, xs in explained.items():
-        reasons[c].append("its errors and latency are explained by calls to " + ", ".join(sorted(xs)))
+        reasons[c].append(
+            "its errors and latency are explained by calls to " + ", ".join(sorted(xs))
+        )
 
     out = []
     for s in services:
         served = after.served.get(s, 0.0)
         own_err = after.server_errors.get(s, 0.0) / served if served else 0.0
-        inbound_bad = any(x == s and after.edges[(c, x)].error_ratio >= 0.05 for (c, x) in bad_edges)
+        inbound_bad = any(
+            x == s and after.edges[(c, x)].error_ratio >= 0.05 for (c, x) in bad_edges
+        )
         if s in vanished or s in restarted or (own_err >= 0.5 and s not in explained):
             status = "down"
         elif score[s] >= DEGRADED_SCORE or inbound_bad or s in explained:
@@ -180,4 +202,6 @@ def analyse(ev: CaseEvidence, before: Window, after: Window, after_s: float, bef
         out.append(Health(s, score[s], status, local[s], prop[s], reasons[s]))
     # Equal scores (common when two services hit the score cap) are ordered by how many failed
     # server calls each served: the larger failure volume is the likelier origin.
-    return sorted(out, key=lambda h: (-round(h.score, 1), -after.server_errors.get(h.service, 0.0), h.service))
+    return sorted(
+        out, key=lambda h: (-round(h.score, 1), -after.server_errors.get(h.service, 0.0), h.service)
+    )

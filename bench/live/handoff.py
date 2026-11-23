@@ -73,18 +73,27 @@ class HandoffChatModel(BaseChatModel):
             if not answer.exists():
                 req = self.folder / "requests" / f"{key}.json"
                 req.parent.mkdir(parents=True, exist_ok=True)
-                req.write_text(json.dumps({
-                    "key": key,
-                    "schema_name": out_schema.__name__,
-                    "json_schema": out_schema.model_json_schema(),
-                    "messages": [{"role": k, "text": t} for k, t in parts],
-                }, indent=1))
+                req.write_text(
+                    json.dumps(
+                        {
+                            "key": key,
+                            "schema_name": out_schema.__name__,
+                            "json_schema": out_schema.model_json_schema(),
+                            "messages": [{"role": k, "text": t} for k, t in parts],
+                        },
+                        indent=1,
+                    )
+                )
                 raise AnswerNeeded(key)
             text = answer.read_text()
             chars_in = sum(len(t) for _, t in parts)
             raw = AIMessage(
                 content=text,
-                usage_metadata={"input_tokens": math.ceil(chars_in / 4), "output_tokens": math.ceil(len(text) / 4), "total_tokens": 0},
+                usage_metadata={
+                    "input_tokens": math.ceil(chars_in / 4),
+                    "output_tokens": math.ceil(len(text) / 4),
+                    "total_tokens": 0,
+                },
                 response_metadata={"model_name": self.model},
             )
             try:

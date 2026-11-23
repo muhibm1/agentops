@@ -1,0 +1,79 @@
+{
+  "incidents": [
+    {
+      "flag": "emailMemoryLeak",
+      "variant": "100x",
+      "open_after_s": 212
+    },
+    {
+      "flag": "adHighCpu",
+      "variant": "on",
+      "open_after_s": 235
+    },
+    {
+      "flag": "adHighCpu",
+      "variant": "on",
+      "open_after_s": 233
+    },
+    {
+      "flag": "adManualGc",
+      "variant": "on",
+      "open_after_s": 184
+    },
+    {
+      "flag": "emailMemoryLeak",
+      "variant": "10000x",
+      "open_after_s": 191
+    },
+    {
+      "flag": "paymentUnreachable",
+      "variant": "on",
+      "open_after_s": 224
+    },
+    {
+      "flag": "paymentFailure",
+      "variant": "75%",
+      "open_after_s": 229
+    },
+    {
+      "flag": "productCatalogLockContention",
+      "variant": "on",
+      "open_after_s": 236
+    },
+    {
+      "flag": "paymentUnreachable",
+      "variant": "on",
+      "open_after_s": 202
+    },
+    {
+      "flag": "paymentFailure",
+      "variant": "100%",
+      "open_after_s": 214
+    },
+    {
+      "flag": "adManualGc",
+      "variant": "on",
+      "open_after_s": 207
+    },
+    {
+      "flag": "recommendationCacheFailure",
+      "variant": "on",
+      "open_after_s": 215
+    },
+    {
+      "flag": "intlShippingSlowdown",
+      "variant": "10sec",
+      "open_after_s": 217
+    },
+    {
+      "flag": "intlShippingSlowdown",
+      "variant": "5sec",
+      "open_after_s": 236
+    },
+    {
+      "flag": "productCatalogFailure",
+      "variant": "on",
+      "open_after_s": 208
+    }
+  ]
+}
