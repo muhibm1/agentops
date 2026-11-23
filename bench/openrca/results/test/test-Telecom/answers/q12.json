@@ -1,0 +1,1 @@
+{"query": "q12", "failures": [{"datetime": "2020-05-23 01:03:00", "component": "docker_006", "reason": "CPU fault"}], "cites": ["e5", "e1"], "why": "docker_006 container CPU jumps from a median of 0 to 30 and stays out of band for 27 minutes from 01:03, while os_010's rise is a barely changed median out for only 2 minutes at the window's first minute."}

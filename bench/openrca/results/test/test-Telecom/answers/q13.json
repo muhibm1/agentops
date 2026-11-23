@@ -1,0 +1,1 @@
+{"query": "q13", "failures": [{"datetime": "2020-05-23 01:33:00", "component": "os_004", "reason": "CPU fault"}], "cites": ["e1"], "why": "Code answer kept: the evidence is weak throughout and os_004's CPU onset at 01:33 is the only sustained signal."}

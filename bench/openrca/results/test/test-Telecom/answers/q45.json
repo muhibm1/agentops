@@ -1,0 +1,12 @@
+{
+ "query": "q45",
+ "failures": [
+  {
+   "datetime": "2020-05-30 04:15:00",
+   "component": "os_018",
+   "reason": "CPU fault"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence does not contradict it."
+}

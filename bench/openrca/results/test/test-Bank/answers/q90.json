@@ -1,0 +1,1 @@
+{"query": "q90", "failures": [{"datetime": "2021-03-12 20:47:00", "component": "Redis01", "reason": "high CPU usage"}]}

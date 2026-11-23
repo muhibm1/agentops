@@ -1,0 +1,12 @@
+{
+ "query": "q42",
+ "failures": [
+  {
+   "datetime": "2022-03-21 06:21:00",
+   "component": "node-4",
+   "reason": "node memory consumption"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

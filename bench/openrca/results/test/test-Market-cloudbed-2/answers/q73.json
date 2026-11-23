@@ -1,0 +1,12 @@
+{
+ "query": "q73",
+ "failures": [
+  {
+   "datetime": "2022-03-21 23:33:00",
+   "component": "checkoutservice",
+   "reason": "container memory load"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

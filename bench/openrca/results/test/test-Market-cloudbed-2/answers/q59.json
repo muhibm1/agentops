@@ -1,0 +1,17 @@
+{
+ "query": "q59",
+ "failures": [
+  {
+   "datetime": "2022-03-21 14:39:00",
+   "component": "productcatalogservice2-0",
+   "reason": "container memory load"
+  },
+  {
+   "datetime": "2022-03-21 14:30:00",
+   "component": "frontend-0",
+   "reason": "container write I/O load"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

@@ -1,0 +1,1 @@
+{"query": "q13", "failures": [{"datetime": "2022-03-20 14:00:00", "component": "recommendationservice2-0", "reason": "container network latency"}, {"datetime": "2022-03-20 14:13:00", "component": "checkoutservice", "reason": "container read I/O load"}]}

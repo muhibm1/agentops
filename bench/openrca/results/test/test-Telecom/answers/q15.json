@@ -1,0 +1,1 @@
+{"query": "q15", "failures": [{"datetime": "2020-05-23 04:48:00", "component": "os_018", "reason": "CPU fault"}], "cites": ["e1", "e2"], "why": "Code answer kept: os_018 CPU utilisation triples (median 2.62 to 7.71, 11x vs rest of day) from 04:48."}

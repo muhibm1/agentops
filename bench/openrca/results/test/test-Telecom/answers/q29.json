@@ -1,0 +1,1 @@
+{"query": "q29", "failures": [{"datetime": "2020-05-27 00:24:00", "component": "db_009", "reason": "network delay"}], "cites": ["e2", "e6", "e10"], "why": "The latency onset cluster starts at 00:24 (db_009 trace_dur_p95 e2, docker_002 trace_self_p50 at 20x e6, docker_006 e10), two minutes before the 00:26 code onset, so the fault time is 00:24."}

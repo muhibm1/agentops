@@ -1,0 +1,1 @@
+{"query": "q16", "failures": [{"datetime": "2021-03-09 09:02:00", "component": "IG01", "reason": "high disk I/O read usage"}], "cites": ["e1", "e2"], "why": "IG01's only out-of-band disk-read lines (e1, e2) first leave the band at 09:02, and no evidence line supports 09:26, so the occurrence time is moved to the observed onset."}

@@ -1,0 +1,12 @@
+{
+ "query": "q46",
+ "failures": [
+  {
+   "datetime": "2022-03-21 08:47:00",
+   "component": "node-6",
+   "reason": "node disk write I/O consumption"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

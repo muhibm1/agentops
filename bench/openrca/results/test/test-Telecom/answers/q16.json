@@ -1,0 +1,1 @@
+{"query": "q16", "failures": [{"datetime": "2020-05-24 01:46:00", "component": "db_007", "reason": "db close"}], "cites": ["e1", "e5"], "why": "Code answer kept: db_007 On_Off_State drops with its callers erroring at the same time, a db close."}

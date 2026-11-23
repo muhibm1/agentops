@@ -1,0 +1,11 @@
+all       n=51 strict=0.392 partial=0.526 time 25/31=0.806 component 9/23=0.391 reason 15/33=0.455
+clean     n=46 strict=0.391 partial=0.526 time 23/29=0.793 component 7/19=0.368 reason 13/29=0.448
+        strict  score
+task                 
+task_1   0.800  0.800
+task_2   0.100  0.100
+task_3   0.250  0.250
+task_4   0.750  0.812
+task_5   0.000  0.375
+task_6   0.333  0.583
+task_7   0.222  0.594

@@ -1,0 +1,17 @@
+{
+ "query": "q49",
+ "failures": [
+  {
+   "datetime": "2022-03-21 10:02:00",
+   "component": "node-6",
+   "reason": "node CPU load"
+  },
+  {
+   "datetime": "2022-03-21 10:00:00",
+   "component": "node-4",
+   "reason": "node disk read I/O consumption"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

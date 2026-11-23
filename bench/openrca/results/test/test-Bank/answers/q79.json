@@ -1,0 +1,1 @@
+{"query": "q79", "failures": [{"datetime": "2021-03-09 09:55:00", "component": "IG02", "reason": "high JVM CPU load"}], "cites": ["e11", "e1", "e2"], "why": "IG02 JVM CPU load peaks at 2.3x any other half hour of the day with a sustained onset at 09:55, while Tomcat04's CPU peak does not exceed the rest of the day (1.0x)."}

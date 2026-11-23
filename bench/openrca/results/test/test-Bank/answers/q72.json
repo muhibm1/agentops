@@ -1,0 +1,1 @@
+{"query": "q72", "failures": [{"datetime": "2021-03-06 20:44:00", "component": "Tomcat04", "reason": "high CPU usage"}]}

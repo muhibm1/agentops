@@ -1,0 +1,12 @@
+{
+ "query": "q61",
+ "failures": [
+  {
+   "datetime": "2022-03-21 16:47:00",
+   "component": "node-1",
+   "reason": "node disk space consumption"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

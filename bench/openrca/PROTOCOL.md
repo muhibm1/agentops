@@ -99,3 +99,26 @@ hash of every file in this directory; nothing in it changes before the test is s
 
 Test plan, to keep within the week's usage: the statistics arm and the statistics-plus-model arm
 are scored on all test queries. The model-only ablation is not run on the test.
+
+## Test result (scored once, 2026-11-23, frozen at c45ed15)
+
+Strict accuracy with Microsoft's `evaluate.py` (every asked field right; time within 1 minute).
+The component candidate list is never given, which published baselines do give.
+
+| System | Queries | Statistics alone | With the model step |
+|---|---|---|---|
+| Market cloudbed-2 | 78 | 0.462 | 0.474 |
+| Telecom | 51 | 0.314 | 0.392 |
+| Bank | 136 | 0.360 | 0.368 |
+| **All, less the 6 exposed Bank queries** | 259 | 0.386 | **0.409** |
+
+Published, for reference (their Market figures cover both cloudbeds): the official leaderboard's
+best is 11.3%; RCAFlow reports Bank 40.4, Market 34.5, Telecom 47.1; EviRCA reports 43.9 overall
+(Bank 52.2, Telecom 62.7, Market 29.7). This result beats every published Market figure and the
+official leaderboard, and is below the newest papers on Bank and Telecom, whose schemas and reason
+vocabularies were never seen in development.
+
+Notes: 9 Market answers fell back to the statistics answer because the model reordered failures
+without citing evidence (same content). One Telecom answerer saw the tail of one other request
+before answering its batch; requests hold evidence only, no labels. No fresh OpenRCA split exists,
+so this number cannot be re-measured honestly after any change.

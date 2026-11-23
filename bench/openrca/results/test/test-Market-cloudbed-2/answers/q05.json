@@ -1,0 +1,1 @@
+{"query": "q05", "failures": [{"datetime": "2022-03-20 10:34:00", "component": "currencyservice-0", "reason": "container read I/O load"}, {"datetime": "2022-03-20 10:53:00", "component": "node-4", "reason": "node disk read I/O consumption"}]}

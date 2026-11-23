@@ -1,0 +1,1 @@
+{"query": "q30", "failures": [{"datetime": "2022-03-20 16:51:00", "component": "cartservice-0", "reason": "container network latency"}]}

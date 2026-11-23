@@ -1,0 +1,1 @@
+{"query": "q28", "failures": [{"datetime": "2021-03-10 15:18:00", "component": "Tomcat04", "reason": "high disk I/O read usage"}, {"datetime": "2021-03-10 15:00:00", "component": "IG02", "reason": "high disk I/O read usage"}]}

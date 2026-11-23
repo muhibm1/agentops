@@ -1,0 +1,12 @@
+{
+ "query": "q46",
+ "failures": [
+  {
+   "datetime": "2020-05-30 05:14:00",
+   "component": "docker_006",
+   "reason": "network loss"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence does not contradict it."
+}

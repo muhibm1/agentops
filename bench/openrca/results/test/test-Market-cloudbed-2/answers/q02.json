@@ -1,0 +1,1 @@
+{"query": "q02", "failures": [{"datetime": "2022-03-20 09:16:00", "component": "cartservice2-0", "reason": "container write I/O load"}], "cites": ["e1", "e2", "e5"], "why": "cartservice2-0 filesystem writes peak at 20x the rest of the day with a sustained 09:16 onset (e1, e2), stronger than the CPU rise (e5, 9.3x, no onset), so write I/O load is the better reason."}

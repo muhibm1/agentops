@@ -1,0 +1,17 @@
+{
+ "query": "q70",
+ "failures": [
+  {
+   "datetime": "2022-03-21 21:52:00",
+   "component": "node-5",
+   "reason": "node memory consumption"
+  },
+  {
+   "datetime": "2022-03-21 21:32:00",
+   "component": "frontend-2",
+   "reason": "container read I/O load"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

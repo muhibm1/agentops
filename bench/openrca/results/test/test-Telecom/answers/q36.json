@@ -1,0 +1,12 @@
+{
+ "query": "q36",
+ "failures": [
+  {
+   "datetime": "2020-05-27 05:40:00",
+   "component": "os_021",
+   "reason": "network delay"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence does not contradict it."
+}

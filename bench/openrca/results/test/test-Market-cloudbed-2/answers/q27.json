@@ -1,0 +1,1 @@
+{"query": "q27", "failures": [{"datetime": "2022-03-20 22:30:00", "component": "currencyservice2-0", "reason": "container network latency"}]}

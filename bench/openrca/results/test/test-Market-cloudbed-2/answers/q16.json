@@ -1,0 +1,1 @@
+{"query": "q16", "failures": [{"datetime": "2022-03-20 15:02:00", "component": "checkoutservice-0", "reason": "container network latency"}, {"datetime": "2022-03-20 15:28:00", "component": "emailservice-1", "reason": "container network packet retransmission"}]}
