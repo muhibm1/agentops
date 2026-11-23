@@ -1,0 +1,1 @@
+{"at": 1795421347.532461, "fired": true, "checks": {"error": false, "latency": true, "dependency": true, "logs": false}, "error_rises": {}, "storefront_p99_ms": 4430.0, "storefront_baseline_p99_ms": 76.8, "storefront_limit_ms": 115.2, "slow_dependencies": {"frontend->ad": 9650}, "new_error_logs": []}

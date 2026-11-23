@@ -1,0 +1,1 @@
+{"at": 1795428138.843374, "fired": true, "checks": {"error": true, "latency": false, "dependency": false, "logs": true}, "error_rises": {"checkout->payment": 1.0, "frontend->checkout": 1.0}, "storefront_p99_ms": 69.1, "storefront_baseline_p99_ms": 76.6, "storefront_limit_ms": 114.9, "slow_dependencies": {}, "new_error_logs": ["frontend: Checkout failed to place order"]}

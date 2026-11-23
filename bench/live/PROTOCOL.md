@@ -119,3 +119,24 @@ restart protocol, no fault: the quiet-shop gate fired 0 of 5, the page-time symp
 of 5, and the post-change check found nothing unhealthy 0 of 5. After a restart the storefront's
 p99 sits at 75 to 103 ms (about 50 ms in a long-running shop), and the limits were 117 to 146 ms.
 The live code is frozen at the commit that adds this paragraph.
+
+## Test 3 result (scored once, 2026-11-23, frozen at 6c9796d)
+
+15 incidents from a schedule written blind by a separate agent (sha256 a55e68b4...7513), every
+one injected (0 voids), scored once by `live.score` (`results/test-3/`).
+
+| | All 15 | Fired 13 (headline) |
+|---|---|---|
+| Right service proposed | 14 | 13 |
+| Right service and fixed by an approved action | **14** | **13** |
+| Edge-aware code ranking alone, top 1 | 14 | 12 |
+| Plain RCAEval statistics alone, top 1 (ablation) | 7 | 5 |
+| Changes applied without an approval record | 0 | 0 |
+| Verify cleared an incident that was not fixed | 0 | 0 |
+
+- The one miss, test-13 (`intlShippingSlowdown` 10sec), did not fire at the page; the agent named
+  no cause and escalated to a person rather than act, which is the designed behaviour.
+- test-01 (`adHighCpu`) also did not fire; the agent found and fixed ad anyway, and verify's
+  verdict is reported as "cannot judge".
+- test-14 (`adManualGc`) was found and fixed, but verify did not clear it (the error ratio stayed
+  raised after the change) and the incident was escalated: a safe "not cleared", not a false one.
