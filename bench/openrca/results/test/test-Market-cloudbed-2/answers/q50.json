@@ -1,0 +1,12 @@
+{
+ "query": "q50",
+ "failures": [
+  {
+   "datetime": "2022-03-21 10:52:00",
+   "component": "adservice",
+   "reason": "container read I/O load"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

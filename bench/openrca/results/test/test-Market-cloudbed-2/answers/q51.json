@@ -1,0 +1,26 @@
+{
+ "query": "q51",
+ "failures": [
+  {
+   "datetime": "2022-03-21 11:00:00",
+   "component": "adservice2-0",
+   "reason": "container CPU load"
+  },
+  {
+   "datetime": "2022-03-21 11:04:00",
+   "component": "checkoutservice",
+   "reason": "container network latency"
+  }
+ ],
+ "cites": [
+  "e1",
+  "e2",
+  "e6",
+  "e7",
+  "e11",
+  "e16",
+  "e21",
+  "e22"
+ ],
+ "why": "All four checkoutservice pods (e1,e6,e11,e16) show the same latency onset at 11:04, so it is one service-level failure rather than two pod failures; the second failure is adservice2-0's own CPU rise from 11:00 (e21,e22)."
+}

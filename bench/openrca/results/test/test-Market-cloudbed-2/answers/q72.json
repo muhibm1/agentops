@@ -1,0 +1,12 @@
+{
+ "query": "q72",
+ "failures": [
+  {
+   "datetime": "2022-03-21 22:46:00",
+   "component": "frontend",
+   "reason": "container network packet corruption"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

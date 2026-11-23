@@ -1,0 +1,12 @@
+{
+ "query": "q65",
+ "failures": [
+  {
+   "datetime": "2022-03-21 19:10:00",
+   "component": "shippingservice",
+   "reason": "container CPU load"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

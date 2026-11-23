@@ -1,0 +1,1 @@
+{"query": "q03", "failures": [{"datetime": "2020-04-11 02:51:00", "component": "docker_002", "reason": "CPU fault"}], "cites": ["e3", "e1"], "why": "docker_002 container CPU jumps from a median of 2 to 98 in the window, so the latency rise from 02:51 is a symptom of a CPU fault, not network delay."}

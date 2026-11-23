@@ -1,0 +1,1 @@
+{"query": "q07", "failures": [{"datetime": "2020-05-22 00:49:00", "component": "docker_001", "reason": "network delay"}], "cites": ["e1"], "why": "Code answer kept: docker_001 self latency rises 12.5x vs rest of day from 00:49 and its CPU shift is weak."}

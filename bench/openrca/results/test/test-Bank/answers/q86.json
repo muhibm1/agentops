@@ -1,0 +1,1 @@
+{"query": "q86", "failures": [{"datetime": "2021-03-10 08:31:00", "component": "apache01", "reason": "high CPU usage"}], "cites": ["e3", "e4"], "why": "apache01's CPU peaks at 19.9x and 16.9x the rest of the day and stays out of band 4-5 minutes from 08:31, while the disk-read blip is only 2 minutes right at the window edge."}

@@ -1,0 +1,1 @@
+{"query": "q19", "failures": [{"datetime": "2022-03-20 16:00:00", "component": "emailservice-0", "reason": "container network latency"}]}

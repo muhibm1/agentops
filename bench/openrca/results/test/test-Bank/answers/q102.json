@@ -1,0 +1,1 @@
+{"query": "q102", "failures": [{"datetime": "2021-03-24 20:30:00", "component": "Tomcat02", "reason": "network latency"}]}

@@ -1,0 +1,1 @@
+{"query": "q14", "failures": [{"datetime": "2022-03-20 14:33:00", "component": "emailservice-1", "reason": "container write I/O load"}], "cites": ["e3", "e4", "e6"], "why": "emailservice-1 filesystem writes leave band at 14:33 for the longest stretch (e3, e4) and node-5 disk writes rise at the same minute (e6), favouring write I/O over the tied memory and read signals."}

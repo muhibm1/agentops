@@ -1,0 +1,1 @@
+{"query": "q07", "failures": [{"datetime": "2022-03-20 11:00:00", "component": "frontend-0", "reason": "container read I/O load"}, {"datetime": "2022-03-20 11:08:00", "component": "recommendationservice2-0", "reason": "container CPU load"}]}

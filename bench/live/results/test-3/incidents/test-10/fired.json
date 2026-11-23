@@ -1,0 +1,1 @@
+{"at": 1795424727.918165, "fired": true, "checks": {"error": false, "latency": false, "dependency": false, "logs": true}, "error_rises": {}, "storefront_p99_ms": 78.5, "storefront_baseline_p99_ms": 69.9, "storefront_limit_ms": 104.8, "slow_dependencies": {}, "new_error_logs": ["frontend: API request failed"]}

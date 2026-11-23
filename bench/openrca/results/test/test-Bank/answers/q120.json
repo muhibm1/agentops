@@ -1,0 +1,1 @@
+{"query": "q120", "failures": [{"datetime": "2021-03-25 00:00:00", "component": "MG01", "reason": "high disk I/O read usage"}, {"datetime": "2021-03-25 00:19:00", "component": "apache01", "reason": "high CPU usage"}], "cites": ["e6", "e1"], "why": "Same two failures as the code answer, only reordered earliest first (MG01 disk read onset 00:00, apache01 CPU onset 00:19)."}

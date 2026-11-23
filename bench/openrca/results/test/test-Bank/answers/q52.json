@@ -1,0 +1,1 @@
+{"query": "q52", "failures": [{"datetime": "2021-03-04 19:55:00", "component": "Tomcat03", "reason": "high memory usage"}], "cites": ["e3", "e4", "e1"], "why": "Tomcat03's memory (MEMUsedMemPerc 67 -> 82, UserMem 5249 -> 6398) peaks 1.4x above any other half hour of the day, while its CPU peak stays below the rest of day (0.6x), so memory is the stronger fault signal."}

@@ -1,0 +1,18 @@
+# The live bench's action allowlist: one action. It is loaded only by bench/live/harness.py and
+# never by the product's CLI, which keeps reading runbooks/default.yaml.
+# The action turns off every fault feature flag owned by one of the demo shop's services, the
+# shop's equivalent of rolling back the change that broke it. The agent is never told which flags
+# exist or which are on; it names a service, and the source changes nothing for a service that
+# owns no flag that is on.
+- action: turn_off_service_feature_flags
+  target_kind: dependency
+  target_pattern: "^(ad|cart|checkout|currency|email|frontend|image-provider|payment|product-catalog|quote|recommendation|shipping)$"
+  params: {}
+  risk: medium
+  preconditions:
+    - { check: dependency_not_healthy }
+  dry_run: describe
+  rollback:
+    description: Turn the service's feature flags back to the variants they had before.
+  idempotent: true
+  verify_window_minutes: 30

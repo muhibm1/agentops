@@ -1,0 +1,6 @@
+== final.csv
+all       n=70 strict=0.486 partial=0.695 time 41/55=0.745 component 42/54=0.778 reason 31/55=0.564
+clean     n=32 strict=0.625 partial=0.740 time 13/19=0.684 component 15/20=0.750 reason 13/20=0.650
+== stats.csv
+all       n=70 strict=0.429 partial=0.641 time 39/55=0.709 component 41/54=0.759 reason 27/55=0.491
+clean     n=32 strict=0.562 partial=0.682 time 12/19=0.632 component 15/20=0.750 reason 13/20=0.650

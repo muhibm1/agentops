@@ -1,0 +1,1 @@
+{"query": "q24", "failures": [{"datetime": "2022-03-20 21:18:00", "component": "node-6", "reason": "node disk write I/O consumption"}]}

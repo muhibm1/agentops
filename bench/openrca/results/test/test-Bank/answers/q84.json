@@ -1,0 +1,1 @@
+{"query": "q84", "failures": [{"datetime": "2021-03-10 00:20:00", "component": "IG01", "reason": "high CPU usage"}], "cites": ["e1", "e2"], "why": "IG01's CPU anomaly (19.9x the rest of the day) first goes out of band at 00:20, while the 00:00 onset belongs to its window-edge disk reads, so the CPU failure time is 00:20."}

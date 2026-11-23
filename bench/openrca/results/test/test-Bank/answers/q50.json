@@ -1,0 +1,1 @@
+{"query": "q50", "failures": [{"datetime": "2021-03-04 22:00:00", "component": "MG01", "reason": "high CPU usage"}, {"datetime": "2021-03-04 22:10:00", "component": "IG02", "reason": "high disk I/O read usage"}]}

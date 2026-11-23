@@ -1,0 +1,1 @@
+{"query": "q02", "failures": [{"datetime": "2020-04-11 02:16:00", "component": "db_007", "reason": "network loss"}], "cites": ["e1"], "why": "Code answer kept: db_007 errors start 02:16 and its callers error at the same minute; the session lines do not clearly favour another reason."}

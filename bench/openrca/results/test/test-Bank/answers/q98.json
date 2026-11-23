@@ -1,0 +1,1 @@
+{"query": "q98", "failures": [{"datetime": "2021-03-24 14:32:00", "component": "dockerA1", "reason": "network latency"}]}

@@ -1,0 +1,12 @@
+{
+ "query": "q41",
+ "failures": [
+  {
+   "datetime": "2022-03-21 05:07:00",
+   "component": "cartservice",
+   "reason": "container read I/O load"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

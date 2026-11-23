@@ -1,0 +1,6 @@
+{"t": 1795429862.2460136, "step": "opened"}
+{"t": 1795429863.7384007, "step": "needs_answer", "key": "cc721dd19e4fa0026ad5"}
+{"t": 1795429902.540797, "step": "resumed"}
+{"t": 1795429902.557695, "step": "needs_answer", "key": "6cb36cae6a02d002c062"}
+{"t": 1795429916.449648, "step": "resumed"}
+{"t": 1795429916.4723861, "step": "ended", "status": "escalated", "root_cause": null, "remediation": null, "execution": null, "escalation_reason": "ambiguous"}

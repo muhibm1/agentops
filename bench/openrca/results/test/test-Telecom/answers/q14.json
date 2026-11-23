@@ -1,0 +1,1 @@
+{"query": "q14", "failures": [{"datetime": "2020-05-23 03:36:00", "component": "os_021", "reason": "network delay"}], "cites": ["e1", "e3"], "why": "Code answer kept: os_021 self latency and ICMP ping both break out at 03:36."}

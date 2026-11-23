@@ -1,0 +1,1 @@
+{"query": "q08", "failures": [{"datetime": "2020-05-22 01:49:00", "component": "docker_002", "reason": "network delay"}], "cites": ["e1"], "why": "Code answer kept: docker_002 self latency rises 20x from 01:49; docker_006 moves at the same minute, so the evidence does not show the default is wrong."}

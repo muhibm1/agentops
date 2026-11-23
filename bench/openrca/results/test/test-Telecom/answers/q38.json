@@ -1,0 +1,12 @@
+{
+ "query": "q38",
+ "failures": [
+  {
+   "datetime": "2020-05-28 03:47:00",
+   "component": "docker_006",
+   "reason": "network delay"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence does not contradict it."
+}

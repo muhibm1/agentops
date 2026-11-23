@@ -1,0 +1,13 @@
+{
+ "fingerprint": {
+  "evidence.py": "33732db2f5fc772f",
+  "rank.py": "85bb00f159f5b847",
+  "spans.py": "02fe5564c577f863",
+  "digest.py": "c406e862403095c0",
+  "prompt.md": "0d2e7398c1277b2c",
+  "run.py": "a8b5a6bf3242a6bd",
+  "score.py": "3f79cfae8f554225"
+ },
+ "anonymised": true,
+ "cases": 360
+}

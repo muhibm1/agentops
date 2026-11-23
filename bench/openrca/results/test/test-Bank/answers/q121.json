@@ -1,0 +1,1 @@
+{"query": "q121", "failures": [{"datetime": "2021-03-25 02:44:00", "component": "MG02", "reason": "high CPU usage"}], "cites": ["e6", "e1"], "why": "Tomcat01's latency signal has no sustained onset and only one minute out of band (e1), while MG02 CPU utilisation is sustained out of band for 6 minutes from 02:44 and peaks 2.1x above any other half hour of the day (e6)."}

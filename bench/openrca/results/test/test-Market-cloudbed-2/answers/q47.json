@@ -1,0 +1,12 @@
+{
+ "query": "q47",
+ "failures": [
+  {
+   "datetime": "2022-03-21 09:31:00",
+   "component": "shippingservice-1",
+   "reason": "container memory load"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

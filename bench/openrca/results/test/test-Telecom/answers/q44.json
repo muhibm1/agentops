@@ -1,0 +1,15 @@
+{
+ "query": "q44",
+ "failures": [
+  {
+   "datetime": "2020-05-30 03:44:00",
+   "component": "db_003",
+   "reason": "network delay"
+  }
+ ],
+ "cites": [
+  "e2",
+  "e3"
+ ],
+ "why": "db_003's network-delay signals (trace_dur_p95 and trace_own_errors) first go out of band at 03:44, not 03:40, which came from a weak Proc_Used_Pct onset."
+}

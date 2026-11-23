@@ -1,0 +1,12 @@
+{
+ "query": "q40",
+ "failures": [
+  {
+   "datetime": "2022-03-21 04:34:00",
+   "component": "cartservice",
+   "reason": "container network latency"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}

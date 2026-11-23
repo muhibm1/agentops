@@ -1,0 +1,1 @@
+{"query": "q21", "failures": [{"datetime": "2020-05-25 04:47:00", "component": "db_003", "reason": "db close"}]}

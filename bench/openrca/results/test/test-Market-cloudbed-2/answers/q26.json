@@ -1,0 +1,1 @@
+{"query": "q26", "failures": [{"datetime": "2022-03-20 22:20:00", "component": "recommendationservice", "reason": "container memory load"}]}

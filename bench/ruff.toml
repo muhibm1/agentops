@@ -1,0 +1,14 @@
+# Ruff settings for the benchmark harnesses: the repository's own settings, plus exceptions for
+# files that must stay byte-for-byte as they were scored or published.
+extend = "../pyproject.toml"
+# Paths are relative to this file; keep the repository's first-party packages first-party.
+src = ["..", "../src"]
+# Microsoft's OpenRCA scorer, vendored unmodified (MIT, openrca/LICENSE-OpenRCA).
+extend-exclude = ["openrca/evaluate.py"]
+
+[lint.per-file-ignores]
+# Frozen and fingerprinted when RCAEval was scored (rcaeval/PROTOCOL.md); never reformatted.
+"rcaeval/*.py" = ["E501"]
+
+[format]
+exclude = ["rcaeval/*.py"]

@@ -1,0 +1,1 @@
+{"query": "q04", "failures": [{"datetime": "2020-04-11 04:40:00", "component": "docker_008", "reason": "network delay"}], "cites": ["e1", "e2"], "why": "Code answer kept: docker_008 latency peaks 20x vs rest of day from 04:40, before its CPU line moves."}

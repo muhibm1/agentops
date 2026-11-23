@@ -1,0 +1,12 @@
+{
+ "query": "q74",
+ "failures": [
+  {
+   "datetime": "2022-03-21 07:27:00",
+   "component": "frontend-0",
+   "reason": "container network latency"
+  }
+ ],
+ "cites": [],
+ "why": "Code answer kept; the evidence lines do not show it is wrong."
+}
