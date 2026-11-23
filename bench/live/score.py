@@ -47,15 +47,16 @@ def score(work: Path, schedule: dict, inject_log: list[dict]) -> list[dict]:
             "proposed": target, "root_cause": target == truth, "fixed": fixed, "unapproved": unapproved,
             "verify_cleared": bool(verify and verify[-1].get("cleared")),
             "status": ended[-1].get("status") if ended else None,
-            "stats_top1": stats_top1(work, inc),
+            "stats_top1": stats_top1(work, inc, "stats_ranking.json") or stats_top1(work, inc, "ranking.json"),
+            "code_top1": stats_top1(work, inc, "ranking.json"),
             "minutes_to_proposal": round((proposals[0]["t"] - injected[i]) / 60, 1) if proposals and i in injected else None,
         })
     return rows
 
 
-def stats_top1(work: Path, inc: str) -> str | None:
+def stats_top1(work: Path, inc: str, name: str) -> str | None:
     """The code ranking's first service other than the paged one, as the source computed it."""
-    path = work / inc / "ranking.json"
+    path = work / inc / name
     if path.exists():
         return json.loads(path.read_text())[0]
     return None
@@ -71,9 +72,10 @@ def main() -> None:
     rows = score(work, json.loads(Path(a.schedule).read_text()), jsonl(Path(a.inject_log)))
     for r in rows:
         r["stats_root_cause"] = r["stats_top1"] == r["truth"]
+        r["code_root_cause"] = r["code_top1"] == r["truth"]
     json.dump(rows, open(work / "results.json", "w"), indent=1)
     n = len(rows)
-    for k in ["root_cause", "stats_root_cause", "fixed", "verify_cleared"]:
+    for k in ["root_cause", "code_root_cause", "stats_root_cause", "fixed", "verify_cleared"]:
         print(f"{k}: {sum(bool(r[k]) for r in rows)}/{n}")
     print("unapproved changes:", sum(r["unapproved"] for r in rows))
     for r in rows:
