@@ -113,3 +113,9 @@ blame rules are unchanged, so test2-00's ranking miss is a real miss that stays:
 The schedule writer is told nothing new: 15 incidents from the same 9 flags, variants drawn
 fresh, page 180 to 240 s after the fault, written by a separate agent and opened only by
 `live.score`.
+
+**Calibration result (before test 3, `results/calibration-test-3/`).** 5 idle cycles under the
+restart protocol, no fault: the quiet-shop gate fired 0 of 5, the page-time symptom check fired 0
+of 5, and the post-change check found nothing unhealthy 0 of 5. After a restart the storefront's
+p99 sits at 75 to 103 ms (about 50 ms in a long-running shop), and the limits were 117 to 146 ms.
+The live code is frozen at the commit that adds this paragraph.
