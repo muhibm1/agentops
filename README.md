@@ -7,6 +7,11 @@ enforces every edge, budget, retry and side effect in code.
 
 **Result.** Tested on eight made-up production incidents, each run three times, against the simpler kind of agent most teams build first (a ReAct agent that reads evidence and then acts on its own). Across 24 runs AgentOps never changed anything without a person's approval; the simpler agent did in 21 of its 24. AgentOps also ended more incidents in the right place, 23 of 24 against 21 of 24, and its one miss stopped and asked for help instead of acting. Three of the eight incidents were held out and scored once. Details under [Results](#results).
 
+**On public benchmarks** (each scored once on data never used in development; details in [bench/README.md](bench/README.md)):
+- **RCAEval:** 94.7% top-1 on 360 recorded faults, against 67 to 80% published.
+- **Live shop:** 14 of 15 blind faults in the OpenTelemetry demo shop found and fixed, with no change made without approval.
+- **OpenRCA:** 40.9% strict on three unseen systems, against 11.3% on the official leaderboard and 43.9% in the newest paper.
+
 Built and tested in code: the graph, the approval step, crash-safe execution and the measurement harness, with about 1,000 tests that need no model or API key.
 
 ## Try it in a minute
