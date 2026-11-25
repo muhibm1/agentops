@@ -3,7 +3,7 @@
 It calls `interrupt()` exactly once per execution and validates the answer in code. A refused
 answer is written to `approval_error`, and the edge brings the run back here to ask again with
 the error in the payload. Every answer, accepted or not, is appended to the audit log after the
-interrupt returns, so a re-run before an answer writes nothing (brief D21).
+interrupt returns, so a re-run before an answer writes nothing.
 """
 
 import json

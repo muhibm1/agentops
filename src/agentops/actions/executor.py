@@ -1,10 +1,8 @@
-"""The executor: applies one approved remediation exactly once, through the seven steps of
-design section 7, and writes the audit trail as it goes.
+"""Applies one approved remediation at most once, through seven steps (registry lookup, parameter
+validation, preconditions, idempotency key, ledger check, dry run, apply), auditing as it goes.
 
-The steps are registry lookup, parameter validation, preconditions, idempotency key, ledger
-check, dry run and apply. Nothing here reads an environment variable and nothing skips a step;
-the one switch, `crash_after_apply`, can only end the process after the apply was recorded
-(ADR 0002).
+Nothing skips a step; the one switch, `crash_after_apply`, only ends the process after the apply
+was recorded (ADR 0002).
 """
 
 import os
@@ -37,8 +35,7 @@ from agentops.state import (
 OutcomeKind = Literal[
     "applied", "already_applied", "refused", "precondition_failed", "apply_failed", "apply_unknown"
 ]
-# What an `apply` record says about the change: `applied` True, False, or None (the source
-# raised, so nobody knows) map to these three words (increment 4, R1).
+# `applied` True, False, or None (the source raised, so nobody knows).
 Effect = Literal["applied", "not_applied", "unknown"]
 # The exit code of the demo crash; any non-zero code would do, this one is not used elsewhere.
 CRASH_EXIT_CODE = 3
@@ -85,11 +82,10 @@ def execute(
 ) -> ExecutionOutcome:
     """Apply the approved remediation in `state` at most once.
 
-    Returns `refused` when there is no usable approval, the action or its parameters break the
-    runbook, or the remediation is not the one approved; `precondition_failed` when a runbook
-    check fails; `already_applied` when the key is recorded in state or in the source's ledger;
-    `apply_unknown` when the source raises inside `apply`, so the change may or may not be in
-    effect; otherwise `applied` or `apply_failed`. Raises when the audit log cannot be written.
+    The outcome kind says what happened: `refused` (no usable approval, runbook violation or not
+    the approved remediation), `precondition_failed`, `already_applied` (key found in state, the
+    ledger or the audit log), `apply_unknown` (the source raised inside `apply`), `applied` or
+    `apply_failed`. Raises when the audit log cannot be written.
     """
     context = ExecutionContext(state, source, audit, thread_id)
     try:
@@ -115,13 +111,10 @@ def unrecorded_approval_problem(
     """Why the state's approval is not backed by the audit log, or None when it is (or when the
     state has no approval, which `execute` refuses by itself).
 
-    `state["approval"]` is only a field: anything that can write graph state (the `langgraph dev`
-    state endpoint, a tampered checkpoint) could set it. The approval node appends an accepted
-    `approval` record to the audit file before it sets the field, so the file is the proof that an
-    operator was asked and said yes. The record must match the approval in decision and
-    idempotency key (the key already binds the action, target and parameters) and must have been
-    written by `thread_id`, the thread now executing: a state copied into another thread, or a
-    fork, needs its own approval at its own interrupt."""
+    `state["approval"]` is only a field that anything able to write graph state could set. The
+    approval node appends an accepted `approval` record to the audit file first, so the file is
+    the proof an operator said yes. The record must match decision and idempotency key and come
+    from `thread_id`: a copied state or a fork needs its own approval."""
     approval = state["approval"]
     if approval is None:
         return None
@@ -207,8 +200,8 @@ def compute_key(state: IncidentState, remediation: Remediation) -> str:
 def find_recorded_execution(
     context: ExecutionContext, remediation: Remediation, key: str
 ) -> ExecutionOutcome | None:
-    """Refuse a remediation other than the approved one (brief D22); return `already_applied`
-    when the key is recorded in state or in the source's ledger; else None."""
+    """Refuse a remediation other than the approved one; return `already_applied` when the key
+    is recorded anywhere, else None."""
     approval = context.state["approval"]
     if approval is None or approval.idempotency_key != key:
         raise RefusedError(
@@ -235,8 +228,7 @@ def find_recorded_execution(
 def audit_shows_apply(
     context: ExecutionContext, key: str, *, this_thread_only: bool = False
 ) -> bool:
-    """True when the incident's audit file has an `apply` record for `key` with `applied: true`,
-    written by this thread only when `this_thread_only` is set."""
+    """True when the audit file has an applied `apply` record for `key`."""
     return any(
         (not this_thread_only or record.get("thread_id") == context.thread_id)
         and record.get("event") == "apply"
@@ -253,8 +245,7 @@ def write_repeat_record(context: ExecutionContext, remediation: Remediation, key
 def write_recovered_apply_record(
     context: ExecutionContext, remediation: Remediation, key: str
 ) -> None:
-    """The process died, or the audit write failed, between the source's apply and its record;
-    the audit file gets the record now, from the source's ledger."""
+    """The process died between the source's apply and its audit record; write it now."""
     write_apply_record(context, remediation, key, applied=True, ok=True, detail=RECOVERED_DETAIL)
 
 
@@ -341,8 +332,7 @@ def unknown_outcome(
     detail: str,
     latency_ms: float,
 ) -> ExecutionOutcome:
-    """The source raised inside apply: the change may be in effect or not, so `applied` is None
-    and the graph goes on to verify, which decides from the signals."""
+    """The source raised inside apply: `applied` is None and verify decides from the signals."""
     kind: OutcomeKind = "apply_unknown"
     execution = ExecutionRecord(
         idempotency_key=key,
@@ -363,10 +353,9 @@ def already_applied(
 ) -> ExecutionOutcome:
     """Apply nothing; record that this key was applied before (`recorded` says where).
 
-    The execution is marked `applied` only when no action evidence yet records this key as
-    applied: that is the run resumed after a crash, whose earlier apply verify must still judge.
-    A plain repeat of a key applied earlier in the run changed nothing this time, so it stays
-    `applied=False` and verify escalates with symptoms_persist instead of looping.
+    The execution counts as `applied` only when no action evidence records the key yet: that is
+    a run resumed after a crash, whose earlier apply verify must still judge. A plain repeat
+    stays `applied=False`, so verify escalates instead of looping.
     """
     detail = f"Key {key} was already applied ({recorded}); nothing changed."
     changed_now = not applied_in_evidence(context.state, key)
@@ -399,8 +388,8 @@ def applied_in_evidence(state: IncidentState, key: str) -> bool:
 def precondition_failed(
     context: ExecutionContext, remediation: Remediation, checks: list[PreconditionResult]
 ) -> ExecutionOutcome:
-    """Turn each failed check into evidence of kind `precondition`, labelled with the change's
-    key so a second failure of the same change can be recognised (spec R17)."""
+    """Turn each failed check into `precondition` evidence keyed by the change's idempotency key,
+    so a repeat failure of the same change can be recognised."""
     key = idempotency_key(context.state["incident_id"], remediation)
     failures = [check for check in checks if not check.passed]
     first_number = count_of_kind(context.state, "precondition") + 1
@@ -478,9 +467,8 @@ def action_evidence(
     applied: bool | None,
     detail: str,
 ) -> Evidence:
-    """Evidence of kind `action`: rca and postmortem read `action`, `applied` and `effect` to
-    list what is in effect and what may be; `approval` is the decision that let this change run,
-    kept here because a loop clears the approval from state and the scorer reads each apply."""
+    """Evidence of kind `action`. It keeps the approval decision because a loop clears the
+    approval from state and the scorer reads each apply."""
     number = count_of_kind(state, "action") + 1
     approval = state["approval"]
     payload = {

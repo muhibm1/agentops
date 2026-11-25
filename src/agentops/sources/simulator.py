@@ -1,11 +1,10 @@
 """`SimulatorSource`: an `EvidenceSource` that serves one scenario's signals from memory.
 
-It holds its own deep copy of the signals, so applying an action changes this source only,
-never the loaded `Scenario` or another source built from it. Every read returns copies for the
-same reason. The grading key and scripted outputs have no accessor here.
+It holds its own deep copy of the signals and returns copies, so applying an action changes this
+source only. The grading key and scripted outputs have no accessor here.
 
 Given a ledger path, it also remembers applied actions across processes: each apply appends one
-JSON line to that file before returning, and a source built on the file replays it (ADR 0002).
+JSON line to that file before returning, and a source built on the file replays it.
 """
 
 import json
@@ -49,8 +48,7 @@ def ledger_path_for(directory: Path, incident_id: str) -> Path:
 
 class SimulatorSource:
     def __init__(self, scenario: Scenario, ledger_path: Path | None = None) -> None:
-        """Raises `LedgerError` when `ledger_path` is not named `<incident id>.ledger.jsonl` or
-        holds a line that is not an action this scenario can model."""
+        """Raises `LedgerError` for a misnamed ledger file or a line this scenario cannot model."""
         self._service = scenario.service
         self._signals: Signals = scenario.signals.model_copy(deep=True)
         self._worlds: dict[str, PostActionWorld] = {
@@ -58,10 +56,9 @@ class SimulatorSource:
             for action, world in scenario.post_action_world.items()
         }
         self._ledger: list[AppliedAction] = []
-        # Keys of the worlds already merged, so one world is never merged twice.
         self._merged_worlds: set[str] = set()
         self._ledger_path = ledger_path
-        # Numbers of ledger lines skipped on replay because a crash tore them mid-write.
+        # Ledger lines skipped on replay because a crash tore them mid-write.
         self.torn_ledger_lines: list[int] = []
         if ledger_path is not None:
             check_ledger_file_name(ledger_path)
@@ -113,11 +110,10 @@ class SimulatorSource:
     def apply(self, action: ActionRequest, idempotency_key: str) -> ActionResult:
         """Change the served world to the scenario's post-action world for `action.action`.
 
-        Once two or more distinct actions are applied, the world declared for all of them
-        together is served instead, when the scenario declares one. A key already in the ledger
-        applies nothing and reports `applied=False`. An action the scenario has no post-action
-        world for is refused with `ok=False`. Never raises, except when the ledger file cannot
-        be written, in which case nothing is applied.
+        With two or more distinct actions applied, the world declared for them together is served
+        when there is one. A key already in the ledger applies nothing (`applied=False`); an
+        action with no post-action world is refused (`ok=False`). Raises only when the ledger
+        cannot be written, and then nothing is applied.
         """
         if any(entry.idempotency_key == idempotency_key for entry in self._ledger):
             return ActionResult(
@@ -154,8 +150,8 @@ class SimulatorSource:
         return [entry.model_copy(deep=True) for entry in self._ledger]
 
     def _world_key_after(self, action_name: str) -> str | None:
-        """The key of the world to serve once `action_name` is applied, or None when the
-        scenario declares none: the combined world of every applied action when it has one."""
+        """The key of the world to serve once `action_name` is applied, or None when the scenario
+        declares none; the combined world of every applied action wins when it exists."""
         applied_names = {entry.action for entry in self._ledger} | {action_name}
         if len(applied_names) > 1:
             combined = combined_world_key(applied_names)
@@ -170,15 +166,13 @@ class SimulatorSource:
         self._ledger.append(entry)
 
     def _replay(self, ledger_path: Path) -> None:
-        """Replays every line of the ledger file into this source.
+        """Replay every line of the ledger file into this source.
 
-        A crash mid-write leaves a fragment that is not JSON and that the simulator never
-        applied. A run of such lines (a fragment, a partly written seal marker, a torn entry
-        after a marker) is skipped and counted in `torn_ledger_lines` when it ends at a seal
-        marker, which `append_ledger_line` writes after a fragment, or at the end of the file.
-        A non-JSON line followed by a valid entry, and a seal marker that does not follow a
-        non-JSON line, raise `LedgerError` naming the line (D17), as does a line that is not
-        an applied action this scenario can model.
+        A crash mid-write leaves a non-JSON fragment the simulator never applied. A run of such
+        lines is skipped and counted in `torn_ledger_lines` when it ends at a seal marker (which
+        `append_ledger_line` writes after a fragment) or at the end of the file. Any other
+        non-JSON line, a stray seal marker, or a line this scenario cannot model raises
+        `LedgerError`.
         """
         if not ledger_path.exists():
             return
@@ -245,9 +239,8 @@ def parse_ledger_line(ledger_path: Path, line_number: int, line: str) -> Applied
 
 
 def read_ledger_lines(ledger_path: Path) -> tuple[list[str], str | None]:
-    """The lines that end in a newline, and the text after the last newline (None when the
-    file ends in one). Only that final text can be torn, so only it is decoded leniently: a
-    crash can cut a multibyte character, and a cut line is never valid JSON either way."""
+    """The lines that end in a newline, and the text after the last one (None when the file ends
+    in one). Only that final text can be torn, so only it is decoded leniently."""
     raw = ledger_path.read_bytes()
     complete_part, newline, final_part = raw.rpartition(b"\n")
     complete_lines = (complete_part + newline).decode("utf-8").splitlines()
@@ -276,18 +269,15 @@ def is_json(text: str) -> bool:
 
 
 def append_ledger_line(ledger_path: Path, entry: AppliedAction) -> None:
-    """Appends one JSON line and syncs it to disk, so a process killed right after `apply`
-    returns still leaves the entry behind. The file is only ever opened in append mode.
+    """Append one JSON line and sync it to disk, so a process killed right after `apply` still
+    leaves the entry behind.
 
-    The repair is decided from the content of the last line, not its last byte. A last line
-    that is not JSON (a torn fragment, a partly written marker, a torn entry) is followed by
-    the seal marker line, so the entry never joins it and a later replay can tell it from
-    corruption in the middle of the file. A last line that is complete JSON but lacks its
-    newline gets only the newline, and no marker."""
+    A last line that is not JSON gets the seal marker after it, so the entry never joins it and
+    replay can tell it from mid-file corruption. A complete JSON last line missing its newline
+    gets only the newline."""
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
     separator = repair_separator(ledger_path)
-    # An explicit LF stops Windows text mode writing CRLF, so a write cut at the CR cannot
-    # make the next append "CR CR LF".
+    # Explicit LF: Windows CRLF could be cut at the CR and the next append become "CR CR LF".
     with ledger_path.open("a", encoding="utf-8", newline="\n") as ledger_file:
         ledger_file.write(separator + entry.model_dump_json() + "\n")
         ledger_file.flush()

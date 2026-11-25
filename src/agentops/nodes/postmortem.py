@@ -2,7 +2,7 @@
 
 The model is asked for a `Postmortem` whose every cited id exists in state, up to three times.
 When every attempt is rejected, a postmortem built by code from the root cause is written
-instead, so a verified incident never ends as a failed run (brief D16).
+instead, so a verified incident never ends as a failed run.
 """
 
 from typing import Any

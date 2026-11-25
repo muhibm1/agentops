@@ -1,18 +1,14 @@
-"""Send a batch of realistic incidents through AgentOps, traced to a LangSmith project.
+"""Send incidents through AgentOps as stand-in production traffic, traced to LangSmith.
 
-This stands in for production. Real pages rarely read like a scenario file: they arrive as an
-alert title, a customer complaint relayed by support, or one terse line from a teammate. Each
-incident below is a dev-split scenario with its symptoms worded the way they might actually
-arrive. Every run becomes one `agentops-incident` trace with the graph's nodes under it, which
-is what `flywheel score` grades and `flywheel mine` searches.
+Each incident is a dev-split scenario with its symptoms worded the way a real page might read.
+Every run becomes one `agentops-incident` trace, which `flywheel score` grades and `flywheel mine`
+searches.
 
     LANGSMITH_PROJECT=agentops-prod FLYWHEEL_AGENTOPS_MODEL=anthropic FLYWHEEL_AGENTOPS_DEV=1 \
         AGENTOPS_API_CAP=2 python flywheel/traffic.py
 
-Paid when the model is `anthropic`, under the cap `AGENTOPS_API_CAP` sets; the scripted model
-replays each scenario for free. Traffic stands in for new production, so its answers are live
-unless `AGENTOPS_REPLAY` says otherwise: a rerun replaying the last batch would send the same
-traces again.
+Paid when the model is `anthropic`, under `AGENTOPS_API_CAP`. Replay is off by default, since a
+replayed batch would send the same traces again.
 """
 
 import os

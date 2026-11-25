@@ -1,28 +1,14 @@
-"""The `agentops` command line: investigate a simulated incident, decide on its proposal, and
-inspect or fork the thread.
+"""The `agentops` command line: run an incident to the approval pause, decide on it, resume,
+inspect and fork threads.
 
-`run` investigates until the approval pause or an escalation; `approve` records an operator's
-decision and continues; `resume` continues a thread that stopped, for example after a crash;
-`history` prints one line per checkpoint; `fork` starts a new thread from a past checkpoint with
-changed hypothesis scores. Threads are checkpointed to a SQLite file (`--state-db`, default
-`agentops.sqlite`) under a thread id equal to the incident id; the audit log and the simulator
-ledger are written under `--audit-dir` (default `audit/`). Each thread has its own ledger,
-`<thread>.ledger.jsonl`, so a fork starts from an unchanged simulated system and never inherits
-the actions the original thread applied. `eval` and `dataset` measure the graph against the
-ReAct baseline offline; they live in `agentops.evals.commands`.
-
-A live command first checks what it may spend (`agentops.budget`): it exits 1 before anything
-runs when `AGENTOPS_API_CAP` is unset or spent, unless it replays recorded answers. After a run
-that made a paid or replayed call, one line on stderr says what it billed.
+Threads are checkpointed to SQLite (`--state-db`) under a thread id equal to the incident id.
+Each thread has its own simulator ledger in `--audit-dir`, so a fork never inherits applied actions.
 
 Exit codes: 0 when the thread waits for approval, is escalated or is resolved; 1 for a usage
-problem (unknown scenario or thread, malformed thread id, thread not waiting, bad decision,
-a decision the approval node refused, unknown hypothesis, unknown model, `--model anthropic`
-without `ANTHROPIC_API_KEY`, or with no API cap left or a malformed spend setting); 2 when the
-run fails or the state file cannot be used. A run stopped by the cap or by a replay miss is a
-failed run: its last checkpoint stands, and `resume` continues it.
-Every failure prints one sentence to stderr naming the cause, and every string a model or a
-scenario wrote is escaped before it is printed.
+problem (including a refused decision or an unusable model or API cap); 2 when the run fails or
+the state file cannot be used. A run stopped by the cap or a replay miss is a failed run whose
+last checkpoint stands; `resume` continues it. Every failure prints one sentence to stderr, and
+every string a model or scenario wrote is escaped before it is printed.
 """
 
 import json
@@ -344,10 +330,7 @@ class ThreadRun:
         audit_dir: Path,
         models: ModelFactory,
     ) -> "ThreadRun":
-        """The graph for `scenario`, its simulator remembering applied actions in the ledger
-        file of `thread_id`: a fork has its own ledger and never inherits the original's applied
-        actions. Exits 2 when that ledger cannot be read; prints one stderr notice per line a
-        crash tore mid-write and the simulator skipped."""
+        """The graph for `scenario`, with the simulator's ledger kept per thread id."""
         ledger_path = ledger_path_for(audit_dir, thread_id)
         try:
             source = SimulatorSource(scenario, ledger_path=ledger_path)
@@ -392,9 +375,7 @@ class ThreadRun:
         return self.graph.get_state(self.config())
 
     def invoke(self, value: Any, *, watch: bool = False, **switches: bool) -> None:
-        """Run until the graph pauses or ends, saving each checkpoint before the next step, then
-        print on stderr the API credit the run used, when it made a paid or replayed call. With
-        `watch`, stream the run and print one line per step as it finishes."""
+        """Run until the graph pauses or ends, then report the API credit used on stderr."""
         with spend.meter() as used:
             try:
                 if watch:
@@ -409,9 +390,7 @@ class ThreadRun:
         print_credit(used)
 
     def stream(self, value: Any, **switches: bool) -> None:
-        """The same run as `invoke`, streamed: one line per node update, in the order LangGraph
-        finishes them (the three evidence reads run in one step, so their order may vary), and
-        the reasons nodes give for their decisions (`stream_mode="custom"`)."""
+        """The same run as `invoke`, printing one line per node update."""
         chunks = self.graph.stream(
             value, self.config(**switches), stream_mode=["updates", "custom"], durability="sync"
         )
@@ -467,7 +446,7 @@ class ThreadRun:
 
 @contextmanager
 def open_checkpoints(state_db: Path) -> Iterator[SqliteSaver]:
-    """The checkpointer over `state_db`. Exits 2 naming the path when it cannot be used."""
+    """The checkpointer over `state_db`; exits 2 when the file cannot be used."""
     try:
         connection = sqlite3.connect(state_db, check_same_thread=False)
     except sqlite3.Error as error:
@@ -482,8 +461,7 @@ def open_checkpoints(state_db: Path) -> Iterator[SqliteSaver]:
 
 
 def incident_store(saver: SqliteSaver) -> SqliteStore:
-    """The store of finished incidents, in the same SQLite file as the checkpoints. Exits 2
-    when its tables cannot be made."""
+    """The finished-incident store, in the checkpoint file; exits 2 when it cannot be set up."""
     store = SqliteStore(saver.conn)
     try:
         store.setup()
@@ -504,9 +482,7 @@ def opened_thread(
 ) -> Iterator[ThreadRun]:
     """An existing thread, rebuilt from the scenario named in its latest checkpoint.
 
-    The thread id is checked before any file is opened, and a missing state file means an
-    unknown thread: neither creates a file. When the command `calls_models`, it exits 1 unless
-    `models` is the model the thread last ran on, before anything runs.
+    Neither a bad thread id nor a missing state file creates anything.
     """
     check_thread_id(thread_id)
     if not state_db.exists():
@@ -527,10 +503,8 @@ def opened_thread(
 
 
 def check_same_model(thread_id: str, recorded: object, models: ModelFactory) -> None:
-    """Exit 1 when the thread last ran on another `--model` than `models`. Without this, an
-    `approve` that forgot `--model anthropic` resumed a live thread on the scripted model, which
-    has no answers for it: the run failed after the approval was spent (live run, 2026-10-12).
-    A thread saved before the model was recorded is not checked."""
+    """Exit 1 when the thread last ran on another `--model`: the scripted model has no answers
+    for a live thread. A thread saved before the model was recorded is not checked."""
     if not isinstance(recorded, str) or recorded == models.label:
         return
     fail(
@@ -558,11 +532,8 @@ def check_model_name(model: str) -> ModelName:
 
 
 def models_for(model: str, dev: bool, *, check_budget: bool = True) -> ModelFactory:
-    """The models behind `--model` and `--dev`. Exits 1 naming `ANTHROPIC_API_KEY`, never its
-    value, when the live model is asked for without a key, and naming the setting when a spend
-    setting is malformed or, with `check_budget`, when there is no API cap left
-    (`budget.refusal`); nothing is built or written first. `eval` checks the cap itself, after
-    it has printed its plan."""
+    """The models behind `--model` and `--dev`; exits 1 on a missing key, a malformed spend
+    setting or, with `check_budget`, no API cap left. `eval` checks the cap itself."""
     name = check_model_name(model)
     try:
         models = model_factory(name, dev)
@@ -583,11 +554,7 @@ def print_credit(used: spend.Meter) -> None:
 
 
 def load_named_scenario(scenario_id: str, scenarios_dir: Path) -> Scenario:
-    """Load `<scenarios_dir>/<scenario_id>.json`, refusing any id that is not a listed file stem.
-
-    The id must match the scenario id pattern, so no path separator or `..` can reach the
-    filesystem and only files inside `scenarios_dir` are ever opened.
-    """
+    """Load a scenario by id; only a listed file stem is accepted, so no path can be injected."""
     if not scenarios_dir.is_dir():
         fail(USAGE_ERROR, f"The scenarios directory {scenarios_dir} does not exist.")
     available = list_scenario_ids(scenarios_dir)
@@ -680,12 +647,8 @@ def rescored(
 
 
 def escape_for_terminal(text: str) -> str:
-    """Show control characters (newline, ESC and the like) as visible escapes, and replace the
-    API key's value wherever it appears.
-
-    Applied to every string a model wrote before it is printed, so model output cannot start a
-    fake line or send terminal control sequences, and an SDK error quoting the key prints none.
-    """
+    """Show control characters as visible escapes and redact the API key, so model output cannot
+    fake a line or send terminal control sequences."""
     return "".join(
         char if char.isprintable() else char.encode("unicode_escape").decode("ascii")
         for char in redact_api_key(text)
@@ -715,8 +678,7 @@ def report(
     audit_dir: Path,
     pending: dict[str, Any] | None = None,
 ) -> str:
-    """The thread's outcome in plain lines, the pending proposal when it waits for a decision,
-    and where the audit log is. Every model string is escaped for the terminal."""
+    """The thread's outcome in plain lines, with the pending proposal when one waits."""
     lines = [f"incident: {state['incident_id']}", f"thread: {thread_id}"]
     lines += investigation_lines(state)
     lines += action_lines(state)
@@ -803,8 +765,7 @@ def closing_sentence(state: IncidentState, thread_id: str, *, is_waiting: bool) 
 
 
 def changes_sentence(state: IncidentState) -> str:
-    """Whether an approved action changed the system: applied, possibly applied (the apply
-    raised, so its effect is unknown), or nothing changed."""
+    """Whether an approved action changed the system."""
     # Action evidence outlives the execution record, which a later loop replaces.
     actions = [item.payload for item in state["evidence"] if item.kind == "action"]
     if any(payload.get("applied") is True for payload in actions):
