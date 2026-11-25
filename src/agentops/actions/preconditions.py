@@ -1,8 +1,7 @@
 """Runbook preconditions, checked against the evidence source before anything is applied.
 
-One function per check kind. Each reads the source only, and turns any source error into a
-failed result: a check that cannot see the system must not let an action through, and must
-not crash the run either.
+Each check reads the source only. A source error becomes a failed result: a check that cannot see
+the system must not let an action through, nor crash the run.
 """
 
 import re
@@ -24,13 +23,12 @@ from agentops.actions.runbook import (
 from agentops.sources.base import ConfigValue, Deployment, EvidenceSource, Window
 from agentops.state import IncidentState, Remediation
 
-# Metrics are read from an hour before the incident opened to the end of the action's verify
-# window, so a check made after an earlier action sees the post-action points (ADR 0003).
+# Metrics are read up to the end of the action's verify window, so a check made after an earlier
+# action sees the post-action points.
 METRIC_LOOKBACK = timedelta(minutes=60)
 # Deployments are read a day back, so a deployment too old to roll back is still reported.
 DEPLOYMENT_LOOKBACK = timedelta(hours=24)
-# A job target must be named by a log line from the hour before the incident opened: the
-# incident's own observed logs, not anything an action wrote afterwards.
+# A job target must be named by the incident's own logs, not anything an action wrote afterwards.
 TARGET_LOG_LOOKBACK = timedelta(minutes=60)
 
 Observed = ConfigValue | None
@@ -65,7 +63,7 @@ def guarded(
 ) -> PreconditionResult:
     try:
         return check_one(precondition, remediation, state, source, lookahead)
-    except Exception as error:  # A source error of any type fails the check (spec R8).
+    except Exception as error:  # any source error fails the check
         return PreconditionResult(
             check=precondition.check,
             passed=False,
@@ -212,14 +210,12 @@ def target_named_in_logs(
     state: IncidentState,
     source: EvidenceSource,
 ) -> PreconditionResult:
-    """Passes when a log line of the service from the hour before the incident opened names
-    the target as a whole token, compared casefolded; observes the first such line's id. A
-    letter, digit, `_` or `-` right before or after the target means the line names a longer
-    name (`reindex-job` inside `reindex-job-nightly`), so it does not count.
+    """Passes when a log line from the hour before the incident opened names the target as a
+    whole, casefolded token; observes that line's id. A letter, digit, `_` or `-` next to the
+    target means a longer name (`reindex-job` inside `reindex-job-nightly`), which does not count.
 
-    It ties the target to the incident's observed logs, not to the operator's intent: a target
-    named only in an injected line passes too, and the dry run the operator reads stays the
-    control for that (spec, Design "Job names")."""
+    This ties the target to the observed logs, not to the operator's intent: a target named only
+    in an injected line passes too, and the dry run the operator reads is the control for that."""
     opened_at = state["opened_at"]
     window = Window(start=opened_at - TARGET_LOG_LOOKBACK, end=opened_at)
     whole_token = re.compile(rf"(?<![\w-]){re.escape(remediation.target.casefold())}(?![\w-])")

@@ -1,16 +1,11 @@
 """`agentops eval` and `agentops dataset`, which `agentops.cli` registers on its app.
 
 Exit codes follow the rest of the command line: 0 when the command completed (failed runs are
-rows of the table, not a failed command); 1 when every run failed, or for a usage problem
-(unknown model or system, repetitions outside 1 to 10, a tracing problem, a checksum mismatch,
-a write without `--force`, `--model anthropic` without `ANTHROPIC_API_KEY`, without `--yes`
-or with no API cap left, a malformed spend setting, or a split the spend ladder stopped: a
-refused paid call or a replay miss); 2 when the scenarios directory, a scenario file or the
-dataset files cannot be read.
+table rows, not a failed command); 1 when every run failed or for a usage problem, including a
+split the spend ladder stopped; 2 when the scenarios or dataset files cannot be read.
 
 A live eval prints its plan, the API cap and where answers are recorded before anything runs;
-`AGENTOPS_REPLAY=replay` needs no `--yes`, since it spends nothing. After the table, one line
-says what the split billed and how many calls a recording answered.
+`AGENTOPS_REPLAY=replay` needs no `--yes`, since it spends nothing.
 """
 
 import os
@@ -150,10 +145,8 @@ def guard_spend(
     *,
     yes: bool,
 ) -> None:
-    """Print the planned runs, their estimated cost and what they may spend, then exit 1 unless
-    `yes`, or unless every answer is replayed. With `yes`, exit 1 when there is no API cap left.
-    Nothing has called a model yet: the factory builds its clients only when a run asks for
-    them."""
+    """Print the plan, its estimated cost and what it may spend, then exit 1 unless `yes` or every
+    answer is replayed. With `yes`, exit 1 when there is no API cap left."""
     lines = spend_plan(models, systems, scenario_count, repetitions)
     replaying = budget.is_replaying(models.recorder)
     if replaying:
@@ -186,8 +179,7 @@ def spend_stop_sentence(error: Exception, recorder: spend.Recorder | None) -> st
 def spend_plan(
     models: ModelFactory, systems: list[SystemName], scenario_count: int, repetitions: int
 ) -> list[str]:
-    """The `planned:` and `estimated cost:` lines. An unpriced id prints `unknown`, never a
-    partial or zero figure."""
+    """The `planned:` and `estimated cost:` lines; an unpriced id prints `unknown`."""
     runs_per_system = {system: scenario_count * repetitions for system in systems}
     judge_calls = runs_per_system.get("graph", 0) if models.runs_judge else 0
     model_ids = models.model_ids()
@@ -238,8 +230,7 @@ def dataset_command(
 
 
 def command_line():
-    """The `agentops.cli` module, imported when a command runs: `agentops.cli` imports this
-    module to register the commands, so importing it at the top would be circular."""
+    """The `agentops.cli` module, imported late because it imports this module."""
     from agentops import cli
 
     return cli
@@ -261,8 +252,7 @@ def systems_named(system: str) -> list[SystemName]:
 
 
 def require_readable_scenarios(scenarios_dir: Path) -> list[Scenario]:
-    """Every scenario in the directory, loaded. Exits 2 naming the directory when it does not
-    exist, or the first file that cannot be read or is not a valid scenario."""
+    """Every scenario in the directory, loaded; exits 2 on a missing directory or a bad file."""
     if not scenarios_dir.is_dir():
         stop(UNREADABLE, f"The scenarios directory {scenarios_dir} does not exist.")
     scenarios = []
@@ -276,8 +266,7 @@ def require_readable_scenarios(scenarios_dir: Path) -> list[Scenario]:
 
 
 def require_matching_checksums(scenarios_dir: Path, evals_dir: Path) -> None:
-    """Exits 1 with the first mismatch between the frozen split and its pinned checksums, and
-    2 when the dataset files cannot be read."""
+    """Exit 1 on the first checksum mismatch, 2 when the dataset files cannot be read."""
     try:
         problems = check_dataset(scenarios_dir, evals_dir)
     except (OSError, UnicodeDecodeError) as error:
@@ -290,9 +279,8 @@ def require_matching_checksums(scenarios_dir: Path, evals_dir: Path) -> None:
 
 
 def load_split(split: Split, scenarios_dir: Path, evals_dir: Path) -> list[Scenario]:
-    """The scenarios of `split`. Exits 2 when the manifest cannot be read or names a missing
-    scenario. Both splits are only asked for after the checksums matched: the manifest decides
-    which scenarios are dev, so an edited manifest would move frozen ones into dev scoring."""
+    """The scenarios of `split`; exits 2 when the manifest is unreadable. Callers check the
+    checksums first: an edited manifest could move frozen scenarios into dev scoring."""
     try:
         return split_scenarios(split, scenarios_dir, evals_dir, allow_held_out=split == "held_out")
     except (OSError, UnicodeDecodeError, ValidationError) as error:

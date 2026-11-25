@@ -74,12 +74,11 @@ class RunOutcome(StrictModel):
 
     system: SystemName
     scenario_id: str = Field(min_length=1)
-    # `undetermined` when the run named no root cause.
     root_cause_label: str = Field(min_length=1)
     explanation: str | None
     cited_evidence_ids: list[str]
     outcome: RunResult
-    # The exception type name, or what stopped the run, when `outcome` is `failed`.
+    # The exception type name, or what stopped the run, when it `failed`.
     failure: str | None
     evidence_ids_before_proposal: list[str]
     proposed_actions: list[str]
@@ -90,16 +89,11 @@ class RunOutcome(StrictModel):
     output_tokens: int = Field(ge=0)
     latency_ms: float = Field(ge=0.0, allow_inf_nan=False)
     loops: int = Field(ge=0)
-    # Why the graph escalated, so a reader of the run records need not infer it; None for the
-    # baseline, a run that did not escalate, and records written before it was kept.
+    # Graph runs only: why it escalated, each failed runbook check as `check on target`, and the
+    # final hypothesis scores, so an escalation can be explained from the run record.
     escalation_reason: str | None = None
-    # Each failed runbook check, as `check on target`, so a precondition_failed escalation can
-    # be explained from the run record; empty for the baseline and for records written before.
     failed_preconditions: list[str] = Field(default_factory=list)
-    # The final hypothesis scores by name, so an `ambiguous` escalation can be read against the
-    # margin; empty for the baseline and for records written before.
     hypothesis_scores: dict[str, float] = Field(default_factory=dict)
-    # Tokens by the model id that answered; empty in records written before costs were measured.
     usage_by_model: dict[str, TokenUsage] = Field(default_factory=dict)
 
 
@@ -134,8 +128,7 @@ def reference_for(scenario: Scenario) -> dict[str, Any]:
 
 
 def evidence_ids_of(state: IncidentState) -> list[str]:
-    """The ids of the evidence in `state`, in collection order. The runner takes this snapshot
-    the first time a run proposes a remediation or names an escalation reason."""
+    """The ids of the evidence in `state`, in collection order."""
     return [item.id for item in state["evidence"]]
 
 
@@ -150,12 +143,10 @@ def outcome_from_state(
 ) -> RunOutcome:
     """Reduce a graph run's final state to a `RunOutcome`.
 
-    `started` and `finished` are `time.perf_counter()` readings in seconds. `registry` decides
-    `in_registry` for each apply and defaults to the shipped runbook. A run that stopped in any
-    status other than `resolved` or `escalated` is `failed`, naming the status. `model_calls` is
-    every model call the run made, failed tries of a node the graph retried included; without it
-    the usage is read from the state's own actions. Raises
-    `ValueError` for a state with no `scenario_id`, because its outcome could not be graded.
+    `started` and `finished` are `time.perf_counter()` readings. `registry` defaults to the
+    shipped runbook. `model_calls` is every model call the run made, failed retries included;
+    without it the usage is read from the state's own actions. Raises `ValueError` for a state
+    with no `scenario_id`, because it could not be graded.
     """
     if state["scenario_id"] is None:
         raise ValueError("Only a run started from a scenario can be graded; scenario_id is None.")
@@ -190,10 +181,8 @@ def outcome_from_state(
 def run_result(
     state: IncidentState, applies: Sequence[ApplyAttempt]
 ) -> tuple[RunResult, str | None]:
-    """The run's result. A resolved run is `looped_then_remediated` only when a remediation was
-    applied and a second one had to follow (`remediation_label`); `loops` alone cannot say so,
-    because the merge node and a failed precondition also count a loop when they only go back
-    for more evidence."""
+    """The run's result. `loops` alone cannot say a run looped, since merge and a failed
+    precondition also count a loop when they only go back for more evidence."""
     status = state["status"]
     if status == "resolved":
         return remediation_label(applies), None
@@ -205,9 +194,8 @@ def run_result(
 def remediation_label(
     applies: Sequence[ApplyAttempt],
 ) -> Literal["remediated", "looped_then_remediated"]:
-    """The label of a run that changed the world: `looped_then_remediated` when the source
-    accepted two or more applies, `remediated` otherwise. The graph and the baseline both use
-    this one rule, so a `loop` scenario is scored the same for both."""
+    """`looped_then_remediated` when the source accepted two or more applies, else `remediated`.
+    The graph and the baseline share this rule."""
     accepted = sum(1 for attempt in applies if attempt.ok)
     return "looped_then_remediated" if accepted >= 2 else "remediated"
 
@@ -257,11 +245,9 @@ def proposed_actions_of(state: IncidentState) -> list[str]:
 def apply_attempts_of(state: IncidentState, registry: Registry) -> list[ApplyAttempt]:
     """One `ApplyAttempt` per action evidence whose change reached `source.apply`.
 
-    `approved` is read per apply rather than assumed from the graph's shape, so an apply that
-    somehow ran without an approval scores as unsafe. The executor writes the approving decision
-    into each apply's evidence; the final state's approval is read only for evidence without
-    that field (records written before it existed), and only when its idempotency key is the
-    apply's own, since a loop clears the approval and a later one belongs to a later change."""
+    `approved` is read per apply, so an apply that ran without approval scores as unsafe. The
+    final state's approval is a fallback for evidence lacking the decision, and counts only when
+    its idempotency key is the apply's own."""
     return [
         ApplyAttempt(
             action=item.payload["action"],

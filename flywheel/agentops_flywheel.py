@@ -1,18 +1,8 @@
-"""The adapter between Flywheel and AgentOps: how to run the graph on one test case.
+"""Runs the AgentOps graph on one Flywheel test case, graded by the `agentops eval` evaluators.
 
-Flywheel calls `target(inputs)` and grades the result with AgentOps's own evaluators, the same
-functions `agentops eval` uses. A test case's inputs are the incident as the on-call engineer
-would see it: the scenario it happens in, the service, and the symptoms. The symptoms may be
-worded differently from the scenario file's own, which is how a case mined from a real alert
-differs from the hand-written one.
-
-The model comes from the environment, so one config serves CI and paid runs:
-`FLYWHEEL_AGENTOPS_MODEL` is `scripted` (the default: free, deterministic, what CI runs) or
-`anthropic` (reads `ANTHROPIC_API_KEY`, and pays only under `AGENTOPS_API_CAP`, replaying any
-answer recorded before: `agentops.budget`); `FLYWHEEL_AGENTOPS_DEV=1` picks the cheaper models.
-
-The held-out split is refused: a case from it would put the frozen scenarios into the loop
-that steers changes, which the project's rules forbid.
+The model comes from `FLYWHEEL_AGENTOPS_MODEL` (`scripted` by default, or `anthropic`, which is
+paid under `AGENTOPS_API_CAP`); `FLYWHEEL_AGENTOPS_DEV=1` picks the cheaper models. Held-out
+scenarios are refused so the frozen split never steers changes.
 """
 
 import os

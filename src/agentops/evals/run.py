@@ -1,22 +1,12 @@
 """Run the graph and the ReAct baseline over a split, grade every run, and render the results.
 
-Every run is self-contained so a measurement writes nothing under the working directory: a
-simulator with an in-memory ledger, the audit log and the SQLite checkpoints in a temporary
-directory removed after the run, and an automatic approval by the role `operator`. The
-checkpointer is the same `SqliteSaver` the command line uses, because no module under `src/`
-may use LangGraph's in-memory saver (`tests/test_full_runs.py`). A run that raises is a
-`failed` row naming the exception type, never a crash: the measurement completed and the
-failure is part of the result.
+A measurement writes nothing under the working directory: the simulator ledger is in memory, the
+audit log and checkpoints live in a temporary directory, and every approval is automatic (role
+`operator`). A run that raises is a `failed` row naming the exception type, not a crash.
 
-Models come from a `ModelFactory`: the scripted fakes by default, or the live models. Every row
-carries the tokens each model answered with, so the table prints a measured cost; with the live
-models the judge also scores each graph run, and its cost is printed apart.
-
-Each run, with its judge call, is one repetition to the spend ladder (`agentops.budget`): its
-answers are recorded under its repetition, so a rerun replays repetition r's answers for
-repetition r, and each row keeps what the run billed and how many calls a recording answered.
-A refused paid call or a replay miss is not a failed row: the measurement could not be made,
-so it stops the split.
+Each run, with its judge call, is one repetition to the spend ladder (`agentops.budget`), so a
+rerun replays that repetition's recorded answers. A refused paid call or a replay miss is not a
+failed row: the measurement could not be made, so it stops the split.
 """
 
 import json
@@ -27,7 +17,7 @@ import time
 import traceback
 from collections.abc import Callable, Sequence
 from contextlib import closing
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, get_args
 
@@ -67,9 +57,8 @@ SYSTEMS: tuple[SystemName, ...] = get_args(SystemName)
 RECURSION_LIMIT = 60
 CHECKPOINT_FILE = "checkpoints.sqlite"
 AUTO_APPROVAL = {"decision": "approve", "operator": "operator"}
-# A scenario that loops needs one approval per action; a run still paused after this many is a
-# failed row (`evidence_ids_at_proposal` raises).
 FAILURE_MESSAGE_MAX_LENGTH = 200
+# A scenario that loops needs one approval per action; a run still paused after this many fails.
 MAX_APPROVALS = 5
 PASS_FAIL_EVALUATORS = (
     "root_cause_accuracy",
@@ -83,8 +72,6 @@ FROZEN_WARNING = (
     "Frozen split: score it only when a version is frozen, and never change the system to "
     "improve these numbers."
 )
-# A refused paid call or a replay miss: the run could not be measured at all, so it stops the
-# split.
 SPEND_STOPS = spend.STOPS
 
 
@@ -97,11 +84,8 @@ class EvalRow:
     repetition: int
     outcome: RunOutcome
     evaluators: dict[str, EvaluatorResult]
-    # The judge's own model call, priced apart from the run; None when the judge did not call.
-    judge_call: Action | None = field(default=None)
-    # What the run and its judge call billed and how many calls a recording answered
-    # (`flywheel.spend.Meter.summary`); None when no call went through the spend ladder.
-    api: dict[str, Any] | None = field(default=None)
+    judge_call: Action | None = None  # priced apart from the run
+    api: dict[str, Any] | None = None  # what the run billed (`spend.Meter.summary`)
 
 
 def run_split(
@@ -114,12 +98,11 @@ def run_split(
     report: Callable[[str], None] = lambda text: None,
     models: ModelFactory | None = None,
 ) -> list[EvalRow]:
-    """Each system over each scenario, `repetitions` times, graded by the seven evaluators and,
-    when `models` runs a judge, the judge on every graph run. `models` defaults to the scripted
-    fakes.
+    """Each system over each scenario, `repetitions` times, graded by the evaluators and, when
+    `models` runs a judge, the judge on every graph run.
 
-    `report` receives one summary line for every run, or judge call, that raised. Raises
-    `SpendRefused` or `ReplayMiss` when the spend ladder stops a call (`SPEND_STOPS`)."""
+    `report` receives one line for every run or judge call that raised. Raises `SpendRefused` or
+    `ReplayMiss` when the spend ladder stops a call."""
     models = models or ScriptedModels()
     rows: list[EvalRow] = []
     for system in systems:
@@ -177,9 +160,8 @@ def run_graph_once(
     models: ModelFactory | None = None,
     model_calls: Sequence[Action] = (),
 ) -> RunOutcome:
-    """One graph run to its end, approving every pause, reduced to a `RunOutcome`.
-    `model_calls` is the ledger of the run's model calls, so tries the graph retried are
-    priced. `models` defaults to the scripted fakes."""
+    """One graph run to its end, approving every pause. `model_calls` is the ledger of the run's
+    model calls, so tries the graph retried are priced."""
     models = models or ScriptedModels()
     registry = default_registry()
     incident = new_incident(
@@ -220,22 +202,8 @@ def run_baseline_once(
     models: ModelFactory | None = None,
     model_calls: Sequence[Action] = (),
 ) -> RunOutcome:
-    """One baseline run over a fresh simulator, reduced to a `RunOutcome`. The baseline's
-    usage comes from its own replies, not the ledger. `models` defaults to the scripted fakes."""
-    models = models or ScriptedModels()
-    started = time.perf_counter()
-    # Wrapped as one runnable so that, when tracing is on, the trace carries the run name and
-    # tags of `config` and the agent's own runs nest under it.
-    baseline = RunnableLambda(
-        lambda _: run_baseline(
-            scenario,
-            models.baseline_model(scenario),
-            incident_id=f"eval-{scenario.id}",
-            middleware=models.baseline_middleware(),
-        )
-    )
-    run: BaselineRun = baseline.invoke(None, config)
-    return outcome_from_baseline(run, started, time.perf_counter())
+    """One baseline run over a fresh simulator; its usage comes from its own replies."""
+    return run_baseline_system(scenario, config, models or ScriptedModels(), "baseline")
 
 
 def run_hitl_once(
@@ -245,22 +213,27 @@ def run_hitl_once(
     models: ModelFactory | None = None,
     model_calls: Sequence[Action] = (),
 ) -> RunOutcome:
-    """One run of the baseline with `HumanInTheLoopMiddleware` on its apply tool, approving
-    every pause as the graph's runs do, reduced to a `RunOutcome`. Same model and prompt as the
-    baseline. `models` defaults to the scripted fakes."""
-    models = models or ScriptedModels()
+    """The baseline with `HumanInTheLoopMiddleware` on its apply tool, approving every pause."""
+    return run_baseline_system(scenario, config, models or ScriptedModels(), "hitl")
+
+
+def run_baseline_system(
+    scenario: Scenario, config: RunnableConfig, models: ModelFactory, system: SystemName
+) -> RunOutcome:
+    """Run the baseline agent, with human approval for `hitl`, reduced to a `RunOutcome`."""
     started = time.perf_counter()
-    hitl = RunnableLambda(
+    # One runnable, so a trace carries the run name and tags of `config`.
+    baseline = RunnableLambda(
         lambda _: run_baseline(
             scenario,
             models.baseline_model(scenario),
             incident_id=f"eval-{scenario.id}",
             middleware=models.baseline_middleware(),
-            human_approval=True,
+            human_approval=system == "hitl",
         )
     )
-    run: BaselineRun = hitl.invoke(None, config)
-    return outcome_from_baseline(run, started, time.perf_counter(), system="hitl")
+    run: BaselineRun = baseline.invoke(None, config)
+    return outcome_from_baseline(run, started, time.perf_counter(), system=system)
 
 
 RUNNERS: dict[SystemName, Callable[..., RunOutcome]] = {
@@ -277,9 +250,7 @@ def measured_run(
     report: Callable[[str], None] = lambda text: None,
     models: ModelFactory | None = None,
 ) -> RunOutcome:
-    """One run that never raises but for `SPEND_STOPS`: a run that fails is a `failed` outcome
-    that still carries the tokens its model calls used, so a failed live run's spend is not
-    lost."""
+    """One run that never raises but for `SPEND_STOPS`; a failed run keeps the tokens it used."""
     models = models or ScriptedModels()
     started = time.perf_counter()
     with model_call_ledger() as calls:
@@ -294,8 +265,8 @@ def measured_run(
 
 
 def failure_summary(system: SystemName, scenario_id: str, error: Exception) -> str:
-    """One line for the operator: the run, the exception type and message, and where it was
-    raised. The table keeps only the type name; this is what lets someone find the cause."""
+    """One line naming the run, the exception and where it was raised; the table keeps only the
+    type name."""
     message = str(error)[:FAILURE_MESSAGE_MAX_LENGTH]
     frames = traceback.extract_tb(error.__traceback__)
     where = f" at {frames[-1].filename}:{frames[-1].lineno} in {frames[-1].name}" if frames else ""
@@ -339,9 +310,7 @@ def render_header(
 
 
 def render_table(rows: Sequence[EvalRow]) -> list[str]:
-    """One line per system (runs, pass counts, the judge's pass count when it ran, tool-call,
-    latency, token and cost spreads), the judge's own cost when it ran, then every failing
-    (system, scenario, repetition, evaluator) and every run that failed outright."""
+    """One line per system, the judge's own cost when it ran, then every failure."""
     judged = any(JUDGE_KEY in row.evaluators for row in rows)
     headings = [
         "system",
@@ -367,8 +336,7 @@ def render_table(rows: Sequence[EvalRow]) -> list[str]:
 
 
 def rows_as_json(rows: Sequence[EvalRow]) -> str:
-    """One object per run: system, scenario, repetition, the `RunOutcome`, every result and
-    what the run billed through the spend ladder."""
+    """One object per run."""
     return json.dumps(
         [
             {
@@ -392,12 +360,11 @@ def rows_as_json(rows: Sequence[EvalRow]) -> str:
 def evidence_ids_at_proposal(
     graph: CompiledStateGraph, incident: IncidentState, config: RunnableConfig
 ) -> list[str]:
-    """Runs the graph to its end, approving each pause, and returns the evidence ids held the
-    first time the run proposed a remediation or named an escalation reason.
+    """Run the graph to its end, approving each pause, and return the evidence ids held when the
+    run first proposed a remediation or escalated.
 
-    Raises `RuntimeError` when the run is still paused after `MAX_APPROVALS` approvals, or ended
-    without proposing or escalating: the ids of a run that never decided say nothing about
-    evidence sufficiency, so the run must become a failed row, not a quietly wrong one."""
+    Raises `RuntimeError` when the run never decides: its ids say nothing about evidence
+    sufficiency, so it must become a failed row."""
     captured: list[str] | None = None
     value: Any = incident
     for _ in range(MAX_APPROVALS + 1):
@@ -522,8 +489,8 @@ def judge_cell(runs: Sequence[EvalRow]) -> str:
 
 
 def cost_cell(costs: Sequence[float | Unpriced]) -> str:
-    """Dollars mean/min/max with two decimals, or `n/a (unpriced: <id>)` when any run's model
-    is not in the price table: never a partial figure."""
+    """Dollars mean/min/max, or `n/a (unpriced: <id>)` when any model is unpriced: never a
+    partial figure."""
     unpriced = next((cost for cost in costs if isinstance(cost, Unpriced)), None)
     if unpriced is not None:
         return f"n/a (unpriced: {unpriced.model_id})"
@@ -532,8 +499,7 @@ def cost_cell(costs: Sequence[float | Unpriced]) -> str:
 
 
 def judge_cost_lines(rows: Sequence[EvalRow]) -> list[str]:
-    """The judge's cost on its own line, apart from the systems' cost; nothing when it never
-    called."""
+    """The judge's cost, apart from the systems'; nothing when it never called."""
     calls = [row.judge_call for row in rows if row.judge_call is not None]
     if not calls:
         return []

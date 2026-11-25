@@ -4,7 +4,7 @@ It first checks that the approval in state is the one the approval node recorded
 log, and refuses otherwise, so a state written from outside the graph cannot skip the interrupt.
 
 The thread id and the demo crash switch come only from the run's `configurable` dict, never
-from an environment variable (spec R12, R19).
+from an environment variable.
 """
 
 from typing import Any
@@ -20,7 +20,7 @@ from agentops.nodes.router import route_to_sources
 from agentops.sources.base import EvidenceSource
 from agentops.state import IncidentState
 
-# An unknown effect is verified too: the signals decide whether the change took (spec R2).
+# An unknown effect is verified too: the signals decide whether the change took.
 VERIFIABLE_RESULTS = ("applied", "already_applied", "apply_unknown")
 
 
@@ -81,7 +81,7 @@ def next_step_fields(state: IncidentState, outcome: executor.ExecutionOutcome) -
     if failed_before(state, outcome):
         return {"status": "remediating", "escalation_reason": "precondition_failed"}
     # A first failed precondition: the proposal is spent and the investigation goes round again
-    # with the failure as new evidence (brief D17).
+    # with the failure as new evidence.
     return {
         "status": "investigating",
         "approval": None,

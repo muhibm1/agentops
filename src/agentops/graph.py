@@ -11,7 +11,7 @@ with a checkpointer. `build_state_graph` returns the same graph uncompiled.
 
 The model only fills the belief fields; every edge, retry and budget decision is code. `execute`
 is reachable only from `approval`, and the graph cannot be built without a checkpointer, because
-`approval` pauses the run with `interrupt()` (spec R12, R14).
+`approval` pauses the run with `interrupt()`.
 """
 
 from collections.abc import Mapping

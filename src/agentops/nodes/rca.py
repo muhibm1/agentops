@@ -1,8 +1,7 @@
 """The rca node: re-scores the triage hypotheses and, when one cause stands out, names it with one
-remediation. The graph, not the model, decides whether the result is clear enough to act on: an
+remediation. The graph, not the model, decides whether that is clear enough to act on: an
 ambiguous result, an open hypothesis only an unreachable source could settle, or an action the
-runbook does not declare, escalates. Every remediation the model proposes is written to the audit
-log as a `proposal` record."""
+runbook does not declare, escalates. Every proposal is written to the audit log."""
 
 import json
 from collections.abc import Sequence
@@ -41,8 +40,7 @@ from agentops.state import (
     cause_catalogue,
 )
 
-# The two best hypotheses must differ by at least this much, or the cause is ambiguous
-# (increment-2 ADR 0002).
+# The two best hypotheses must differ by at least this much, or the cause is ambiguous.
 AMBIGUITY_MARGIN = 0.15
 
 RCA_INSTRUCTIONS = (
@@ -67,14 +65,8 @@ RCA_INSTRUCTIONS = (
 
 
 def rca_stable_instructions() -> str:
-    """The rca instructions and the untrusted-data rule: the cached system block,
-    the same for every prompt."""
+    """The cached system block, the same for every prompt."""
     return f"{RCA_INSTRUCTIONS}{UNTRUSTED_DATA_RULE}"
-
-
-def rca_system_prompt(nonce: str) -> str:
-    """The rca instructions plus the description of this prompt's evidence fence."""
-    return f"{rca_stable_instructions()} {fence_rule(nonce)}"
 
 
 class RcaConsistencyError(CitationError):
@@ -94,12 +86,10 @@ def rca(
 ) -> dict[str, Any]:
     """Ask the model to re-score the hypotheses and propose a cause and remediation.
 
-    Raises `CitationError` if any cited id is not in state, `RcaConsistencyError` if the names
-    differ from triage or the label is not the top-scored name, and ValueError when the run's
-    `configurable` has no thread id. When the result is ambiguous, has no cause, or leaves open a
-    hypothesis only an unreachable source could settle, `root_cause` and `remediation` are
-    written as None and the reason is written for escalate. A proposal naming an action outside
-    the runbook is kept in state, so escalate can name it, with the reason `action_not_allowed`.
+    Raises `CitationError` for a cited id not in state, `RcaConsistencyError` when the names
+    differ from triage or the label is not the top-scored name, and ValueError without a thread
+    id. An ambiguous or unsettled result writes no cause or remediation, only the reason for
+    escalate; a proposal outside the runbook is kept so escalate can name it.
     """
     thread_id = run_thread_id(config, "rca")
     nonce = new_fence_nonce()
@@ -140,8 +130,7 @@ def outcome_fields(
             "root_cause": None,
             "remediation": None,
             "status": "investigating",
-            # Written here so escalate does not have to guess later from a budget that may also be
-            # spent.
+            # Written here so escalate need not guess later from a budget that may also be spent.
             "escalation_reason": stop_reason,
         }
     if not is_allowed(result.remediation, registry):
@@ -159,10 +148,9 @@ def outcome_fields(
 
 
 def is_allowed(remediation: Remediation | None, registry: Registry) -> bool:
-    """True when the remediation names an action the runbook declares (spec R13) and its target
-    and parameters fit that action. Checked here as well as at execute, so an operator is never
-    asked to approve a proposal execute would refuse: the 2026-10-12 three-repetition run
-    approved `circuit_break_dependency` six times and execute refused it every time."""
+    """True when the remediation names a runbook action and its target and parameters fit it.
+    Checked here as well as at execute, so an operator is never asked to approve a proposal
+    execute would refuse."""
     if remediation is None or not registry.has(remediation.action):
         return False
     try:
@@ -197,11 +185,10 @@ def check_citations(output: RcaOutput, evidence: list[Evidence]) -> None:
 
 
 def check_consistent_with_triage(output: RcaOutput, state: IncidentState) -> None:
-    """Raise `RcaConsistencyError` unless the re-scored names keep every triage name, each listed
-    once, any added name is a catalogue label citing supporting evidence, and the root cause
-    label, when present, is a highest-scored name. Added names are allowed because triage names
-    hypotheses from the symptoms alone: on the 2026-10-12 live runs the real cause of two
-    scenarios was never on the list, so no amount of evidence could make rca name it."""
+    """Raise `RcaConsistencyError` unless the re-scored names keep every triage name once, any
+    added name is a catalogue label citing supporting evidence, and the root cause label is a
+    highest-scored name. Added names are allowed because triage sees the symptoms alone and may
+    never have listed the real cause."""
     triage_names = {item.name for item in state["hypotheses"]}
     names = [item.name for item in output.hypotheses]
     repeated = sorted({name for name in names if names.count(name) > 1})
@@ -251,7 +238,7 @@ def awaits_an_unreachable_source(
     hypotheses: Sequence[Hypothesis], unreachable_sources: Sequence[str]
 ) -> bool:
     """True when a hypothesis is still open and every source that could settle it is
-    unreachable, so the evidence cannot rule it out (spec R2, ADR 0004)."""
+    unreachable, so the evidence cannot rule it out."""
     return any(
         item.score >= OPEN_HYPOTHESIS_MIN_SCORE
         and all(source in unreachable_sources for source in deciding_sources(item.name))
@@ -272,9 +259,7 @@ def reason_to_stop_after_rca(
 
 
 def after_rca(state: IncidentState) -> str:
-    """The edge after rca: `escalate` when rca wrote a reason (an action outside the runbook
-    among them), there is no root cause, the scores are ambiguous or an open hypothesis waits on
-    an unreachable source; otherwise `approval`."""
+    """The edge after rca: `escalate` when there is a reason to stop, else `approval`."""
     if state["escalation_reason"] is not None:
         return "escalate"
     stop_reason = reason_to_stop_after_rca(
@@ -284,9 +269,8 @@ def after_rca(state: IncidentState) -> str:
 
 
 def rca_human_prompt(state: IncidentState, nonce: str, registry: Registry | None = None) -> str:
-    """The service, symptoms, hypotheses, the runbook's actions when `registry` is given, what is
-    known about sources and actions, then the fenced evidence. The context lines about sources and
-    actions appear only when they have something to say."""
+    """The service, symptoms, hypotheses, the runbook's actions when `registry` is given, any
+    unreachable sources and applied actions, then the fenced evidence."""
     symptoms = "\n".join(f"- {neutralise_delimiters(symptom)}" for symptom in state["symptoms"])
     triage_names = ", ".join(neutralise_delimiters(item.name) for item in state["hypotheses"])
     lines = [
@@ -295,8 +279,7 @@ def rca_human_prompt(state: IncidentState, nonce: str, registry: Registry | None
         f"Hypotheses to re-score: {triage_names}",
     ]
     if registry is not None:
-        # Without it the live run on 2026-10-12 found the right cause in clean_bad_deploy and
-        # proposed `rollback_deployment`, which the runbook does not declare, so it escalated.
+        # Without it a model proposes actions the runbook does not declare.
         lines.append(describe_actions(registry))
     if state["unreachable_sources"]:
         lines.append(f"Unreachable sources: {', '.join(state['unreachable_sources'])}")
@@ -310,8 +293,7 @@ def rca_human_prompt(state: IncidentState, nonce: str, registry: Registry | None
 
 
 def applied_action_names(evidence: Sequence[Evidence]) -> list[str]:
-    """The distinct action names of the evidence items of kind `action` that record a change in
-    effect, in the order they were applied."""
+    """The distinct names of actions recorded as in effect, in the order applied."""
     names = [
         action_name(item)
         for item in evidence
@@ -321,8 +303,8 @@ def applied_action_names(evidence: Sequence[Evidence]) -> list[str]:
 
 
 def possibly_applied_action_names(evidence: Sequence[Evidence]) -> list[str]:
-    """The distinct action names whose apply raised (`effect` is `unknown`) and that no evidence
-    records as applied: the change may be in effect, and rca must not assume either way."""
+    """Names of actions whose apply raised and that no evidence records as applied: rca must not
+    assume either way."""
     applied = set(applied_action_names(evidence))
     names = [
         action_name(item)

@@ -19,10 +19,9 @@ TARGET_MAX_LENGTH = 64
 INITIAL_INVESTIGATION_BUDGET = 12
 # Caps on model free text that is printed and re-sent in later prompts.
 HYPOTHESIS_NAME_MAX_LENGTH = 80
-# The shared root-cause catalogue (owner's decision, 2026-10-12). Root-cause accuracy is an exact
-# match against a scenario's ground truth, so triage and the baseline are shown this list and every
-# scenario labels its causes from it. Generic incident categories, not scenario answers: it holds
-# causes no scenario uses so the list itself gives nothing away.
+# The shared root-cause catalogue. Root-cause accuracy is an exact match against a scenario's
+# ground truth, so triage and the baseline are shown this list. It holds generic categories,
+# including some no scenario uses, so the list gives nothing away.
 CAUSE_LABELS: tuple[str, ...] = (
     "recent_deploy_regression",
     "config_change",
@@ -40,9 +39,8 @@ CAUSE_LABELS: tuple[str, ...] = (
     "schema_drift",
     "ingestion_job_failure",
 )
-# One generic sentence per label, so a model reading the catalogue tells apart neighbours such
-# as a job that failed and a job that ran before its input arrived. The definitions describe
-# categories, not any scenario's evidence.
+# One generic sentence per label, so a model can tell apart neighbours such as a job that failed
+# and a job that ran before its input arrived.
 CAUSE_LABEL_DEFINITIONS: dict[str, str] = {
     "recent_deploy_regression": "a recent deploy changed behaviour and the symptoms follow it",
     "config_change": "a configuration change, not a code deploy, changed behaviour",
@@ -78,8 +76,7 @@ IncidentStatus = Literal[
     "escalated",
     "failed",
 ]
-# `action` is an apply outcome, `precondition` a failed runbook check and `operator` the reason
-# an operator gave for rejecting a proposal.
+# `action` is an apply outcome, `precondition` a failed runbook check, `operator` a reject reason.
 EvidenceKind = Literal[
     "log", "metric", "deployment", "dependency", "config", "action", "precondition", "operator"
 ]
@@ -104,8 +101,7 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# In the JSON schema the model answers to: the live run on 2026-10-12 filled these lists with
-# sentences describing the symptoms.
+# Spelled out because a live model filled these lists with sentences about the symptoms.
 EVIDENCE_IDS_DESCRIPTION = (
     "Ids of evidence items shown to you, such as log-003 or metric-error_rate. Never free text."
 )
@@ -164,8 +160,7 @@ PARAMETER_PAIRS_SCHEMA: dict[str, Any] = {
 
 
 def parameters_from_pairs(value: Any) -> Any:
-    """A list of `{name, value}` pairs as a mapping; anything else unchanged for the dict check.
-    A repeated name is refused rather than silently keeping one value."""
+    """A list of `{name, value}` pairs as a mapping; anything else is left for the dict check."""
     if not isinstance(value, list):
         return value
     params: dict[str, Any] = {}
@@ -178,11 +173,9 @@ def parameters_from_pairs(value: Any) -> Any:
     return params
 
 
-# A mapping in Python, in state and in every file; a list of name and value pairs in the JSON
-# schema a model answers to. Anthropic's structured output closes every object schema, so an
-# open mapping reached the model as an object that may hold no keys at all: the live runs of
-# 2026-10-12 proposed `circuit_break_dependency` and `rerun_partition` with no parameters every
-# time, and the runbook refused both (confirmed with `anthropic.transform_schema`).
+# A mapping in Python and in state; a list of name and value pairs in the JSON schema a model
+# answers to, because structured output closes every object schema and an open mapping reached
+# the model as an object that may hold no keys.
 RemediationParams = Annotated[
     dict[str, ParamValue],
     BeforeValidator(parameters_from_pairs),
@@ -263,11 +256,10 @@ ApprovalChoice = Literal["approve", "reject", "edit"]
 
 class Approval(StrictModel):
     decision: ApprovalChoice
-    # A role, never a person's name, username or email (compliance control 1, brief D10).
-    operator: OperatorRole
+    operator: OperatorRole  # a role, never a name or email
     edited_remediation: Remediation | None = None
     decided_at: datetime
-    # The key of the remediation the operator saw; the executor refuses any other (brief D22).
+    # The key of the remediation the operator saw; the executor refuses any other.
     idempotency_key: str = Field(min_length=1)
 
 
@@ -279,11 +271,10 @@ class ApprovalDecision(StrictModel):
     """
 
     decision: ApprovalChoice
-    # Free text: describe the evidence, not people (a name here is the profile's GDPR trigger).
+    # Free text: describe the evidence, not people.
     reason: str | None = Field(default=None, max_length=APPROVAL_REASON_MAX_LENGTH)
     remediation: Remediation | None = None
-    # A role, never a person's name, username or email (compliance control 1).
-    operator: OperatorRole = "operator"
+    operator: OperatorRole = "operator"  # a role, never a name or email
 
     @model_validator(mode="after")
     def check_fields_fit_the_decision(self) -> Self:
@@ -300,10 +291,8 @@ class ExecutionRecord(StrictModel):
     idempotency_key: str = Field(min_length=1)
     action: str = Field(pattern=SNAKE_CASE_NAME)
     target: str = Field(pattern=TARGET_NAME, max_length=TARGET_MAX_LENGTH)
-    # True when the change is in effect: this execution applied it, or the key was already applied
-    # before (a repeat, or a run resumed after a crash). A refusal or a failure leaves it False.
-    # None when the source raised inside apply: the change may or may not be in effect, and
-    # verify decides from the signals (increment 4, R1).
+    # True when the change is in effect (applied now, or the key was applied before); False after a
+    # refusal or failure; None when the source raised inside apply and verify must decide.
     applied: bool | None
     applied_at: datetime | None = None
     result: str
@@ -336,7 +325,7 @@ class IncidentState(TypedDict):
     approval: Approval | None
     execution: ExecutionRecord | None
     escalation_reason: EscalationReason | None
-    # Evidence sources whose every recorded read attempt failed, written by merge (spec R2).
+    # Evidence sources whose every recorded read attempt failed, written by merge.
     unreachable_sources: list[str]
     # Why the last operator answer at the approval interrupt was refused, or None.
     approval_error: str | None
@@ -360,8 +349,7 @@ MODEL_OUTPUT_SCHEMAS: tuple[type[BaseModel], ...] = (Triage, RcaOutput, Postmort
 class CitationError(Exception):
     """A model output cited no evidence, or an id absent from the state's evidence.
 
-    Deliberately not a ValueError, so the graph's retry policy names it explicitly
-    (increment-1 ADR 0002).
+    Deliberately not a ValueError, so the graph's retry policy names it explicitly.
     """
 
 
